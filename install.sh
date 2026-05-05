@@ -235,6 +235,13 @@ source "$REPO_DIR/env.local"
 # --- Vérifier les prérequis ---
 _prepare_dependencies
 
+# --- Sync depuis upstream si disponible ---
+if git -C "$REPO_DIR" remote get-url upstream &>/dev/null; then
+  echo "${BOLD}${CYAN}Sync depuis upstream...${RESET}"
+  bash "$REPO_DIR/scripts/sync-upstream.sh" --force
+  echo "  ${GREEN}✓ upstream synced${RESET}"
+fi
+
 # --- Nettoyer les symlinks cassés dans ~/.claude ---
 echo "${BOLD}${CYAN}Configuration Claude...${RESET}"
 _step "Nettoyage des symlinks cassés..."
