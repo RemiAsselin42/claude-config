@@ -1,260 +1,261 @@
 # claude-config
 
-Configuration centralisée pour Claude Code : agents, commandes, scripts, vault Obsidian et mémoire persistante. Un seul dépôt à déployer sur chaque machine pour retrouver instantanément le même environnement.
+Shared Claude Code configuration: specialized agents, slash-commands, scripts, persistent memory (MemPalace), and token optimization (RTK). Clone once, install everywhere, stay in sync.
 
 > [!WARNING]
-> **Les scripts de ce dépôt modifient l'environnement système de la machine qui les exécute.**
+> **These scripts modify your system environment.**
 >
-> `install.sh` et les scripts utilitaires effectuent des opérations destructives et persistantes :
-> - **Écritures** dans `~/.claude/` (agents, commandes, hooks, scripts, settings, CLAUDE.md)
-> - **Installation de paquets** globaux (`graphify`, `mempalace`, `rtk`)
-> - **Modification du PATH** : `install.sh` peut ajouter `~/.local/bin` dans `~/.bashrc`, `~/.bash_profile` et `~/.profile`, après confirmation sauf en mode `-y`
-> - **Suppression de fichiers** (`graphify-out/`, wings mempalace, dossiers vault) via `exclude-from-index.sh`
-> - **Commits et push git** automatiques sur le vault
+> `install.sh` performs persistent, potentially destructive operations:
+> - **Writes** to `~/.claude/` (agents, commands, hooks, scripts, settings, CLAUDE.md)
+> - **Installs** global packages (`graphify`, `mempalace`, `rtk`)
+> - **Modifies PATH** — adds `~/.local/bin` to `~/.bashrc` / `~/.bash_profile` / `~/.profile` (with confirmation, or silently with `-y`)
+> - **Deletes files** (`graphify-out/`, mempalace wings, vault folders) via `exclude-from-index.sh`
+> - **Auto-commits** git repos (vault sync)
 >
-> Lire `install.sh` avant exécution. Ne pas utiliser sur une machine dont la config `~/.claude/` est déjà gérée par un autre workflow.
+> Read `install.sh` before running. Do not use on a machine whose `~/.claude/` is managed by another workflow.
 
-## Prérequis
+---
+
+## Public / Private model
+
+This repo is the **shared base**. It contains everything that is useful to anyone: agents, commands, scripts, settings templates. It does **not** contain personal data (no vault, no env secrets).
+
+For a personal setup with a versioned Obsidian vault and private overrides, fork or extend this repo privately:
+
+```
+claude-config (this repo, public)
+    └── upstream ── your-claude-config (private fork)
+                        ├── vault/          # personal Obsidian vault
+                        └── env.local       # machine-specific secrets
+```
+
+Your private repo stays in sync with this one automatically — see [Upstream sync](#upstream-sync).
+
+---
+
+## Prerequisites
 
 - [Node.js](https://nodejs.org)
-- `curl` pour l'installation automatique de [uv](https://astral.sh/uv) si absent
+- `curl` (for auto-installing [uv](https://astral.sh/uv) if missing)
 
-## Installation
+---
+
+## Quick start
 
 ```bash
-# 1. Copier le fichier de variables machine-specific
+git clone https://github.com/RemiAsselin42/claude-config ~/Documents/_Dev/claude-config
+cd ~/Documents/_Dev/claude-config
 cp env.local.template env.local
-# Remplir FIGMA_API_KEY dans env.local
-
-# 2. Lancer l'installation
+# Edit env.local with your machine-specific values
 bash install.sh
+```
 
-# Mode non-interactif (conserve l'état actuel de chaque repo)
+### Non-interactive (preserve current state per repo)
+
+```bash
 bash install.sh -y
+```
 
-# Debug : affiche les sorties détaillées des installateurs
+### Verbose (show detailed installer output)
+
+```bash
 bash install.sh -v
 ```
 
-L'installeur effectue, dans l'ordre :
+---
 
-1. Préparation des dépendances : vérifie **Node.js**, installe **uv** si absent, puis installe/vérifie **Graphify**, **MemPalace**, **chromadb** dans le Python courant, et **RTK**
-2. Demande une seule confirmation si `~/.local/bin` doit être ajouté au PATH persistant (`~/.bashrc`, `~/.bash_profile`, `~/.profile`) ; `-y` accepte automatiquement
-3. Copie des **agents**, **commandes** et **scripts** vers `~/.claude/`
-4. Génération de **`session-stop.sh`** avec le chemin absolu du repo (hook Stop)
-5. Initialisation de **MemPalace** avec reconstruction de l'index depuis les transcripts Claude
-6. Copie de **CLAUDE.md** global vers `~/.claude/CLAUDE.md`
-7. Restauration du **caveman mode** depuis `defaults/` si absent sur la machine, puis injection dans `CLAUDE.md`
-8. Génération de **`claude.json`** depuis le template (substitution `FIGMA_API_KEY`)
-9. Copie de **`settings.json`**
-10. Activation de **RTK** (`setup-rtk.sh`) — après CLAUDE.md et settings.json car `rtk init -g` peut les modifier
-11. Sélection interactive des repos git frères à indexer (graphify + mempalace + vault)
-12. Commit et push automatique du vault si des graphes ont été générés
+## What `install.sh` does
+
+1. Checks **Node.js**, installs **uv** if missing, then installs/upgrades **Graphify**, **MemPalace**, **chromadb**, and **RTK**
+2. Syncs from `upstream` remote if present (private repos get latest shared config automatically)
+3. Asks once to add `~/.local/bin` to persistent PATH (`-y` skips)
+4. Copies **agents**, **commands**, **scripts** to `~/.claude/`
+5. Generates **`session-stop.sh`** with the absolute repo path (Stop hook)
+6. Initializes **MemPalace** and rebuilds index from Claude transcripts
+7. Copies **CLAUDE.md** to `~/.claude/CLAUDE.md`
+8. Restores **caveman mode** from `defaults/` if not set on this machine
+9. Generates **`claude.json`** from template (substitutes `FIGMA_API_KEY`)
+10. Copies **`settings.json`**
+11. Activates **RTK** via `setup-rtk.sh`
+12. Interactively selects sibling git repos to index (graphify + mempalace + vault)
+13. Auto-commits vault if graphs were generated
+
+---
 
 ## Structure
 
 ```
 claude-config/
-├── install.sh              # Script d'installation principal
-├── env.local.template      # Variables machine-specific (FIGMA_API_KEY, etc.)
-├── CLAUDE.md               # Instructions globales pour Claude Code
-├── claude.json.template    # Config MCP (Figma, etc.) avec placeholder
-├── settings.json           # Permissions, hooks, niveau d'effort, serveurs MCP
+├── install.sh                   # Main installation script
+├── env.local.template           # Machine-specific variables (FIGMA_API_KEY, etc.)
+├── CLAUDE.md                    # Global instructions for Claude Code
+├── claude.json.template         # MCP config template (Figma, etc.)
+├── settings.json                # Permissions, hooks, effort level, MCP servers
 │
-├── agents/                 # Agents spécialisés (~/.claude/agents/)
-├── commands/               # Slash-commands (~/.claude/commands/)
-├── defaults/               # Valeurs par défaut restaurées sur nouvelle machine
-│   ├── caveman.enabled     # Présence = caveman activé par défaut
-│   └── caveman.level       # Niveau d'intensité par défaut (ex: full)
-├── hooks/                  # Hooks PreToolUse/Stop (~/.claude/hooks/)
-│   └── rtk-hook.sh         # Wrapper RTK : détecte l'absence de RTK/jq et propose l'installation
-├── scripts/                # Scripts utilitaires (~/.claude/scripts/)
-│   ├── repo-identity.sh         # Lib partagée : canonical_repo_name() + helpers PATH TOOL_BIN_DIR
-│   ├── caveman-toggle.sh        # Toggle caveman mode avec niveaux d'intensité
-│   ├── setup-rtk.sh             # Installe RTK (Windows: winget + wrapper bash ; Linux/macOS: brew/curl)
-│   ├── sync-graph-to-vault.sh   # Sync graphify → vault Obsidian
-│   └── exclude-from-index.sh   # Exclure un repo de graphify + mempalace
-├── templates/
-│   └── CLAUDE.project.md   # Template CLAUDE.md pour les repos sans config
-└── vault/                  # Vault Obsidian versionné
-    ├── Projets/            # Graphes Graphify par repo
-    ├── Décisions/          # Décisions techniques importantes
-    └── Patterns/           # Patterns récurrents et bonnes pratiques
+├── agents/                      # Specialized agents → ~/.claude/agents/
+├── commands/                    # Slash-commands → ~/.claude/commands/
+├── defaults/                    # Defaults restored on new machine
+│   ├── caveman.enabled          # Presence = caveman on by default
+│   └── caveman.level            # Default intensity level
+├── hooks/                       # PreToolUse/Stop hooks → ~/.claude/hooks/
+├── scripts/                     # Utility scripts → ~/.claude/scripts/
+│   ├── repo-identity.sh         # Shared lib: canonical_repo_name()
+│   ├── caveman-toggle.sh        # Toggle caveman mode
+│   ├── setup-rtk.sh             # Install RTK
+│   ├── sync-upstream.sh         # Sync shared files from upstream remote
+│   ├── sync-graph-to-vault.sh   # Sync Graphify → Obsidian vault
+│   └── exclude-from-index.sh    # Remove a repo from graphify + mempalace
+└── templates/
+    └── CLAUDE.project.md        # CLAUDE.md template for repos without one
 ```
 
-## Scripts utilitaires
+---
 
-### `scripts/sync-graph-to-vault.sh`
+## Upstream sync
 
-Copie les artefacts Graphify du repo courant vers le vault Obsidian. Appelé automatiquement après chaque `graphify update` (hook post-commit) et à la fin de `install.sh`.
+`scripts/sync-upstream.sh` pulls shared files from the `upstream` remote into your private repo, without touching personal files (`vault/`, `env.local`, `.claude/`).
 
-Artefacts copiés vers `vault/Projets/<repo-name>/`, où `<repo-name>` vient du remote Git `origin` quand il existe, puis du nom de dossier local en fallback :
-- `<repo-name> - GRAPH_REPORT.md` — rapport d'analyse du graphe
-- `<repo-name> - FILE_TREE.md` — arborescence du projet
-- `<repo-name>.canvas` — canvas Obsidian (si Python disponible)
+**Automatic** — runs once per 8 hours via `PreToolUse` hook (debounced by timestamp).  
+**Forced** — runs unconditionally at the start of every `install.sh`.
+
+### Setting up a private repo
 
 ```bash
-# Depuis la racine d'un repo graphifié
-bash ~/.claude/scripts/sync-graph-to-vault.sh
+# Clone the public repo as your private base
+git clone https://github.com/RemiAsselin42/claude-config my-claude-config
+cd my-claude-config
+
+# Point origin to your private repo, keep public as upstream
+git remote rename origin upstream
+git remote add origin https://github.com/<you>/my-claude-config
+git push -u origin main
 ```
 
-### `scripts/exclude-from-index.sh`
+From then on, `install.sh` and the `PreToolUse` hook keep your private repo in sync with this one.
 
-Exclut un ou plusieurs repos de l'indexation graphify + mempalace + vault.
+---
 
-```bash
-# Interactif
-bash ~/.claude/scripts/exclude-from-index.sh /chemin/vers/repo
+## Agents
 
-# Non-interactif (supprime graphify-out/ et le vault sans confirmation)
-bash ~/.claude/scripts/exclude-from-index.sh --yes /chemin/vers/repo
-```
-
-Actions réalisées :
-1. Désinstalle les hooks graphify
-2. Crée un `.graphifyignore` à la racine du repo
-3. Supprime `graphify-out/` (avec confirmation sauf `--yes`)
-4. Supprime le wing mempalace via chromadb (fallback `uv run --with chromadb` si chromadb absent du Python courant)
-5. Supprime le dossier vault Obsidian nommé d'après le remote `origin` (avec confirmation sauf `--yes`)
-6. Supprime l'éventuel dossier vault legacy (nom de dossier local) si différent du nom canonique (avec confirmation sauf `--yes`)
-
-## Caveman Mode
-
-Mode de réponse minimaliste persistant entre sessions. Contrôlé via `/caveman` ou directement :
-
-```bash
-bash ~/.claude/scripts/caveman-toggle.sh [on|off|toggle|inject|status] [niveau]
-```
-
-Niveaux disponibles :
-
-| Niveau | Description |
+| Agent | Role |
 |---|---|
-| `lite` | Supprime le remplissage et les formules de politesse, garde la grammaire complète |
-| `full` | Réponses terse, fragments acceptés (défaut) |
-| `ultra` | Compression maximale, abréviations, flèches pour la causalité |
-| `wenyan-lite` | Registre semi-classique, ton littéraire |
-| `wenyan-full` | Mode 文言文, terseness classique maximale |
-| `wenyan-ultra` | Compression extrême, style lettre classique |
+| `architect-reviewer` | System design and architecture review |
+| `backend-developer` | Backend APIs and services |
+| `code-reviewer` | Code quality and security review |
+| `documentation-engineer` | Technical documentation |
+| `frontend-developer` | Frontend applications (React, Vue, Angular) |
+| `javascript-pro` | Advanced JavaScript / Node.js |
+| `payment-integration` | Payment systems and PCI compliance |
+| `react-performance-optimizer` | React performance and Core Web Vitals |
+| `security-auditor` | Security audits and compliance |
+| `typescript-pro` | Advanced TypeScript patterns |
+| `ui-designer` | UI design systems and components |
 
-Le bloc caveman est injecté en tête de `~/.claude/CLAUDE.md` entre les marqueurs `<!-- caveman:start -->` et `<!-- caveman:end -->`. L'état et le niveau sont persistés dans `~/.claude/caveman.enabled` et `~/.claude/caveman.level`. Sur une nouvelle machine, `install.sh` restaure ces fichiers depuis `defaults/`.
+---
+
+## Slash-commands
+
+| Command | Description |
+|---|---|
+| `/appliquer-suggestions` | Apply identified recommendations to code |
+| `/caveman [on\|off] [level]` | Toggle caveman mode with optional intensity level |
+| `/create-commit` | Create a git commit |
+| `/evaluer-codebase` | Evaluate a freshly cloned repository |
+| `/evaluer-commentaires` | Analyze code comment quality |
+| `/evaluer-documentation` | Check doc/code consistency |
+| `/evaluer-modifications` | Analyze changes since last commit |
+| `/evaluer-qualite` | Evaluate code quality |
+| `/evaluer-stack` | Audit the technology stack |
+| `/expliquer-modifications` | Explain recent changes |
+| `/mettre-a-jour-agents` | Update AGENTS.md |
+| `/mettre-a-jour-documentation` | Update documentation |
+| `/mettre-a-jour-prompts` | Adapt prompt examples to the current project |
+| `/trouver-code-mort` | Find dead code in the project |
+
+---
+
+## Caveman mode
+
+Minimal response style, persisted across sessions. Controlled via `/caveman` or directly:
 
 ```bash
-/caveman              # Toggle on/off (conserve le niveau courant)
-/caveman on ultra     # Active avec niveau ultra
-/caveman off          # Désactive
-/caveman status       # Affiche l'état courant sans modifier
+bash ~/.claude/scripts/caveman-toggle.sh [on|off|toggle|inject|status] [level]
 ```
 
-## Hooks automatiques
+| Level | Description |
+|---|---|
+| `lite` | Removes filler and pleasantries, keeps full grammar |
+| `full` | Terse responses, fragments accepted (default) |
+| `ultra` | Maximum compression, abbreviations, arrows for causality |
+| `wenyan-lite` | Semi-classical register, literary tone |
+| `wenyan-full` | 文言文 mode, maximum classical terseness |
+| `wenyan-ultra` | Extreme compression, classical letter style |
 
-Configurés dans `settings.json` :
+State and level are stored in `~/.claude/caveman.enabled` and `~/.claude/caveman.level`. On a new machine, `install.sh` restores from `defaults/`.
 
-| Hook | Déclencheur | Action |
+---
+
+## Hooks
+
+Configured in `settings.json`:
+
+| Hook | Trigger | Action |
 |---|---|---|
-| `PreToolUse` | Bash | `rtk-hook.sh` — réécrit les commandes via RTK pour économiser des tokens ; propose l'installation si RTK/jq absent |
-| `Stop` | Fin de session | Sauvegarde MemPalace + `session-stop.sh` (graphify update + sync vault) |
-| `PreCompact` | Avant compaction | Sauvegarde MemPalace |
+| `PreToolUse` | Every tool call | `sync-upstream.sh` — syncs from upstream (debounced 8h) |
+| `Stop` | End of session | MemPalace save + `session-stop.sh` (graphify update + vault sync) |
+| `PreCompact` | Before compaction | MemPalace save |
 
-RTK est installé automatiquement par `install.sh`. Pour l'installer manuellement :
+---
+
+## RTK — Token proxy
+
+RTK rewrites common dev commands (e.g. `git status` → `rtk git status`) to reduce token consumption by 60–90%. The `PreToolUse` hook applies this transparently.
+
+Install manually:
 
 ```bash
 bash ~/.claude/scripts/setup-rtk.sh
 ```
 
-Sur **Windows**, le script installe RTK via `winget` et crée un wrapper bash `~/.local/bin/rtk` (le PATH Windows n'étant pas rafraîchi dans la session bash de Claude Code). Dans le flux `install.sh`, la modification persistante du PATH est centralisée au début de l'installation. Lancé manuellement, `setup-rtk.sh` demande confirmation avant d'ajouter `~/.local/bin` au PATH.
+**Windows** — installed via `winget`, with a bash wrapper at `~/.local/bin/rtk`.  
+**Linux/macOS** — installed via `brew` or the official install script, then `rtk init -g`.
 
-Sur **Linux/macOS**, RTK est installé via `brew` ou le script d'installation officiel, puis configuré avec `rtk init -g`.
+---
 
 ## Graphify
 
-Graphify génère un graphe de connaissances du codebase. Chaque repo indexé dispose de :
-- `graphify-out/GRAPH_REPORT.md` — rapport local (gitignored)
-- `vault/Projets/<repo>/` — copie versionnée dans le vault, nommée d'après le repo Git distant `origin` quand disponible
-
-Les fichiers suivants sont ignorés par git (générés localement) :
-
-```
-graphify-out/
-```
-
-Commandes utiles :
+Generates a knowledge graph of each indexed codebase.
 
 ```bash
-graphify update .           # Mettre à jour le graphe (AST uniquement, sans coût API)
-graphify query "question"   # Requête sémantique sur le graphe
-graphify path "A" "B"       # Chemin entre deux concepts
-graphify explain "concept"  # Explication d'un concept du codebase
+graphify update .            # Update graph (AST only, no API cost)
+graphify query "question"    # Semantic query
+graphify path "A" "B"        # Path between two concepts
+graphify explain "concept"   # Explain a concept from the codebase
 ```
+
+Each indexed repo gets:
+- `graphify-out/GRAPH_REPORT.md` — local report (gitignored)
+- `vault/Projets/<repo>/` — versioned copy in the Obsidian vault (private repos only)
+
+---
 
 ## MemPalace
 
-Mémoire persistante cross-sessions. Les données sont dans `~/.mempalace/` (non versionné).
+Persistent cross-session memory. Data lives in `~/.mempalace/` (never versioned).
 
 ```bash
-# Recherche
-mempalace search "sujet" --wing nom-du-repo   # Scoped au repo
-mempalace search "sujet"                      # Recherche globale
+mempalace search "topic" --wing repo-name   # Scoped to a repo
+mempalace search "topic"                    # Global search
 
-# Reconstruire l'index sur une nouvelle machine
+# Rebuild index on a new machine
 mempalace init ~/.mempalace
 mempalace mine ~/.claude/projects/ --mode convos
 ```
 
-Via MCP (dans Claude Code) : outil `mempalace_search` et `mempalace_add_drawer`.
+Via MCP (in Claude Code): `mempalace_search` and `mempalace_add_drawer`.
 
-## Agents disponibles
+---
 
-| Agent | Rôle |
-|---|---|
-| `architect-reviewer` | Revue d'architecture |
-| `backend-developer` | Développement backend |
-| `code-reviewer` | Revue de code |
-| `documentation-engineer` | Documentation technique |
-| `frontend-developer` | Développement frontend |
-| `javascript-pro` | Expertise JavaScript |
-| `payment-integration` | Intégration paiement |
-| `react-performance-optimizer` | Optimisation React |
-| `security-auditor` | Audit de sécurité |
-| `typescript-pro` | Expertise TypeScript |
-| `ui-designer` | Design UI |
+## See also
 
-## Commandes (slash-commands)
-
-| Commande | Description |
-|---|---|
-| `/appliquer-suggestions` | Applique les recommandations identifiées |
-| `/caveman [on\|off] [niveau]` | Active/désactive le mode caveman avec niveau d'intensité optionnel |
-| `/create-commit` | Crée un commit git |
-| `/evaluer-codebase` | Évalue un dépôt fraîchement cloné |
-| `/evaluer-commentaires` | Analyse la qualité des commentaires |
-| `/evaluer-documentation` | Vérifie cohérence doc/code |
-| `/evaluer-modifications` | Analyse les modifications depuis le dernier commit |
-| `/evaluer-qualite` | Évalue la qualité du code |
-| `/evaluer-stack` | Audit de la pile technologique |
-| `/expliquer-modifications` | Explique les modifications récentes |
-| `/mettre-a-jour-agents` | Met à jour AGENTS.md |
-| `/mettre-a-jour-documentation` | Met à jour la documentation |
-| `/mettre-a-jour-prompts` | Adapte les exemples des prompts au projet |
-| `/trouver-code-mort` | Trouve le code mort dans le projet |
-
-## Vault Obsidian
-
-Le vault est dans `vault/` et versionné dans ce repo. Pointer Obsidian directement sur ce dossier.
-
-Structure :
-- `Projets/` — Graphes Graphify + arborescences par repo
-- `Décisions/` — Décisions techniques importantes (pourquoi, pas quoi)
-- `Patterns/` — Patterns récurrents et bonnes pratiques identifiées
-
-Le vault est mis à jour automatiquement après chaque session Claude Code et après chaque `install.sh`.
-
-## Nouvelle machine
-
-```bash
-git clone <repo-url> ~/Documents/_Dev/claude-config
-cd ~/Documents/_Dev/claude-config
-cp env.local.template env.local
-# Éditer env.local avec les valeurs de la machine
-bash install.sh
-```
+- [README.fr.md](README.fr.md) — French version
