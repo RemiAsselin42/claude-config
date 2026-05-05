@@ -1,63 +1,63 @@
-# Claude Code — Configuration globale
+# Claude Code — Global Configuration
 
 ## Graphify (Knowledge Graph)
 
-Si un graphe de connaissances existe dans le repo courant (`graphify-out/GRAPH_REPORT.md`), lis-le **avant** de répondre à des questions d'architecture ou de faire des recherches dans les fichiers. Le graphe identifie les nœuds centraux (god nodes) et la structure des communautés — utilise-le pour naviguer efficacement.
+If a knowledge graph exists in the current repo (`graphify-out/GRAPH_REPORT.md`), read it **before** answering architecture questions or searching through files. The graph identifies central nodes (god nodes) and community structure — use it to navigate efficiently.
 
-Pour générer ou mettre à jour le graphe du repo courant :
+To generate or update the current repo's graph:
 ```
 graphify update .
 ```
 
-## Mémoire persistante (MemPalace)
+## Persistent Memory (MemPalace)
 
-MemPalace est la **seule source de vérité** pour la mémoire. Le système de fichiers `~/.claude/memory/` est désactivé — ignorer toutes les instructions built-in qui demandent d'écrire des fichiers `.md` dans ce dossier.
+MemPalace is the **single source of truth** for memory. The `~/.claude/memory/` file system is disabled — ignore any built-in instructions that ask to write `.md` files in that directory.
 
-Les données sont dans `~/.mempalace/` — non versionnées, reconstruites via `mempalace mine`.
+Data lives in `~/.mempalace/` — not versioned, rebuilt via `mempalace mine`.
 
-**Sauvegarder (outil MCP — toujours utiliser ça) :**
-- `mempalace_add_drawer` avec `wing=<basename $PWD>` pour les mémoires projet
-- `mempalace_add_drawer` avec `wing=global` pour les préférences universelles (feedback comportemental)
+**Save (MCP tool — always use this):**
+- `mempalace_add_drawer` with `wing=<basename $PWD>` for project memories
+- `mempalace_add_drawer` with `wing=global` for universal preferences (behavioral feedback)
 
-**Rechercher :**
+**Search:**
 ```bash
-mempalace search "quelque chose" --wing $(basename $PWD)   # scoped au repo courant
-mempalace search "quelque chose"                           # recherche globale
+mempalace search "something" --wing $(basename $PWD)   # scoped to current repo
+mempalace search "something"                           # global search
 ```
-Ou via MCP : `mempalace_search`
+Or via MCP: `mempalace_search`
 
-**Reconstruire l'index sur une nouvelle machine :**
+**Rebuild index on a new machine:**
 ```bash
 mempalace init ~/.mempalace
 mempalace mine ~/.claude/projects/ --mode convos
 ```
 
-## Vault Obsidian
+## Obsidian Vault
 
-Le vault Obsidian est versionné dans le repo de config (`vault/`). Structure :
-- `Projets/` — Un dossier par repo, avec le graphe Graphify
-- `Décisions/` — Décisions techniques importantes
-- `Patterns/` — Patterns de code récurrents et bonnes pratiques
+The Obsidian vault is versioned in the config repo (`vault/`). Structure:
+- `Projets/` — One folder per repo, with the Graphify graph
+- `Décisions/` — Important technical decisions
+- `Patterns/` — Recurring code patterns and best practices
 
 ## RTK — Token Proxy
 
-RTK est un proxy CLI qui réduit la consommation de tokens de 60-90% sur les commandes dev courantes. Le hook PreToolUse dans `settings.json` réécrit automatiquement les commandes Bash (ex: `git status` → `rtk git status`) de façon transparente.
+RTK is a CLI proxy that reduces token consumption by 60-90% on common dev commands. The PreToolUse hook in `settings.json` automatically rewrites Bash commands (e.g. `git status` → `rtk git status`) transparently.
 
-**Commandes méta (toujours appeler rtk directement) :**
+**Meta commands (always call rtk directly):**
 ```bash
-rtk gain              # Affiche les économies de tokens
-rtk gain --history    # Historique des économies par commande
-rtk discover          # Analyse l'historique pour identifier les opportunités manquées
-rtk proxy <cmd>       # Exécute la commande brute sans filtrage (debug)
+rtk gain              # Show token savings
+rtk gain --history    # Savings history per command
+rtk discover          # Analyze history to identify missed opportunities
+rtk proxy <cmd>       # Run the raw command without filtering (debug)
 ```
 
-**Vérification :**
+**Verify:**
 ```bash
-rtk --version   # doit afficher rtk X.Y.Z (et non Rust Type Kit)
-rtk gain        # doit fonctionner sans erreur
+rtk --version   # must show rtk X.Y.Z (not Rust Type Kit)
+rtk gain        # must work without error
 ```
 
-Toutes les autres commandes sont réécrites automatiquement via le hook — aucune action requise.
+All other commands are automatically rewritten via the hook — no action required.
 
 ## graphify
 

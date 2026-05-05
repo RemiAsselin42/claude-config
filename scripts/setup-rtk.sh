@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installe RTK et l'active pour Claude Code via rtk init -g.
+# Installs RTK and activates it for Claude Code via rtk init -g.
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,41 +36,41 @@ _persist_tool_path_if_allowed() {
 
   local answer
   if [[ "$SETUP_RTK_YES" == "true" ]]; then
-    answer="o"
+    answer="y"
   else
-    printf "Ajouter %s au PATH persistant (~/.bashrc, ~/.bash_profile, ~/.profile) [O/n] ? " "$TOOL_BIN_DIR"
+    printf "Add %s to persistent PATH (~/.bashrc, ~/.bash_profile, ~/.profile) [Y/n]? " "$TOOL_BIN_DIR"
     read -r answer
   fi
 
   if [[ -n "$answer" && "${answer,,}" != "o" && "${answer,,}" != "oui" && "${answer,,}" != "y" && "${answer,,}" != "yes" ]]; then
-    echo "  PATH persistant non modifié."
+    echo "  Persistent PATH not modified."
     return 0
   fi
 
   _write_tool_path_to_profiles
-  echo "  PATH $TOOL_BIN_DIR ajouté dans les profils shell"
+  echo "  PATH $TOOL_BIN_DIR added to shell profiles"
 }
 
 mkdir -p "$TOOL_BIN_DIR"
 _add_tool_paths_to_current_session
 
 if _is_windows; then
-  # --- Windows : installation via winget + mode CLAUDE.md (pas de hook bash) ---
+  # --- Windows: install via winget + CLAUDE.md mode (no bash hook) ---
   if ! command -v rtk &>/dev/null; then
-    log "Installation de RTK via winget..."
+    log "Installing RTK via winget..."
     run_cmd winget install rtk-ai.rtk --accept-package-agreements --accept-source-agreements || true
   else
-    log "RTK déjà installé : $(rtk --version)"
+    log "RTK already installed: $(rtk --version)"
   fi
-  # Appel direct à rtk.exe via son chemin winget (PATH non rafraîchi en session courante)
+  # Call rtk.exe directly via its winget path (PATH not refreshed in current session)
   if [[ "$SETUP_RTK_INIT" == "true" ]]; then
-    log "Activation du mode CLAUDE.md (Windows natif)..."
+    log "Activating CLAUDE.md mode (native Windows)..."
   fi
   WINGET_PKGS="$(cygpath -u "${LOCALAPPDATA}/Microsoft/WinGet/Packages" 2>/dev/null || true)"
   RTK_EXE="$(compgen -G "$WINGET_PKGS/rtk-ai.rtk_*/rtk.exe" 2>/dev/null | head -1)"
   if [[ -x "$RTK_EXE" ]]; then
-    # Créer un wrapper bash dans ~/.local/bin pour que rtk soit accessible
-    # depuis le shell bash de Claude Code (le PATH Windows n'est pas rafraîchi).
+    # Create a bash wrapper in ~/.local/bin so rtk is accessible
+    # from Claude Code's bash shell (Windows PATH is not refreshed in session).
     mkdir -p "$TOOL_BIN_DIR"
     RTK_EXE_WIN="$(cygpath -w "$RTK_EXE")"
     cat > "$TOOL_BIN_DIR/rtk" << WRAPPER
@@ -78,26 +78,26 @@ if _is_windows; then
 exec "$RTK_EXE_WIN" "\$@"
 WRAPPER
     chmod +x "$TOOL_BIN_DIR/rtk"
-    log "  Wrapper bash créé : $TOOL_BIN_DIR/rtk → $RTK_EXE_WIN"
+    log "  Bash wrapper created: $TOOL_BIN_DIR/rtk → $RTK_EXE_WIN"
     _persist_tool_path_if_allowed
 
     if [[ "$SETUP_RTK_INIT" == "true" ]]; then
       run_cmd "$RTK_EXE" telemetry disable || true
       run_cmd "$RTK_EXE" init -g --claude-md
     else
-      log "  Activation RTK reportée."
+      log "  RTK activation deferred."
     fi
   else
-    echo "WARNING: rtk.exe introuvable dans $WINGET_PKGS"
-    echo "Lance 'rtk init -g' manuellement depuis un nouveau terminal."
+    echo "WARNING: rtk.exe not found in $WINGET_PKGS"
+    echo "Run 'rtk init -g' manually from a new terminal."
     exit 1
   fi
 else
-  # --- Linux / macOS : installation + hook bash ---
+  # --- Linux / macOS: install + bash hook ---
   if command -v rtk &>/dev/null; then
-    log "RTK déjà installé : $(rtk --version)"
+    log "RTK already installed: $(rtk --version)"
   else
-    log "Installation de RTK..."
+    log "Installing RTK..."
     if command -v brew &>/dev/null; then
       run_cmd brew install rtk
     else
@@ -110,17 +110,17 @@ else
   fi
   _persist_tool_path_if_allowed
   if [[ "$SETUP_RTK_INIT" == "true" ]]; then
-    log "Activation du hook Claude Code..."
+    log "Activating Claude Code hook..."
     run_cmd rtk telemetry disable || true
     run_cmd rtk init -g
   else
-    log "Activation RTK reportée."
+    log "RTK activation deferred."
   fi
 fi
 
 if [[ "$SETUP_RTK_QUIET" != "true" ]]; then
   echo ""
   echo "=== Done ==="
-  echo "Redémarre Claude Code pour que les changements prennent effet."
-  echo "Vérifie avec : rtk gain"
+  echo "Restart Claude Code for changes to take effect."
+  echo "Verify with: rtk gain"
 fi

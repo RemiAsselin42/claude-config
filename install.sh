@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Usage: install.sh [-y|--yes] [-v|--verbose]
-#   -y, --yes      Accepte les valeurs par défaut pour chaque repo.
-#   -v, --verbose  Affiche les sorties détaillées des installateurs.
+#   -y, --yes      Accept defaults for each repo.
+#   -v, --verbose  Show verbose output from installers.
 set -euo pipefail
 
 AUTO_YES=false
@@ -19,7 +19,7 @@ while [[ $# -gt 0 ]]; do
       exit 0
       ;;
     *)
-      echo "Option inconnue : $1" >&2
+      echo "Unknown option: $1" >&2
       sed -n '2,4p' "$0" >&2
       exit 1
       ;;
@@ -56,7 +56,7 @@ _run_quiet() {
     return 0
   fi
 
-  echo "${YELLOW}Commande échouée : $*${RESET}"
+  echo "${YELLOW}Command failed: $*${RESET}"
   sed 's/^/  /' "$output"
   rm -f "$output"
   return 1
@@ -95,15 +95,15 @@ _ask_for_tool_path_persistence() {
   fi
 
   local answer
-  echo "${BOLD}${CYAN}PATH shell :${RESET} $TOOL_BIN_DIR"
-  echo "${DIM}Nécessaire pour retrouver uv/rtk depuis les prochains terminaux Git Bash.${RESET}"
-  printf "Ajouter ce dossier au PATH persistant (~/.bashrc, ~/.bash_profile, ~/.profile) ${CYAN}[O/n]${RESET} ? "
+  echo "${BOLD}${CYAN}Shell PATH:${RESET} $TOOL_BIN_DIR"
+  echo "${DIM}Required to find uv/rtk from future Git Bash terminals.${RESET}"
+  printf "Add this directory to persistent PATH (~/.bashrc, ~/.bash_profile, ~/.profile) ${CYAN}[Y/n]${RESET}? "
   read -r answer
   if [[ -z "$answer" || "${answer,,}" == "o" || "${answer,,}" == "oui" || "${answer,,}" == "y" || "${answer,,}" == "yes" ]]; then
     PATH_PERSIST_APPROVED=true
   else
     PATH_PERSIST_APPROVED=false
-    echo "  ${YELLOW}PATH persistant non modifié — PATH actif seulement pour cette exécution.${RESET}"
+    echo "  ${YELLOW}Persistent PATH not modified — active only for this session.${RESET}"
   fi
 }
 
@@ -121,7 +121,7 @@ _persist_tool_path_if_approved() {
 
   _write_tool_path_to_profiles
   for profile in "${to_update[@]}"; do
-    echo "  ${GREEN}✓ PATH persistant : $(basename "$profile")${RESET}"
+    echo "  ${GREEN}✓ Persistent PATH: $(basename "$profile")${RESET}"
   done
 }
 
@@ -136,31 +136,31 @@ _ensure_uv() {
     return 0
   fi
 
-  echo "${BOLD}${CYAN}Installation de uv...${RESET}"
-  command -v curl >/dev/null || { echo "${RED}curl requis pour installer uv.${RESET}"; exit 1; }
+  echo "${BOLD}${CYAN}Installing uv...${RESET}"
+  command -v curl >/dev/null || { echo "${RED}curl is required to install uv.${RESET}"; exit 1; }
 
   if curl -LsSf https://astral.sh/uv/install.sh | sh; then
     _add_tool_paths_to_current_session
     _persist_tool_path_if_approved
   else
-    echo "${RED}Installation de uv échouée.${RESET}"
+    echo "${RED}uv installation failed.${RESET}"
     exit 1
   fi
 
   command -v uv >/dev/null || {
-    echo "${RED}uv installé mais introuvable dans le PATH courant.${RESET}"
-    echo "  Ajouter à ton shell : export PATH=\"$UV_INSTALL_DIR:\$PATH\""
+    echo "${RED}uv installed but not found in current PATH.${RESET}"
+    echo "  Add to your shell: export PATH=\"$UV_INSTALL_DIR:\$PATH\""
     exit 1
   }
 
-  echo "  ${GREEN}✓ uv installé : $(command -v uv)${RESET}"
+  echo "  ${GREEN}✓ uv installed: $(command -v uv)${RESET}"
 }
 
 _find_python() {
   local cmd
   for cmd in python3 python py; do
     command -v "$cmd" >/dev/null 2>&1 || continue
-    # Test plus robuste : vérifier que Python répond avec une version valide
+    # More robust check: verify Python responds with a valid version
     if "$cmd" --version >/dev/null 2>&1 && "$cmd" -c 'import sys' >/dev/null 2>&1; then
       printf '%s\n' "$cmd"
       return 0
@@ -174,7 +174,7 @@ _ensure_chromadb() {
   python_cmd="$(_find_python || true)"
 
   if [[ -z "$python_cmd" ]]; then
-    echo "  ${YELLOW}⚠ Python introuvable — chromadb non installé, nettoyage MemPalace limité.${RESET}"
+    echo "  ${YELLOW}⚠ Python not found — chromadb not installed, MemPalace cleanup limited.${RESET}"
     return 0
   fi
 
@@ -183,34 +183,34 @@ _ensure_chromadb() {
     return 0
   fi
 
-  _detail "  Installation de chromadb dans le Python courant..."
-  # Utiliser 'python -m pip install' plutôt que 'uv pip install --python' pour éviter
-  # les problèmes de validation d'environnement sur Windows
+  _detail "  Installing chromadb into current Python..."
+  # Use 'python -m pip install' rather than 'uv pip install --python' to avoid
+  # environment validation issues on Windows
   if _run_quiet "$python_cmd" -m pip install chromadb; then
     "$python_cmd" -c 'import chromadb' >/dev/null 2>&1 || {
-      echo "  ${YELLOW}⚠ chromadb installé mais non importable par $python_cmd.${RESET}"
+      echo "  ${YELLOW}⚠ chromadb installed but not importable by $python_cmd.${RESET}"
       return 0
     }
-    echo "  ${GREEN}✓ chromadb installé${RESET}"
+    echo "  ${GREEN}✓ chromadb installed${RESET}"
   else
-    echo "  ${YELLOW}⚠ chromadb non installé — le nettoyage MemPalace utilisera uv en fallback si possible.${RESET}"
+    echo "  ${YELLOW}⚠ chromadb not installed — MemPalace cleanup will fall back to uv if available.${RESET}"
   fi
 }
 
 _prepare_dependencies() {
-  echo "${BOLD}${CYAN}Préparation des dépendances...${RESET}"
+  echo "${BOLD}${CYAN}Preparing dependencies...${RESET}"
   mkdir -p "$TOOL_BIN_DIR"
   _add_tool_paths_to_current_session
 
-  command -v node >/dev/null || { echo "${RED}Node.js requis (https://nodejs.org)${RESET}"; exit 1; }
+  command -v node >/dev/null || { echo "${RED}Node.js is required (https://nodejs.org)${RESET}"; exit 1; }
   _ensure_uv
 
   _run_quiet uv tool install graphifyy --upgrade
-  command -v graphify >/dev/null || { echo "${RED}Graphify installé mais introuvable dans le PATH courant.${RESET}"; exit 1; }
+  command -v graphify >/dev/null || { echo "${RED}Graphify installed but not found in current PATH.${RESET}"; exit 1; }
   echo "  ${GREEN}✓ Graphify${RESET}"
 
   _run_quiet uv tool install mempalace --upgrade
-  command -v mempalace >/dev/null || { echo "${RED}MemPalace installé mais introuvable dans le PATH courant.${RESET}"; exit 1; }
+  command -v mempalace >/dev/null || { echo "${RED}MemPalace installed but not found in current PATH.${RESET}"; exit 1; }
   echo "  ${GREEN}✓ MemPalace${RESET}"
 
   _ensure_chromadb
@@ -218,45 +218,45 @@ _prepare_dependencies() {
   if command -v rtk >/dev/null; then
     echo "  ${GREEN}✓ RTK${RESET}"
   elif SETUP_RTK_INIT=false SETUP_RTK_MANAGE_PATH=false SETUP_RTK_QUIET=true bash "$REPO_DIR/scripts/setup-rtk.sh"; then
-    echo "  ${GREEN}✓ RTK prêt${RESET}"
+    echo "  ${GREEN}✓ RTK ready${RESET}"
   else
-    echo "  ${YELLOW}⚠ RTK : installation/préparation échouée, tentative d'activation plus tard.${RESET}"
+    echo "  ${YELLOW}⚠ RTK: install/prepare failed, will attempt activation later.${RESET}"
   fi
 }
 
-# --- Charger les vars machine-specific ---
+# --- Load machine-specific vars ---
 if [[ ! -f "$REPO_DIR/env.local" ]]; then
-  echo "${RED}Copier env.local.template en env.local et remplir les valeurs.${RESET}"
+  echo "${RED}Copy env.local.template to env.local and fill in the values.${RESET}"
   echo "  cp env.local.template env.local"
   exit 1
 fi
 source "$REPO_DIR/env.local"
 
-# --- Vérifier les prérequis ---
+# --- Check prerequisites ---
 _prepare_dependencies
 
-# --- Sync depuis upstream si disponible ---
+# --- Sync from upstream if available ---
 if git -C "$REPO_DIR" remote get-url upstream &>/dev/null; then
-  echo "${BOLD}${CYAN}Sync depuis upstream...${RESET}"
+  echo "${BOLD}${CYAN}Syncing from upstream...${RESET}"
   bash "$REPO_DIR/scripts/sync-upstream.sh" --force
   echo "  ${GREEN}✓ upstream synced${RESET}"
 fi
 
-# --- Nettoyer les symlinks cassés dans ~/.claude ---
-echo "${BOLD}${CYAN}Configuration Claude...${RESET}"
-_step "Nettoyage des symlinks cassés..."
+# --- Clean broken symlinks in ~/.claude ---
+echo "${BOLD}${CYAN}Configuring Claude...${RESET}"
+_step "Cleaning broken symlinks..."
 for dir in agents commands scripts hooks; do
   target="$CLAUDE_DIR/$dir"
   if [[ -L "$target" && ! -e "$target" ]]; then
     rm -f "$target"
-    _detail "  ${YELLOW}⚠ Symlink cassé supprimé : $target${RESET}"
+    _detail "  ${YELLOW}⚠ Broken symlink removed: $target${RESET}"
   fi
 done
 
-# --- Copier agents, commands et scripts ---
-_step "Copie agents, commands et scripts..."
+# --- Copy agents, commands and scripts ---
+_step "Copying agents, commands and scripts..."
 mkdir -p "$CLAUDE_DIR/agents" "$CLAUDE_DIR/commands" "$CLAUDE_DIR/scripts" "$CLAUDE_DIR/hooks"
-# Utilise nullglob pour éviter l'échec du glob si un dossier source est vide
+# Use nullglob to avoid glob failure if a source directory is empty
 (
   shopt -s nullglob
   for dir in agents commands scripts hooks; do
@@ -267,16 +267,16 @@ mkdir -p "$CLAUDE_DIR/agents" "$CLAUDE_DIR/commands" "$CLAUDE_DIR/scripts" "$CLA
   done
 )
 chmod +x "$CLAUDE_DIR/hooks/"*.sh 2>/dev/null || true
-_detail "  ${GREEN}✓ Fichiers Claude copiés${RESET}"
+_detail "  ${GREEN}✓ Claude files copied${RESET}"
 
-# --- Générer session-stop.sh avec chemin absolu du repo ---
-_step "Génération de session-stop.sh..."
+# --- Generate session-stop.sh with absolute repo path ---
+_step "Generating session-stop.sh..."
 SYNC_SCRIPT="$REPO_DIR/scripts/sync-graph-to-vault.sh"
 cat > "$CLAUDE_DIR/scripts/session-stop.sh" << 'STOPSCRIPT'
 #!/usr/bin/env bash
-# Généré par install.sh — NE PAS MODIFIER MANUELLEMENT.
-# Pour re-générer : relancer install.sh depuis le repo claude-config.
-# Hook Stop Claude Code : met à jour graphify et sync le vault si dans un repo graphifié.
+# Generated by install.sh — DO NOT EDIT MANUALLY.
+# To regenerate: re-run install.sh from the claude-config repo.
+# Claude Code Stop hook: updates graphify and syncs the vault if in a graphified repo.
 [[ -d "graphify-out" ]] || exit 0
 graphify update . 2>/dev/null || true
 STOPSCRIPT
@@ -289,28 +289,28 @@ if git -C "$REPO_DIR" status --porcelain vault/ | grep -q .; then
 fi
 STOPSCRIPT2
 chmod +x "$CLAUDE_DIR/scripts/session-stop.sh"
-_detail "  ${GREEN}✓ session-stop.sh généré${RESET}"
+_detail "  ${GREEN}✓ session-stop.sh generated${RESET}"
 
-# --- Initialiser MemPalace ---
-_step "Initialisation de MemPalace..."
+# --- Initialize MemPalace ---
+_step "Initializing MemPalace..."
 export PYTHONUTF8=1
 if [[ -d "$HOME/.mempalace" ]]; then
-  _detail "  ${DIM}Déjà initialisé.${RESET}"
+  _detail "  ${DIM}Already initialized.${RESET}"
 else
   mkdir -p "$HOME/.mempalace"
   mempalace init --yes ~/.mempalace
-  echo "  ${GREEN}✓ MemPalace initialisé${RESET}"
+  echo "  ${GREEN}✓ MemPalace initialized${RESET}"
   if [[ -d "$CLAUDE_DIR/projects" ]]; then
-    _detail "  Reconstruction de l'index depuis les transcripts..."
+    _detail "  Rebuilding index from transcripts..."
     mempalace mine "$CLAUDE_DIR/projects/" --mode convos || true
-    echo "  ${GREEN}✓ Index MemPalace reconstruit${RESET}"
+    echo "  ${GREEN}✓ MemPalace index rebuilt${RESET}"
   else
-    echo "  ${DIM}Aucun transcript — index vide (normal sur un nouveau PC).${RESET}"
+    echo "  ${DIM}No transcripts — empty index (normal on a new machine).${RESET}"
   fi
 fi
 
-# --- Copier CLAUDE.md global (substitution du chemin vault) ---
-_step "Copie CLAUDE.md global..."
+# --- Copy global CLAUDE.md (with vault path substitution) ---
+_step "Copying global CLAUDE.md..."
 if [[ -f "$CLAUDE_DIR/CLAUDE.md" ]]; then
   cp "$CLAUDE_DIR/CLAUDE.md" "$CLAUDE_DIR/CLAUDE.md.backup"
   claude_backup_created=true
@@ -319,61 +319,61 @@ else
 fi
 sed "s|\${VAULT_DIR}|$VAULT_DIR|g" "$REPO_DIR/CLAUDE.md" > "$CLAUDE_DIR/CLAUDE.md"
 if [[ "$claude_backup_created" == "true" ]]; then
-  _detail "  ${GREEN}✓ CLAUDE.md copié (backup créé)${RESET}"
+  _detail "  ${GREEN}✓ CLAUDE.md copied (backup created)${RESET}"
 else
-  _detail "  ${GREEN}✓ CLAUDE.md copié${RESET}"
+  _detail "  ${GREEN}✓ CLAUDE.md copied${RESET}"
 fi
 
-# --- Préserver/restaurer caveman mode ---
+# --- Preserve/restore caveman mode ---
 # Copy defaults if not present on this machine (new install)
 if [[ ! -f "$CLAUDE_DIR/caveman.enabled" && -f "$REPO_DIR/defaults/caveman.enabled" ]]; then
   cp "$REPO_DIR/defaults/caveman.enabled" "$CLAUDE_DIR/caveman.enabled"
-  _detail "  ${DIM}caveman.enabled restauré depuis defaults${RESET}"
+  _detail "  ${DIM}caveman.enabled restored from defaults${RESET}"
 fi
 if [[ ! -f "$CLAUDE_DIR/caveman.level" && -f "$REPO_DIR/defaults/caveman.level" ]]; then
   cp "$REPO_DIR/defaults/caveman.level" "$CLAUDE_DIR/caveman.level"
-  _detail "  ${DIM}caveman.level restauré depuis defaults${RESET}"
+  _detail "  ${DIM}caveman.level restored from defaults${RESET}"
 fi
 # Always inject if flag present (block goes to top of CLAUDE.md)
 if [[ -f "$CLAUDE_DIR/caveman.enabled" ]]; then
   bash "$CLAUDE_DIR/scripts/caveman-toggle.sh" inject 2>/dev/null || true
-  _detail "  ${GREEN}✓ Caveman mode injecté ($(cat "$CLAUDE_DIR/caveman.level" 2>/dev/null || echo full))${RESET}"
+  _detail "  ${GREEN}✓ Caveman mode injected ($(cat "$CLAUDE_DIR/caveman.level" 2>/dev/null || echo full))${RESET}"
 fi
 
-# --- Générer claude.json depuis le template ---
-_step "Génération de claude.json..."
+# --- Generate claude.json from template ---
+_step "Generating claude.json..."
 sed "s|\${FIGMA_API_KEY}|${FIGMA_API_KEY}|g" \
   "$REPO_DIR/claude.json.template" > "$CLAUDE_DIR/claude.json"
 
-# --- Copier settings.json ---
-_step "Copie settings.json..."
+# --- Copy settings.json ---
+_step "Copying settings.json..."
 cp "$REPO_DIR/settings.json" "$CLAUDE_DIR/settings.json"
 
-# --- Installer RTK (après CLAUDE.md et settings.json — rtk init -g peut les modifier) ---
-_step "Activation de RTK..."
+# --- Install RTK (after CLAUDE.md and settings.json — rtk init -g may modify them) ---
+_step "Activating RTK..."
 if SETUP_RTK_MANAGE_PATH=false SETUP_RTK_QUIET=true bash "$CLAUDE_DIR/scripts/setup-rtk.sh"; then
-  _detail "  ${GREEN}✓ RTK activé${RESET}"
+  _detail "  ${GREEN}✓ RTK activated${RESET}"
 else
-  echo "  ${YELLOW}⚠ RTK : exécuter manuellement : bash ~/.claude/scripts/setup-rtk.sh${RESET}"
+  echo "  ${YELLOW}⚠ RTK: run manually: bash ~/.claude/scripts/setup-rtk.sh${RESET}"
 fi
-echo "  ${GREEN}✓ Configuration Claude mise à jour${RESET}"
+echo "  ${GREEN}✓ Claude configuration updated${RESET}"
 
-# --- Vault Obsidian ---
-_detail "${BOLD}${CYAN}Vault Obsidian${RESET} ${DIM}$VAULT_DIR${RESET}"
+# --- Obsidian Vault ---
+_detail "${BOLD}${CYAN}Obsidian Vault${RESET} ${DIM}$VAULT_DIR${RESET}"
 
-# --- Setup Graphify dans tous les repos git ---
+# --- Setup Graphify in all git repos ---
 echo ""
 if [[ "$VERBOSE" == "true" ]]; then
-  echo "${BOLD}${CYAN}Recherche des repos git...${RESET}"
+  echo "${BOLD}${CYAN}Scanning for git repos...${RESET}"
 else
-  echo "${BOLD}${CYAN}Repos git${RESET}"
+  echo "${BOLD}${CYAN}Git repos${RESET}"
 fi
 
 REPOS_FOUND=()
 PARENT_DIR="$(dirname "$REPO_DIR")"
 
-# Scan mono-niveau : seuls les repos git directement sous $PARENT_DIR sont détectés.
-# Les sous-dossiers imbriqués (monorepos, workspaces) ne sont pas parcourus.
+# Single-level scan: only git repos directly under $PARENT_DIR are detected.
+# Nested subfolders (monorepos, workspaces) are not traversed.
 for dir in "$PARENT_DIR"/*/; do
   [[ -d "$dir/.git" ]] || continue
   repo_path="${dir%/}"
@@ -381,7 +381,7 @@ for dir in "$PARENT_DIR"/*/; do
   REPOS_FOUND+=("$repo_path")
 done
 
-# Retourne 0 si CLAUDE.md est versionné (git-tracked) dans le repo
+# Returns 0 if CLAUDE.md is git-tracked in the repo
 _is_claude_md_tracked() {
   git -C "$1" ls-files --error-unmatch "CLAUDE.md" &>/dev/null
 }
@@ -391,22 +391,22 @@ _setup_repo_gitignore() {
   local gitignore_claude_md="${2:-false}"
   local gitignore="$repo/.gitignore"
 
-  # Supprimer les anciens blocs graphify fragmentés ou avec commentaire obsolète
+  # Remove old fragmented or stale-comment graphify blocks
   if grep -qF "graphify-out/" "$gitignore" 2>/dev/null; then
     local tmp
     tmp=$(grep -v -E '^graphify-out/|^# Graphify' "$gitignore")
     printf '%s\n' "$tmp" > "$gitignore"
   fi
 
-  printf '\n# Graphify — artefacts générés localement\ngraphify-out/\n' >> "$gitignore"
-  _detail "  ${GREEN}✓ .gitignore : bloc graphify mis à jour${RESET}"
+  printf '\n# Graphify — locally generated artifacts\ngraphify-out/\n' >> "$gitignore"
+  _detail "  ${GREEN}✓ .gitignore: graphify block updated${RESET}"
 
   if [[ "$gitignore_claude_md" == "true" ]] && ! grep -qF "CLAUDE.md" "$gitignore" 2>/dev/null; then
-    printf '\n# Claude Code — config locale non-versionnée\nCLAUDE.md\nmempalace.yaml\n' >> "$gitignore"
-    _detail "  ${GREEN}✓ .gitignore : CLAUDE.md + mempalace.yaml ajoutés (config locale)${RESET}"
+    printf '\n# Claude Code — local unversioned config\nCLAUDE.md\nmempalace.yaml\n' >> "$gitignore"
+    _detail "  ${GREEN}✓ .gitignore: CLAUDE.md + mempalace.yaml added (local config)${RESET}"
   elif ! grep -qF "mempalace.yaml" "$gitignore" 2>/dev/null; then
     printf '\nmempalace.yaml\n' >> "$gitignore"
-    _detail "  ${GREEN}✓ .gitignore : mempalace.yaml ajouté${RESET}"
+    _detail "  ${GREEN}✓ .gitignore: mempalace.yaml added${RESET}"
   fi
 }
 
@@ -415,7 +415,7 @@ _generate_mempalace_yaml() {
   local repo_name="$(canonical_repo_name "$repo")"
   local yaml_file="$repo/mempalace.yaml"
   if [[ -f "$yaml_file" ]]; then
-    [[ "$VERBOSE" == "true" ]] && echo "  ${DIM}mempalace.yaml déjà présent — conservé.${RESET}" || echo "  ${DIM}· mempalace.yaml : présent${RESET}"
+    [[ "$VERBOSE" == "true" ]] && echo "  ${DIM}mempalace.yaml already present — kept.${RESET}" || echo "  ${DIM}· mempalace.yaml: present${RESET}"
     return
   fi
   cat > "$yaml_file" << YAML
@@ -425,7 +425,7 @@ exclude:
   - .git/
   - node_modules/
 YAML
-  [[ "$VERBOSE" == "true" ]] && echo "  ${GREEN}✓ mempalace.yaml généré (wing: $repo_name)${RESET}" || echo "  ${DIM}· mempalace.yaml : généré${RESET}"
+  [[ "$VERBOSE" == "true" ]] && echo "  ${GREEN}✓ mempalace.yaml generated (wing: $repo_name)${RESET}" || echo "  ${DIM}· mempalace.yaml: generated${RESET}"
 }
 
 _setup_repo_graphify() {
@@ -434,7 +434,7 @@ _setup_repo_graphify() {
   local obsidian_dir="$VAULT_DIR/Projets/$repo_name"
   mkdir -p "$obsidian_dir"
 
-  # CLAUDE.md versionné → setup complet ; sinon → générer + gitignorer
+  # Versioned CLAUDE.md → full setup; otherwise → generate + gitignore
   if _is_claude_md_tracked "$repo"; then
     (
       cd "$repo"
@@ -444,39 +444,39 @@ _setup_repo_graphify() {
       _detail "  ${GREEN}✓ hook install${RESET}"
     )
     _setup_repo_gitignore "$repo" false
-    [[ "$VERBOSE" != "true" ]] && echo "  ${DIM}· CLAUDE.md : versionné — hooks installés${RESET}" || true
+    [[ "$VERBOSE" != "true" ]] && echo "  ${DIM}· CLAUDE.md: versioned — hooks installed${RESET}" || true
   else
-    # Générer CLAUDE.md depuis le template avec le nom du repo substitué
+    # Generate CLAUDE.md from template with repo name substituted
     sed "s|{{REPO_NAME}}|$repo_name|g" "$REPO_DIR/templates/CLAUDE.project.md" > "$repo/CLAUDE.md"
-    _detail "  ${GREEN}✓ CLAUDE.md généré depuis template (local)${RESET}"
+    _detail "  ${GREEN}✓ CLAUDE.md generated from template (local)${RESET}"
     (
       cd "$repo"
       _run_quiet graphify hook install
       _detail "  ${GREEN}✓ hook install${RESET}"
     )
     _setup_repo_gitignore "$repo" true
-    [[ "$VERBOSE" != "true" ]] && echo "  ${DIM}· CLAUDE.md : généré (local) — hooks installés${RESET}" || true
+    [[ "$VERBOSE" != "true" ]] && echo "  ${DIM}· CLAUDE.md: generated (local) — hooks installed${RESET}" || true
   fi
 
   (
     cd "$repo"
     if [[ -f "graphify-out/GRAPH_REPORT.md" ]]; then
-      [[ "$VERBOSE" == "true" ]] && echo "  ${DIM}(graphe existant conservé)${RESET}" || echo "  ${DIM}· graphe : conservé${RESET}"
+      [[ "$VERBOSE" == "true" ]] && echo "  ${DIM}(existing graph kept)${RESET}" || echo "  ${DIM}· graph: kept${RESET}"
     else
-      _detail "  Génération du graphe..."
+      _detail "  Generating graph..."
       if [[ "$VERBOSE" == "true" ]]; then
-        graphify update . && echo "  ${GREEN}✓ graphe généré${RESET}" || echo "  ${YELLOW}⚠ graphe : erreur post-traitement (non-bloquant)${RESET}"
+        graphify update . && echo "  ${GREEN}✓ graph generated${RESET}" || echo "  ${YELLOW}⚠ graph: post-processing error (non-blocking)${RESET}"
       else
-        graphify update . >/dev/null 2>&1 && echo "  ${DIM}· graphe : généré${RESET}" || echo "  ${DIM}· graphe : erreur post-traitement (non-bloquant)${RESET}"
+        graphify update . >/dev/null 2>&1 && echo "  ${DIM}· graph: generated${RESET}" || echo "  ${DIM}· graph: post-processing error (non-blocking)${RESET}"
       fi
     fi
   )
 
-  # Sync vault : GRAPH_REPORT.md + FILE_TREE.md + graph.canvas
+  # Sync vault: GRAPH_REPORT.md + FILE_TREE.md + graph.canvas
   (cd "$repo" && bash "$REPO_DIR/scripts/sync-graph-to-vault.sh")
-  [[ "$VERBOSE" != "true" ]] && echo "  ${DIM}· vault : synchronisé${RESET}" || true
+  [[ "$VERBOSE" != "true" ]] && echo "  ${DIM}· vault: synced${RESET}" || true
 
-  # Hook post-commit pour sync vault
+  # Post-commit hook for vault sync
   local hook_file="$repo/.git/hooks/post-commit"
   local hook_line="bash \"$REPO_DIR/scripts/sync-graph-to-vault.sh\""
   if [[ -f "$hook_file" ]]; then
@@ -485,15 +485,15 @@ _setup_repo_graphify() {
     printf '#!/usr/bin/env bash\n%s\n' "$hook_line" > "$hook_file"
     chmod +x "$hook_file"
   fi
-  _detail "  ${GREEN}✓ hook sync vault${RESET}"
+  _detail "  ${GREEN}✓ vault sync hook${RESET}"
 
   _generate_mempalace_yaml "$repo"
 }
 
 if [[ ${#REPOS_FOUND[@]} -eq 0 ]]; then
-  echo "${DIM}Aucun repo git trouvé (hors claude-config).${RESET}"
+  echo "${DIM}No git repos found (excluding claude-config).${RESET}"
 else
-  echo "${BOLD}Repos détectés — choisir lesquels indexer (graphify + mempalace + vault) :${RESET}"
+  echo "${BOLD}Repos found — choose which to index (graphify + mempalace + vault):${RESET}"
   echo ""
   for repo in "${REPOS_FOUND[@]}"; do
     repo_name="$(canonical_repo_name "$repo")"
@@ -501,9 +501,9 @@ else
     repo_label="$repo_name"
     [[ "$local_name" != "$repo_name" ]] && repo_label="$local_name → $repo_name"
     if [[ -f "$repo/.graphifyignore" ]]; then
-      state=" ${YELLOW}[exclu]${RESET}"
+      state=" ${YELLOW}[excluded]${RESET}"
     else
-      state=" ${GREEN}[indexé]${RESET}"
+      state=" ${GREEN}[indexed]${RESET}"
     fi
     echo "  $repo_label$state"
   done
@@ -515,59 +515,59 @@ else
     repo_label="$repo_name"
     [[ "$local_name" != "$repo_name" ]] && repo_label="$local_name → $repo_name"
     if [[ -f "$repo/.graphifyignore" ]]; then
-      current="${DIM} (actuellement exclu)${RESET}"
-      default_hint="${CYAN}[o/N]${RESET}"
+      current="${DIM} (currently excluded)${RESET}"
+      default_hint="${CYAN}[y/N]${RESET}"
     else
-      current="${DIM} (actuellement indexé)${RESET}"
-      default_hint="${CYAN}[O/n]${RESET}"
+      current="${DIM} (currently indexed)${RESET}"
+      default_hint="${CYAN}[Y/n]${RESET}"
     fi
 
     if [[ "$AUTO_YES" == "true" ]]; then
-      [[ -f "$repo/.graphifyignore" ]] && answer="n" || answer="o"
-      printf "Indexer %b%-40s%b%b → %s (défaut)\n" "$BOLD" "$repo_label" "$RESET" "$current" "$answer"
+      [[ -f "$repo/.graphifyignore" ]] && answer="n" || answer="y"
+      printf "Index %b%-40s%b%b → %s (default)\n" "$BOLD" "$repo_label" "$RESET" "$current" "$answer"
     else
-      printf "Indexer %b%-40s%b%b %b ? " "$BOLD" "$repo_label" "$RESET" "$current" "$default_hint"
+      printf "Index %b%-40s%b%b %b? " "$BOLD" "$repo_label" "$RESET" "$current" "$default_hint"
       read -r answer
-      # Défaut selon l'état actuel : exclu→N, indexé→O
+      # Default based on current state: excluded→N, indexed→Y
       if [[ -z "$answer" ]]; then
-        [[ -f "$repo/.graphifyignore" ]] && answer="n" || answer="o"
+        [[ -f "$repo/.graphifyignore" ]] && answer="n" || answer="y"
       fi
     fi
 
-    if [[ "${answer,,}" == "o" ]]; then
-      # S'assurer qu'il n'est pas exclu (supprimer .graphifyignore s'il existe)
+    if [[ "${answer,,}" == "y" || "${answer,,}" == "yes" || "${answer,,}" == "o" ]]; then
+      # Make sure it is not excluded (remove .graphifyignore if present)
       rm -f "$repo/.graphifyignore"
-      echo "${BOLD}[$repo_label]${RESET} ${YELLOW}Setup...${RESET}"
+      echo "${BOLD}[$repo_label]${RESET} ${YELLOW}Setting up...${RESET}"
       _setup_repo_graphify "$repo"
       echo "  ${GREEN}✓ $repo_label${RESET}"
     else
       if ! bash "$REPO_DIR/scripts/exclude-from-index.sh" --yes "$repo"; then
-        echo "  ${YELLOW}⚠ Exclusion de $repo_label incomplète — poursuite de l'installation.${RESET}"
+        echo "  ${YELLOW}⚠ Exclusion of $repo_label incomplete — continuing installation.${RESET}"
       fi
     fi
   done
 fi
 
-# Graphify pour ce repo de config aussi
+# Graphify for the config repo itself
 echo ""
-echo "${BOLD}[claude-config]${RESET} Setup..."
+echo "${BOLD}[claude-config]${RESET} Setting up..."
 _run_quiet graphify claude install
 _detail "  ${GREEN}✓ claude install${RESET}"
 _run_quiet graphify hook install
 _detail "  ${GREEN}✓ hook install${RESET}"
 if [[ -f "$REPO_DIR/graphify-out/GRAPH_REPORT.md" ]]; then
-  _detail "  ${DIM}(graphe existant conservé)${RESET}"
+  _detail "  ${DIM}(existing graph kept)${RESET}"
 else
-  _detail "  Génération du graphe..."
+  _detail "  Generating graph..."
   if [[ "$VERBOSE" == "true" ]]; then
-    graphify update . && echo "  ${GREEN}✓ graphe généré${RESET}" || echo "  ${YELLOW}⚠ graphe : erreur post-traitement (non-bloquant)${RESET}"
+    graphify update . && echo "  ${GREEN}✓ graph generated${RESET}" || echo "  ${YELLOW}⚠ graph: post-processing error (non-blocking)${RESET}"
   else
-    graphify update . >/dev/null 2>&1 && echo "  ${DIM}· graphe : généré${RESET}" || echo "  ${DIM}· graphe : erreur post-traitement (non-bloquant)${RESET}"
+    graphify update . >/dev/null 2>&1 && echo "  ${DIM}· graph: generated${RESET}" || echo "  ${DIM}· graph: post-processing error (non-blocking)${RESET}"
   fi
 fi
 bash "$REPO_DIR/scripts/sync-graph-to-vault.sh"
 
-# mempalace.yaml pour claude-config (vault/ exclu — notes Obsidian, pas du code)
+# mempalace.yaml for claude-config (vault/ excluded — Obsidian notes, not code)
 if [[ ! -f "$REPO_DIR/mempalace.yaml" ]]; then
   cat > "$REPO_DIR/mempalace.yaml" << YAML
 wing: claude-config
@@ -576,22 +576,22 @@ exclude:
   - vault/
   - .git/
 YAML
-  echo "  ${GREEN}✓ mempalace.yaml généré pour claude-config${RESET}"
+  echo "  ${GREEN}✓ mempalace.yaml generated for claude-config${RESET}"
 else
-  echo "  ${DIM}mempalace.yaml déjà présent — conservé.${RESET}"
+  echo "  ${DIM}mempalace.yaml already present — kept.${RESET}"
 fi
 
-# Committer le vault si des changements ont été générés
+# Commit the vault if changes were generated
 echo ""
 if git -C "$REPO_DIR" status --porcelain vault/ | grep -q .; then
   git -C "$REPO_DIR" add vault/
   git -C "$REPO_DIR" commit -m "graphify: sync vault — $(date +%Y-%m-%d)"
-  echo "${GREEN}✓ Vault commité dans claude-config.${RESET}"
+  echo "${GREEN}✓ Vault committed in claude-config.${RESET}"
 else
-  echo "${DIM}Vault déjà à jour — aucun commit nécessaire.${RESET}"
+  echo "${DIM}Vault already up to date — no commit needed.${RESET}"
 fi
-git -C "$REPO_DIR" push origin master 2>/dev/null && echo "${GREEN}✓ Vault pushé.${RESET}" || echo "${YELLOW}⚠ Push échoué (pas de remote ?).${RESET}"
+git -C "$REPO_DIR" push origin master 2>/dev/null && echo "${GREEN}✓ Vault pushed.${RESET}" || echo "${YELLOW}⚠ Push failed (no remote?).${RESET}"
 
 echo ""
-echo "${GREEN}Installation terminée.${RESET}"
-echo "${DIM}Relancer Claude Code pour que les changements prennent effet.${RESET}"
+echo "${GREEN}Installation complete.${RESET}"
+echo "${DIM}Restart Claude Code for changes to take effect.${RESET}"

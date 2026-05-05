@@ -1,189 +1,189 @@
 ---
 description: Create git commit.
-argument-hint: '[contexte ou message de commit suggéré, ou vide pour analyser automatiquement]'
+argument-hint: '[commit context or suggested message, or empty to analyze automatically]'
 allowed-tools: Bash(git add:*), Bash(git status:*), Bash(git commit:*), Bash(git diff:*), Bash(git log:*), Bash(git restore:*)
 ---
 
-# Créer des Commits Logiques et Descriptifs
+# Create Logical and Descriptive Commits
 
-Tu es un expert Git qui aide à créer des commits de haute qualité en français. Ton rôle est d'analyser les modifications, de les organiser en commits logiques, et d'exécuter les commits avec des messages clairs et descriptifs.
+You are a Git expert who helps create high-quality commits. Your role is to analyze changes, organize them into logical commits, and execute commits with clear and descriptive messages.
 
-Contexte ou message suggéré : $ARGUMENTS
+Context or suggested message: $ARGUMENTS
 
-## Processus
+## Process
 
-### 1. Inspection de l'état actuel
+### 1. Inspect current state
 
-Commence par examiner l'état du dépôt :
+Start by examining the repository state:
 
-- `rtk git status` : liste les fichiers modifiés
-- `rtk git diff` : affiche les modifications non indexées
-- `rtk git diff --stat` : résumé des changements si nombreux
+- `rtk git status`: list modified files
+- `rtk git diff`: show unstaged changes
+- `rtk git diff --stat`: summary of changes if numerous
 
-### 2. Analyse des modifications
+### 2. Analyze changes
 
-Pour chaque fichier modifié, identifie :
+For each modified file, identify:
 
-- Le type de changement (feature, fix, refactor, style, test, docs, perf, chore)
-- Le scope affecté (composant, module, ou zone du projet)
-- Les changements liés entre eux vs. indépendants
+- The type of change (feature, fix, refactor, style, test, docs, perf, chore)
+- The affected scope (component, module, or project area)
+- Related changes vs. independent ones
 
-### 3. Définition des limites de commits
+### 3. Define commit boundaries
 
-**Critères de découpage :**
+**Splitting criteria:**
 
-- Fonctionnalité vs refactoring
+- Feature vs refactoring
 - Backend vs frontend
-- Formatage vs logique
-- Tests vs code de production
-- Mise à jour de dépendances vs changements de comportement
-- Changements dans différents modules/features
+- Formatting vs logic
+- Tests vs production code
+- Dependency updates vs behavior changes
+- Changes in different modules/features
 
-**Règle d'or :** Un commit = un changement logique cohérent qui pourrait être revert indépendamment.
+**Golden rule:** One commit = one coherent logical change that could be reverted independently.
 
-### 4. Staging sélectif
+### 4. Selective staging
 
-Pour chaque commit logique identifié :
+For each identified logical commit:
 
-- Utilise `rtk git add -p` pour l'ajout interactif si les changements sont mélangés dans un fichier
-- Utilise `rtk git add <fichier>` pour ajouter des fichiers entiers
-- Utilise `rtk git restore --staged <fichier>` pour désindexer si nécessaire
+- Use `rtk git add -p` for interactive staging if changes are mixed in a file
+- Use `rtk git add <file>` to add entire files
+- Use `rtk git restore --staged <file>` to unstage if needed
 
-### 5. Vérification avant commit
+### 5. Pre-commit verification
 
-Avant chaque commit, vérifie les modifications indexées :
+Before each commit, verify staged changes:
 
-- `rtk git diff --cached` : affiche exactement ce qui sera commité
-- Vérifie l'absence de :
-  - Secrets ou tokens
-  - Logs de debug accidentels
-  - Changements de formatage non liés
-  - Code commenté inutile
+- `rtk git diff --cached`: shows exactly what will be committed
+- Verify absence of:
+  - Secrets or tokens
+  - Accidental debug logs
+  - Unrelated formatting changes
+  - Unnecessary commented code
 
-### 6. Rédaction du message de commit
+### 6. Writing the commit message
 
-**Format Conventional Commits (OBLIGATOIRE) :**
-
-```
-type(scope): résumé court (max 72 caractères)
-
-Corps du message expliquant :
-- Quels changements ont été apportés
-- Pourquoi ces changements étaient nécessaires
-- Quel impact ils ont sur le projet
-
-BREAKING CHANGE: description si applicable
-```
-
-**Règles de mise en page du corps (OBLIGATOIRE) :**
-
-- **Texte continu :** écris les paragraphes sur une seule ligne sans retours à la ligne manuels au milieu des phrases. Ne coupe jamais une phrase pour respecter une largeur visuelle.
-- **Séparation :** garde une ligne vide entre les paragraphes logiques.
-- **Listes à puces (recommandées quand il y a beaucoup de modifications) :** chaque item puce = une seule ligne complète. Les puces améliorent la lisibilité et restent un format privilégié pour énumérer plusieurs changements.
-
-**Types de commits :**
-
-- `feat`: Nouvelle fonctionnalité
-- `fix`: Correction de bug
-- `refactor`: Refactoring sans changement de comportement
-- `style`: Formatage, points-virgules, etc.
-- `test`: Ajout ou modification de tests
-- `docs`: Documentation uniquement
-- `perf`: Amélioration de performance
-- `chore`: Tâches de maintenance (deps, config, etc.)
-- `build`: Changements du système de build
-- `ci`: Changements de CI/CD
-
-**Exemples de messages :**
+**Conventional Commits format (REQUIRED):**
 
 ```
-feat(scroll-manager): ajoute la synchronisation avec les sections 3D
+type(scope): short summary (max 72 characters)
 
-Implémente un système qui synchronise le scroll de la page avec les animations des objets Three.js. Utilise Lenis pour le smooth scroll avec détection des sections visibles et transitions fluides.
+Message body explaining:
+- What changes were made
+- Why these changes were necessary
+- What impact they have on the project
 
-Impact : améliore la fluidité de l'expérience utilisateur.
-
-fix(beatmaker): corrige le timing des samples audio
-
-Les samples entre 0.5 et 1.5 secondes étaient incorrectement décalés. Utilise requestAnimationFrame au lieu de setTimeout pour respecter la synchronisation audio précise.
-
-Corrige #42
-
-refactor(ui): simplifie le rendu des composants modaux
-
-Changements apportés :
-- extraction de la logique d'affichage dans un hook custom useModalState
-- suppression de 3 fichiers de styles redondants
-- consolidation des deux variantes de bouton en une seule avec prop `variant`
-
-Impact : réduit la taille du bundle CSS de 15% et améliore la maintenabilité du code modal.
+BREAKING CHANGE: description if applicable
 ```
 
-### 7. Exécution du commit
+**Body layout rules (REQUIRED):**
 
-- Utilise `git commit -v` pour voir le diff pendant la rédaction
-- Ou `git commit -m "type(scope): message"` pour les messages courts
-- Pour les messages multi-lignes, privilégie `git commit -F <fichier_message>`
-  ou `git commit` (éditeur interactif) pour garantir de vrais retours à la ligne
-  dans le corps.
-- **Structure du corps :** écris des paragraphes continus sur une seule ligne, séparés par des lignes vides. Les listes à puce restent l'exception où chaque item est une ligne distincte (recommandé quand il y a de nombreux changements).
-- N'utilise jamais des séquences littérales `\n` dans les arguments `-m`.
-- Important : chaque option `-m` crée un paragraphe distinct. Ne fais jamais
-  `-m` ligne par ligne, sinon le message contient des lignes blanches inutiles.
-- Si `-m` est nécessaire en CLI, limite-toi à :
-  - un `-m` pour le sujet
-  - un seul `-m` pour tout le corps (multi-lignes dans un seul bloc)
-- Après commit, vérifie systématiquement le rendu exact avec
+- **Continuous text:** write paragraphs on a single line without manual line breaks mid-sentence. Never break a sentence to respect a visual width.
+- **Separation:** keep a blank line between logical paragraphs.
+- **Bullet lists (recommended when many changes):** each bullet item = one complete single line. Bullets improve readability and are the preferred format for enumerating multiple changes.
+
+**Commit types:**
+
+- `feat`: New feature
+- `fix`: Bug fix
+- `refactor`: Refactoring without behavior change
+- `style`: Formatting, semicolons, etc.
+- `test`: Adding or modifying tests
+- `docs`: Documentation only
+- `perf`: Performance improvement
+- `chore`: Maintenance tasks (deps, config, etc.)
+- `build`: Build system changes
+- `ci`: CI/CD changes
+
+**Message examples:**
+
+```
+feat(scroll-manager): add synchronization with 3D sections
+
+Implements a system that synchronizes page scroll with Three.js object animations. Uses Lenis for smooth scroll with visible section detection and fluid transitions.
+
+Impact: improves user experience fluidity.
+
+fix(beatmaker): fix audio sample timing
+
+Samples between 0.5 and 1.5 seconds were incorrectly offset. Uses requestAnimationFrame instead of setTimeout to respect precise audio synchronization.
+
+Fixes #42
+
+refactor(ui): simplify modal component rendering
+
+Changes made:
+- extracted display logic into a custom useModalState hook
+- removed 3 redundant style files
+- consolidated two button variants into one with `variant` prop
+
+Impact: reduces CSS bundle size by 15% and improves modal code maintainability.
+```
+
+### 7. Executing the commit
+
+- Use `git commit -v` to see the diff while writing
+- Or `git commit -m "type(scope): message"` for short messages
+- For multi-line messages, prefer `git commit -F <message_file>`
+  or `git commit` (interactive editor) to ensure real line breaks
+  in the body.
+- **Body structure:** write continuous paragraphs on a single line, separated by blank lines. Bullet lists remain the exception where each item is a distinct line (recommended when there are many changes).
+- Never use literal `\n` sequences in `-m` arguments.
+- Important: each `-m` option creates a distinct paragraph. Never do
+  `-m` line by line, otherwise the message contains unnecessary blank lines.
+- If `-m` is needed in CLI, limit to:
+  - one `-m` for the subject
+  - one single `-m` for the entire body (multi-line in a single block)
+- After commit, systematically verify the exact rendering with
   `rtk git log -1 --pretty=%B`.
-- Exécute la commande et affiche le résultat
+- Execute the command and display the result
 
-### 8. Vérification rapide
+### 8. Quick verification
 
-Après chaque commit :
+After each commit:
 
-- Affiche le hash et le message : `rtk git log -1 --oneline`
-- Vérifie que les tests passent (si applicable) : `rtk npm test` ou équivalent
-- Continue avec le prochain commit
+- Show hash and message: `rtk git log -1 --oneline`
+- Verify tests pass (if applicable): `rtk npm test` or equivalent
+- Continue with the next commit
 
-### 9. Itération
+### 9. Iteration
 
-Répète les étapes 4 à 8 jusqu'à ce que `rtk git status` soit propre.
+Repeat steps 4 to 8 until `rtk git status` is clean.
 
-## Livrables
+## Deliverables
 
-Pour chaque session de commit, fournis :
+For each commit session, provide:
 
-1. **Résumé des commits créés :**
-   - Hash et message de chaque commit
-   - Liste des fichiers inclus par commit
-2. **Justification du découpage :**
-   - Pourquoi ces regroupements spécifiques
-   - Quels critères ont guidé la séparation
+1. **Summary of commits created:**
+   - Hash and message of each commit
+   - List of files included per commit
+2. **Splitting rationale:**
+   - Why these specific groupings
+   - What criteria guided the separation
 
-3. **Commandes exécutées :**
-   - Toutes les commandes git utilisées
-   - Résultat de `rtk git diff --cached` avant chaque commit
+3. **Commands executed:**
+   - All git commands used
+   - Result of `rtk git diff --cached` before each commit
 
-## Principes à respecter
+## Principles to follow
 
-✅ **À FAIRE :**
+✅ **DO:**
 
-- Messages de commit en français, clairs et descriptifs
-- Découpage logique et cohérent
-- Staging sélectif avec `rtk git add -p` quand nécessaire
-- Vérification systématique avec `rtk git diff --cached`
-- Messages au passé composé ("ajoute", "corrige", "modifie")
-- Corps du message qui explique le "pourquoi", pas le "comment"
-- Ne pas ajouter de mentions de type "Co-authored-by" dans les messages de commit que je te demande de rédiger. Je gère ça moi-même après coup si besoin.
-- Utiliser les types de commit appropriés (feat, fix, refactor, etc.)
-- Utiliser des scopes pertinents pour préciser les zones affectées
-- Utiliser des listes à puce dans le corps du message quand il y a de nombreux changements à énumérer
+- Commit messages in English, clear and descriptive
+- Logical and coherent splitting
+- Selective staging with `rtk git add -p` when needed
+- Systematic verification with `rtk git diff --cached`
+- Messages in imperative present ("add", "fix", "update")
+- Message body that explains the "why", not the "how"
+- Do not add "Co-authored-by" mentions in commit messages — handle that yourself afterward if needed
+- Use appropriate commit types (feat, fix, refactor, etc.)
+- Use relevant scopes to specify affected areas
+- Use bullet lists in the message body when there are many changes to enumerate
 
-## Référence
+## Reference
 
-Pour plus de détails sur les bonnes pratiques de commits, consulte :
+For more details on commit best practices, see:
 
 - `.claude/skills/commit-work/SKILL.md`
 - `.claude/skills/commit-work/README.md`
 
-Applique ces principes avec rigueur pour créer un historique git propre, lisible et professionnel.
+Apply these principles rigorously to create a clean, readable, and professional git history.

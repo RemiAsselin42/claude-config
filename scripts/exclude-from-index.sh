@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # exclude-from-index.sh [--yes] <repo-path> [<repo-path> ...]
 #
-# Exclut un ou plusieurs repos de l'indexation graphify + mempalace + vault Obsidian.
-# --yes : supprime graphify-out/ et le dossier vault sans demander (mode non-interactif).
-# Idempotent — safe à relancer.
+# Excludes one or more repos from graphify + mempalace + Obsidian vault indexing.
+# --yes : removes graphify-out/ and the vault folder without prompting (non-interactive).
+# Idempotent — safe to re-run.
 
 set -euo pipefail
 
@@ -17,14 +17,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/repo-identity.sh"
 VAULT_PROJETS="$SCRIPT_DIR/../vault/Projets"
 
-# ── couleurs ──────────────────────────────────────────────────────────────────
+# ── colors ────────────────────────────────────────────────────────────────────
 RED='\033[1;31m'; GREEN='\033[1;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; DIM='\033[2m'; NC='\033[0m'
 ok()   { echo -e "  ${DIM}✓ $*${NC}"; }
 warn() { echo -e "  ${YELLOW}⚠  $*${NC}"; }
 info() { echo -e "  ${DIM}· $*${NC}"; }
 err()  { echo -e "  ${RED}✗ $*${NC}"; }
 
-# ── python disponible ? ───────────────────────────────────────────────────────
+# ── python available? ─────────────────────────────────────────────────────────
 _find_python() {
   local cmd
   for cmd in python3 python py; do
@@ -37,7 +37,7 @@ _find_python() {
 }
 PYTHON="$(_find_python || true)"
 
-# ── supprime un wing mempalace via chromadb ───────────────────────────────────
+# ── delete a mempalace wing via chromadb ──────────────────────────────────────
 delete_mempalace_wing() {
   local wing="$1"
   local -a py_cmd
@@ -45,15 +45,15 @@ delete_mempalace_wing() {
   if [[ -n "$PYTHON" ]] && "$PYTHON" -c 'import chromadb' >/dev/null 2>&1; then
     py_cmd=("$PYTHON")
   elif command -v uv &>/dev/null; then
-    info "Mempalace : chromadb absent du Python courant — utilisation via uv..."
+    info "Mempalace: chromadb not in current Python — falling back to uv..."
     if uv run --no-project --quiet --with chromadb python -c 'import chromadb' >/dev/null 2>&1; then
       py_cmd=(uv run --no-project --quiet --with chromadb python)
     else
-      warn "Mempalace : impossible d'installer chromadb via uv — nettoyage ignoré"
+      warn "Mempalace: could not install chromadb via uv — cleanup skipped"
       return 0
     fi
   else
-    warn "Mempalace : chromadb absent et uv introuvable — nettoyage ignoré"
+    warn "Mempalace: chromadb missing and uv not found — cleanup skipped"
     return 0
   fi
 
@@ -89,22 +89,22 @@ for col_name in ["mempalace_drawers", "mempalace_closets"]:
 print(total)
 PYEOF
 )"; then
-    info "Mempalace : wing '$wing' non supprimé — base inaccessible, nettoyage ignoré"
+    info "Mempalace: wing '$wing' not deleted — database inaccessible, cleanup skipped"
     return 0
   fi
 
   if [[ "$result" =~ ^[0-9]+$ ]]; then
     if [[ "$result" -gt 0 ]]; then
-      ok "Mempalace : $result entrées supprimées (wing '$wing')"
+      ok "Mempalace: $result entries deleted (wing '$wing')"
     else
-      info "Mempalace : wing '$wing' déjà absent ou vide"
+      info "Mempalace: wing '$wing' already absent or empty"
     fi
   else
-    info "Mempalace : réponse inattendue — nettoyage ignoré"
+    info "Mempalace: unexpected response — cleanup skipped"
   fi
 }
 
-# ── traitement d'un repo ──────────────────────────────────────────────────────
+# ── process a repo ────────────────────────────────────────────────────────────
 exclude_repo() {
   local repo_path
   repo_path="$(realpath "$1")"
@@ -115,53 +115,53 @@ exclude_repo() {
   local repo_label="$repo_name"
   [[ "$local_name" != "$repo_name" ]] && repo_label="$local_name -> $repo_name"
 
-  echo -e "\033[1m[$repo_label]\033[0m \033[1;33mExclusion...\033[0m"
+  echo -e "\033[1m[$repo_label]\033[0m \033[1;33mExcluding...\033[0m"
 
   # validation
   if [[ ! -d "$repo_path" ]]; then
-    err "Dossier introuvable : $repo_path"; return 1
+    err "Directory not found: $repo_path"; return 1
   fi
 
   # ── 1. graphify hooks ──────────────────────────────────────────────────────
   if ! command -v graphify &>/dev/null; then
-    warn "graphify introuvable — hooks non désinstallés (pas dans PATH)"
+    warn "graphify not found — hooks not uninstalled (not in PATH)"
   elif [[ -d "$repo_path/.git" ]]; then
     local hook="$repo_path/.git/hooks/post-commit"
     if grep -q "graphify" "$hook" 2>/dev/null; then
       if (cd "$repo_path" && graphify hook uninstall 2>/dev/null); then
-        ok "Graphify : hooks désinstallés"
+        ok "Graphify: hooks uninstalled"
       else
-        warn "Graphify : désinstallation des hooks échouée (non-bloquant)"
+        warn "Graphify: hook uninstall failed (non-blocking)"
       fi
     else
-      info "Graphify : aucun hook installé"
+      info "Graphify: no hooks installed"
     fi
   else
-    info "Graphify : pas un repo git, hooks ignorés"
+    info "Graphify: not a git repo, hooks skipped"
   fi
 
   # ── 2. .graphifyignore ────────────────────────────────────────────────────
   local ignore_file="$repo_path/.graphifyignore"
   if [[ ! -f "$ignore_file" ]]; then
     touch "$ignore_file"
-    ok "Graphify : .graphifyignore créé"
+    ok "Graphify: .graphifyignore created"
   else
-    info "Graphify : .graphifyignore déjà présent"
+    info "Graphify: .graphifyignore already present"
   fi
 
-  # ── 3. graphify-out existant ──────────────────────────────────────────────
+  # ── 3. existing graphify-out ──────────────────────────────────────────────
   if [[ -d "$repo_path/graphify-out" ]]; then
     if [[ "$AUTO_YES" == "true" ]]; then
       rm -rf "$repo_path/graphify-out"
-      ok "Graphify : graphify-out/ supprimé"
+      ok "Graphify: graphify-out/ deleted"
     else
-      warn "graphify-out/ présent — suppression ? (o/N) "
+      warn "graphify-out/ present — delete? (y/N) "
       read -r answer
-      if [[ "${answer,,}" == "o" ]]; then
+      if [[ "${answer,,}" == "y" || "${answer,,}" == "yes" ]]; then
         rm -rf "$repo_path/graphify-out"
-        ok "Graphify : graphify-out/ supprimé"
+        ok "Graphify: graphify-out/ deleted"
       else
-        info "Graphify : graphify-out/ conservé"
+        info "Graphify: graphify-out/ kept"
       fi
     fi
   fi
@@ -169,39 +169,39 @@ exclude_repo() {
   # ── 4. mempalace wing ─────────────────────────────────────────────────────
   delete_mempalace_wing "$repo_name"
 
-  # ── 5. vault Obsidian ────────────────────────────────────────────────────
+  # ── 5. Obsidian vault ────────────────────────────────────────────────────
   local vault_dir="$VAULT_PROJETS/$repo_name"
   if [[ -d "$vault_dir" ]]; then
     if [[ "$AUTO_YES" == "true" ]]; then
       rm -rf "$vault_dir"
-      ok "Vault : $vault_dir supprimé"
+      ok "Vault: $vault_dir deleted"
     else
-      warn "Vault Obsidian : suppression de $vault_dir ? (o/N) "
+      warn "Obsidian vault: delete $vault_dir? (y/N) "
       read -r answer
-      if [[ "${answer,,}" == "o" ]]; then
+      if [[ "${answer,,}" == "y" || "${answer,,}" == "yes" ]]; then
         rm -rf "$vault_dir"
-        ok "Vault : $vault_dir supprimé"
+        ok "Vault: $vault_dir deleted"
       else
-        info "Vault : conservé"
+        info "Vault: kept"
       fi
     fi
   else
-    info "Vault : aucun dossier trouvé pour '$repo_name'"
+    info "Vault: no folder found for '$repo_name'"
   fi
 
   local legacy_vault_dir="$VAULT_PROJETS/$local_name"
   if [[ "$local_name" != "$repo_name" && -d "$legacy_vault_dir" ]]; then
     if [[ "$AUTO_YES" == "true" ]]; then
       rm -rf "$legacy_vault_dir"
-      ok "Vault : ancien dossier local $legacy_vault_dir supprimé"
+      ok "Vault: legacy local folder $legacy_vault_dir deleted"
     else
-      warn "Vault Obsidian : suppression de l'ancien dossier local $legacy_vault_dir ? (o/N) "
+      warn "Obsidian vault: delete legacy local folder $legacy_vault_dir? (y/N) "
       read -r answer
-      if [[ "${answer,,}" == "o" ]]; then
+      if [[ "${answer,,}" == "y" || "${answer,,}" == "yes" ]]; then
         rm -rf "$legacy_vault_dir"
-        ok "Vault : ancien dossier local supprimé"
+        ok "Vault: legacy local folder deleted"
       else
-        info "Vault : ancien dossier local conservé"
+        info "Vault: legacy local folder kept"
       fi
     fi
   fi
@@ -213,14 +213,13 @@ exclude_repo() {
 if [[ $# -eq 0 ]]; then
   echo "Usage: $0 [--yes] <repo-path> [<repo-path> ...]"
   echo ""
-  echo "  --yes   Supprime graphify-out/ et le vault sans confirmation (mode non-interactif)."
+  echo "  --yes   Deletes graphify-out/ and the vault without confirmation (non-interactive)."
   echo ""
-  echo "Exclut un repo de graphify (hooks + .graphifyignore),"
-  echo "supprime son wing mempalace, et nettoie le vault Obsidian."
+  echo "Excludes a repo from graphify (hooks + .graphifyignore),"
+  echo "deletes its mempalace wing, and cleans up the Obsidian vault."
   exit 1
 fi
 
 for path in "$@"; do
   exclude_repo "$path"
 done
-

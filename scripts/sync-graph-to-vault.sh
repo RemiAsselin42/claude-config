@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Copie GRAPH_REPORT, FILE_TREE et canvas vers le vault Obsidian après chaque update graphify.
+# Copies GRAPH_REPORT, FILE_TREE and canvas to the Obsidian vault after each graphify update.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
-[[ -z "$SCRIPT_DIR" ]] && { echo "sync-graph-to-vault.sh: impossible de déterminer SCRIPT_DIR" >&2; exit 1; }
+[[ -z "$SCRIPT_DIR" ]] && { echo "sync-graph-to-vault.sh: could not determine SCRIPT_DIR" >&2; exit 1; }
 source "$SCRIPT_DIR/repo-identity.sh"
 VAULT_BASE="$SCRIPT_DIR/../vault/Projets"
 repo_name="$(canonical_repo_name "$PWD")"
@@ -27,7 +27,7 @@ cp graphify-out/GRAPH_REPORT.md "$dest/$repo_name - GRAPH_REPORT.md"
 {
   echo "# File Tree — $repo_name"
   echo ""
-  echo "Voir aussi : [[$repo_name - GRAPH_REPORT]]"
+  echo "See also: [[$repo_name - GRAPH_REPORT]]"
   echo ""
   echo '```'
   if command -v tree &>/dev/null; then

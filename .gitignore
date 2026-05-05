@@ -4,7 +4,7 @@ env.local
 # Vault Obsidian — personal, not shared
 vault/
 
-# Graphify - generated/local files
+# Graphify — locally generated artifacts
 graphify-out/graph.html
 graphify-out/graph.json
 graphify-out/GRAPH_REPORT.md
@@ -13,5 +13,5 @@ graphify-out/cache/
 graphify-out/cost.json
 graphify-out/.graphify_python
 
-# Claude
+# Claude Code — local unversioned config
 /.claude

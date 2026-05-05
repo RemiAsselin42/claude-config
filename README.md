@@ -157,20 +157,20 @@ From then on, `install.sh` and the `PreToolUse` hook keep your private repo in s
 
 | Command | Description |
 |---|---|
-| `/appliquer-suggestions` | Apply identified recommendations to code |
+| `/apply-suggestions` | Apply identified recommendations to code |
 | `/caveman [on\|off] [level]` | Toggle caveman mode with optional intensity level |
 | `/create-commit` | Create a git commit |
-| `/evaluer-codebase` | Evaluate a freshly cloned repository |
-| `/evaluer-commentaires` | Analyze code comment quality |
-| `/evaluer-documentation` | Check doc/code consistency |
-| `/evaluer-modifications` | Analyze changes since last commit |
-| `/evaluer-qualite` | Evaluate code quality |
-| `/evaluer-stack` | Audit the technology stack |
-| `/expliquer-modifications` | Explain recent changes |
-| `/mettre-a-jour-agents` | Update AGENTS.md |
-| `/mettre-a-jour-documentation` | Update documentation |
-| `/mettre-a-jour-prompts` | Adapt prompt examples to the current project |
-| `/trouver-code-mort` | Find dead code in the project |
+| `/explain-changes` | Explain recent changes |
+| `/find-dead-code` | Find dead code in the project |
+| `/review-changes` | Analyze changes since last commit |
+| `/review-codebase` | Evaluate a freshly cloned repository |
+| `/review-comments` | Analyze code comment quality |
+| `/review-documentation` | Check doc/code consistency |
+| `/review-quality` | Evaluate code quality |
+| `/review-stack` | Audit the technology stack |
+| `/update-agents` | Update AGENTS.md |
+| `/update-documentation` | Update documentation |
+| `/update-prompts` | Adapt prompt examples to the current project |
 
 ---
 
