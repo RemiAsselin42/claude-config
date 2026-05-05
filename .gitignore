@@ -1,0 +1,17 @@
+env.local
+*.backup
+
+# Vault Obsidian — personal, not shared
+vault/
+
+# Graphify - generated/local files
+graphify-out/graph.html
+graphify-out/graph.json
+graphify-out/GRAPH_REPORT.md
+graphify-out/manifest.json
+graphify-out/cache/
+graphify-out/cost.json
+graphify-out/.graphify_python
+
+# Claude
+/.claude

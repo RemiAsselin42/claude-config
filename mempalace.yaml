@@ -1,0 +1,5 @@
+wing: claude-config
+exclude:
+  - graphify-out/
+  - vault/
+  - .git/

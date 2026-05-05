@@ -1,0 +1,16 @@
+{
+  "model": "opusplan",
+  "mcpServers": {
+    "figma": {
+      "url": "https://mcp.figma.com/mcp",
+      "type": "http",
+      "headers": {
+        "Authorization": "Bearer ${FIGMA_API_KEY}"
+      }
+    },
+    "mempalace": {
+      "command": "mempalace",
+      "args": ["mcp"]
+    }
+  }
+}

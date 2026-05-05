@@ -1,0 +1,88 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs ls:*)",
+      "Bash(xargs grep:*)",
+      "Bash(npx vitest:*)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push origin *)",
+      "Bash(git pull *)",
+      "Bash(git fetch *)",
+      "Bash(git checkout *)",
+      "Bash(git switch *)",
+      "Bash(git restore *)",
+      "Bash(git stash *)",
+      "Bash(git merge *)",
+      "Bash(git rebase *)",
+      "Bash(git init *)",
+      "Bash(git clone *)",
+      "Bash(git rm *)",
+      "Bash(git mv *)",
+      "Bash(git reset HEAD *)",
+      "Bash(git reset --soft *)",
+      "Bash(git -C * status)",
+      "Bash(git -C * log *)",
+      "Bash(git -C * diff *)",
+      "Bash(git -C * add *)",
+      "Bash(git -C * commit *)",
+      "Bash(git -C * push origin *)",
+      "Bash(git -C * pull *)",
+
+      "Bash(mkdir *)",
+      "Bash(mkdir -p *)",
+      "Bash(touch *)",
+      "Bash(cp *)",
+      "Bash(cp -r *)",
+      "Bash(mv *)",
+      "Bash(chmod *)",
+
+      "Bash(npm install)",
+      "Bash(npm install *)",
+      "Bash(npm run lint)",
+      "Bash(npm run typecheck)",
+      "Bash(npm run build)",
+      "Bash(npm run test)",
+      "Bash(npm run dev)",
+      "Bash(npm ci)",
+      "Bash(npm validate)",
+
+      "Bash(graphify *)",
+      "Bash(mempalace *)",
+      "Bash(rtk *)",
+      "Bash(bash *caveman-toggle*)",
+
+      "Bash(gh auth status)",
+      "Bash(gh repo create *)",
+      "Bash(gh pr create *)",
+      "Bash(gh pr merge *)",
+      "Bash(gh issue create *)"
+    ]
+  },
+  "effortLevel": "medium",
+  "autoUpdatesChannel": "latest",
+  "mcpServers": {
+    "mempalace": {
+      "command": "mempalace",
+      "args": ["mcp"]
+    }
+  },
+  "hooks": {
+    "PreToolUse": [],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          { "type": "command", "command": "PYTHONUTF8=1 mempalace hook run --hook stop --harness claude-code" },
+          { "type": "command", "command": "bash ~/.claude/scripts/session-stop.sh" }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [{ "type": "command", "command": "PYTHONUTF8=1 mempalace hook run --hook precompact --harness claude-code" }]
+      }
+    ]
+  }
+}
