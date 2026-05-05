@@ -43,8 +43,8 @@ Your private repo stays in sync with this one automatically — see [Upstream sy
 ## Quick start
 
 ```bash
-git clone https://github.com/RemiAsselin42/claude-config ~/Documents/_Dev/claude-config
-cd ~/Documents/_Dev/claude-config
+git clone https://github.com/RemiAsselin42/claude-config
+cd claude-config
 cp env.local.template env.local
 # Edit env.local with your machine-specific values
 bash install.sh

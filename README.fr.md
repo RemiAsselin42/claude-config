@@ -43,8 +43,8 @@ Le repo privé se synchronise automatiquement avec celui-ci — voir [Sync upstr
 ## Démarrage rapide
 
 ```bash
-git clone https://github.com/RemiAsselin42/claude-config ~/Documents/_Dev/claude-config
-cd ~/Documents/_Dev/claude-config
+git clone https://github.com/RemiAsselin42/claude-config
+cd claude-config
 cp env.local.template env.local
 # Remplir env.local avec les valeurs de la machine
 bash install.sh
