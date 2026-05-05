@@ -20,10 +20,16 @@ fi
 git -C "$REPO_DIR" fetch upstream --quiet 2>/dev/null || exit 0
 
 # Checkout shared files from upstream (leaves vault/, env.local, .claude/ untouched)
-git -C "$REPO_DIR" checkout upstream/main -- \
-  agents/ commands/ scripts/ templates/ defaults/ hooks/ \
-  install.sh settings.json CLAUDE.md .gitignore .gitattributes \
-  mempalace.yaml claude.json.template env.local.template 2>/dev/null
+# Each path individually so a missing path doesn't abort the entire checkout.
+_UPSTREAM_PATHS=(
+  agents/ commands/ scripts/ templates/ defaults/ hooks/
+  install.sh settings.json CLAUDE.md .gitignore .gitattributes
+  mempalace.yaml claude.json.template env.local.template
+)
+for _p in "${_UPSTREAM_PATHS[@]}"; do
+  git -C "$REPO_DIR" checkout upstream/main -- "$_p" 2>/dev/null || true
+done
+unset _UPSTREAM_PATHS _p
 
 git -C "$REPO_DIR" diff --cached --quiet || \
   git -C "$REPO_DIR" commit -m "chore: sync from upstream" --quiet
