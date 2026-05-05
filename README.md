@@ -97,7 +97,7 @@ claude-config/
 ├── defaults/                    # Defaults restored on new machine
 │   ├── caveman.enabled          # Presence = caveman on by default
 │   └── caveman.level            # Default intensity level
-├── hooks/                       # PreToolUse/Stop hooks → ~/.claude/hooks/
+├── hooks/                       # Hook scripts → ~/.claude/hooks/ (currently empty)
 ├── scripts/                     # Utility scripts → ~/.claude/scripts/
 │   ├── repo-identity.sh         # Shared lib: canonical_repo_name()
 │   ├── caveman-toggle.sh        # Toggle caveman mode
@@ -201,7 +201,7 @@ Configured in `settings.json`:
 
 | Hook | Trigger | Action |
 |---|---|---|
-| `PreToolUse` | Every tool call | `sync-upstream.sh` — syncs from upstream (debounced 8h) |
+| `PreToolUse` | Every tool call | `sync-upstream.sh` — syncs from upstream (debounced 8h, private repos only) |
 | `Stop` | End of session | MemPalace save + `session-stop.sh` (graphify update + vault sync) |
 | `PreCompact` | Before compaction | MemPalace save |
 
@@ -209,16 +209,16 @@ Configured in `settings.json`:
 
 ## RTK — Token proxy
 
-RTK rewrites common dev commands (e.g. `git status` → `rtk git status`) to reduce token consumption by 60–90%. The `PreToolUse` hook applies this transparently.
+RTK rewrites common dev commands (e.g. `git status` → `rtk git status`) to reduce token consumption by 60–90%.
+
+**Windows** — installed via `winget`, activated via `rtk init -g --claude-md`: RTK works through CLAUDE.md instructions (Claude prefixes commands itself, no bash hook needed).  
+**Linux/macOS** — installed via `brew` or the official install script, activated via `rtk init -g`: RTK installs a `PreToolUse` hook into `settings.json` that rewrites commands transparently.
 
 Install manually:
 
 ```bash
 bash ~/.claude/scripts/setup-rtk.sh
 ```
-
-**Windows** — installed via `winget`, with a bash wrapper at `~/.local/bin/rtk`.  
-**Linux/macOS** — installed via `brew` or the official install script, then `rtk init -g`.
 
 ---
 

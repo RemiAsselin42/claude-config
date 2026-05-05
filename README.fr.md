@@ -97,7 +97,7 @@ claude-config/
 ├── defaults/                    # Valeurs par défaut restaurées sur nouvelle machine
 │   ├── caveman.enabled          # Présence = caveman activé par défaut
 │   └── caveman.level            # Niveau d'intensité par défaut
-├── hooks/                       # Hooks PreToolUse/Stop → ~/.claude/hooks/
+├── hooks/                       # Scripts de hook → ~/.claude/hooks/ (actuellement vide)
 ├── scripts/                     # Scripts utilitaires → ~/.claude/scripts/
 │   ├── repo-identity.sh         # Lib partagée : canonical_repo_name()
 │   ├── caveman-toggle.sh        # Toggle caveman mode
@@ -201,7 +201,7 @@ Configurés dans `settings.json` :
 
 | Hook | Déclencheur | Action |
 |---|---|---|
-| `PreToolUse` | Chaque appel d'outil | `sync-upstream.sh` — sync depuis upstream (debounce 8h) |
+| `PreToolUse` | Chaque appel d'outil | `sync-upstream.sh` — sync depuis upstream (debounce 8h, repos privés uniquement) |
 | `Stop` | Fin de session | Sauvegarde MemPalace + `session-stop.sh` (graphify update + sync vault) |
 | `PreCompact` | Avant compaction | Sauvegarde MemPalace |
 
@@ -209,16 +209,16 @@ Configurés dans `settings.json` :
 
 ## RTK — Proxy de tokens
 
-RTK réécrit les commandes dev courantes (ex: `git status` → `rtk git status`) pour réduire la consommation de tokens de 60–90%. Le hook `PreToolUse` applique cela de façon transparente.
+RTK réécrit les commandes dev courantes (ex: `git status` → `rtk git status`) pour réduire la consommation de tokens de 60–90%.
+
+**Windows** — installé via `winget`, activé avec `rtk init -g --claude-md` : RTK fonctionne via les instructions CLAUDE.md (Claude préfixe les commandes lui-même, sans hook bash).  
+**Linux/macOS** — installé via `brew` ou le script officiel, activé avec `rtk init -g` : RTK installe un hook `PreToolUse` dans `settings.json` qui réécrit les commandes de façon transparente.
 
 Installation manuelle :
 
 ```bash
 bash ~/.claude/scripts/setup-rtk.sh
 ```
-
-**Windows** — installé via `winget`, avec un wrapper bash dans `~/.local/bin/rtk`.  
-**Linux/macOS** — installé via `brew` ou le script officiel, puis `rtk init -g`.
 
 ---
 
