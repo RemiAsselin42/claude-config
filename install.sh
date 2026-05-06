@@ -222,6 +222,22 @@ _prepare_dependencies() {
   else
     echo "  ${YELLOW}⚠ RTK: install/prepare failed, will attempt activation later.${RESET}"
   fi
+
+  if _run_quiet npm install -g context-mode; then
+    echo "  ${GREEN}✓ context-mode${RESET}"
+  else
+    echo "  ${YELLOW}⚠ context-mode: install failed — run manually: npm install -g context-mode${RESET}"
+  fi
+
+  if [[ -n "${MILVUS_ADDRESS:-}" ]]; then
+    if _run_quiet npm install -g @zilliz/claude-context-mcp; then
+      echo "  ${GREEN}✓ Zilliz (semantic search — add MCP server manually to settings.json if needed)${RESET}"
+    else
+      echo "  ${YELLOW}⚠ Zilliz install failed — run manually: npm install -g @zilliz/claude-context-mcp${RESET}"
+    fi
+  else
+    echo "  ${DIM}· Zilliz: skipped (MILVUS_ADDRESS not set in env.local)${RESET}"
+  fi
 }
 
 # --- Load machine-specific vars ---
@@ -255,11 +271,11 @@ done
 
 # --- Copy agents, commands and scripts ---
 _step "Copying agents, commands and scripts..."
-mkdir -p "$CLAUDE_DIR/agents" "$CLAUDE_DIR/commands" "$CLAUDE_DIR/scripts" "$CLAUDE_DIR/hooks"
+mkdir -p "$CLAUDE_DIR/agents" "$CLAUDE_DIR/commands" "$CLAUDE_DIR/scripts" "$CLAUDE_DIR/hooks" "$CLAUDE_DIR/templates"
 # Use nullglob to avoid glob failure if a source directory is empty
 (
   shopt -s nullglob
-  for dir in agents commands scripts hooks; do
+  for dir in agents commands scripts hooks templates; do
     files=("$REPO_DIR/$dir/"*)
     if [[ ${#files[@]} -gt 0 ]]; then
       cp -r "${files[@]}" "$CLAUDE_DIR/$dir/"
@@ -356,6 +372,19 @@ if SETUP_RTK_MANAGE_PATH=false SETUP_RTK_QUIET=true bash "$CLAUDE_DIR/scripts/se
 else
   echo "  ${YELLOW}⚠ RTK: run manually: bash ~/.claude/scripts/setup-rtk.sh${RESET}"
 fi
+
+# --- Install CC Safe Setup (after settings.json copy — it appends hooks non-destructively) ---
+_step "Installing safety hooks (cc-safe-setup)..."
+if command -v npx >/dev/null; then
+  if _run_quiet npx cc-safe-setup; then
+    echo "  ${GREEN}✓ CC Safe Setup (safety hooks active)${RESET}"
+  else
+    echo "  ${YELLOW}⚠ CC Safe Setup failed — run manually: npx cc-safe-setup${RESET}"
+  fi
+else
+  echo "  ${YELLOW}⚠ npx not found — CC Safe Setup skipped${RESET}"
+fi
+
 echo "  ${GREEN}✓ Claude configuration updated${RESET}"
 
 # --- Obsidian Vault ---
@@ -390,23 +419,36 @@ _setup_repo_gitignore() {
   local repo="$1"
   local gitignore_claude_md="${2:-false}"
   local gitignore="$repo/.gitignore"
+  local template="$REPO_DIR/templates/gitignore.append"
 
-  # Remove old fragmented or stale-comment graphify blocks
+  # Remove old fragmented or stale-comment graphify blocks so template re-adds them cleanly
   if grep -qF "graphify-out/" "$gitignore" 2>/dev/null; then
     local tmp
     tmp=$(grep -v -E '^graphify-out/|^# Graphify' "$gitignore")
     printf '%s\n' "$tmp" > "$gitignore"
   fi
 
-  printf '\n# Graphify — locally generated artifacts\ngraphify-out/\n' >> "$gitignore"
-  _detail "  ${GREEN}✓ .gitignore: graphify block updated${RESET}"
+  # Append entries from the template that are not already present.
+  # Comments and blank lines are written as-is to preserve readability.
+  # CLAUDE.md is skipped when it is version-controlled in the repo.
+  local added=()
+  local pending_comments=""
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ -z "$line" || "$line" == \#* ]]; then
+      pending_comments+="$line"$'\n'
+      continue
+    fi
+    [[ "$line" == "CLAUDE.md" && "$gitignore_claude_md" != "true" ]] && pending_comments="" && continue
+    if ! grep -qxF "$line" "$gitignore" 2>/dev/null; then
+      printf '%s' "$pending_comments" >> "$gitignore"
+      printf '%s\n' "$line" >> "$gitignore"
+      added+=("$line")
+    fi
+    pending_comments=""
+  done < "$template"
 
-  if [[ "$gitignore_claude_md" == "true" ]] && ! grep -qF "CLAUDE.md" "$gitignore" 2>/dev/null; then
-    printf '\n# Claude Code — local unversioned config\nCLAUDE.md\nmempalace.yaml\n' >> "$gitignore"
-    _detail "  ${GREEN}✓ .gitignore: CLAUDE.md + mempalace.yaml added (local config)${RESET}"
-  elif ! grep -qF "mempalace.yaml" "$gitignore" 2>/dev/null; then
-    printf '\nmempalace.yaml\n' >> "$gitignore"
-    _detail "  ${GREEN}✓ .gitignore: mempalace.yaml added${RESET}"
+  if [[ ${#added[@]} -gt 0 ]]; then
+    _detail "  ${GREEN}✓ .gitignore: added ${added[*]}${RESET}"
   fi
 }
 
@@ -595,3 +637,6 @@ git -C "$REPO_DIR" push origin master 2>/dev/null && echo "${GREEN}✓ Vault pus
 echo ""
 echo "${GREEN}Installation complete.${RESET}"
 echo "${DIM}Restart Claude Code for changes to take effect.${RESET}"
+echo ""
+echo "${DIM}Tip: run ${CYAN}/init-context${DIM} inside any repo to generate context/architecture.md,${RESET}"
+echo "${DIM}     context/patterns.md, and context/constraints.md from the codebase.${RESET}"
