@@ -1,3 +1,16 @@
+## Think in Code
+
+When a task requires analyzing many files (counting, searching, aggregating), write a script that prints only the result — don't read files into context one by one. Use `ctx_execute` (context-mode MCP) or Bash. Rule: N > 3 files to aggregate → generate a script.
+
+## Per-Repo Context
+
+If a `context/` directory exists in this repo, read all `context/*.md` files at session start before any work:
+- `context/architecture.md` — decisions and rationale
+- `context/patterns.md` — recurring code patterns
+- `context/constraints.md` — hard constraints and known gotchas
+
+Templates are in `~/.claude/templates/context/` — copy and customize for this repo.
+
 ## Graphify (Knowledge Graph)
 
 This project has a graphify knowledge graph at graphify-out/.
