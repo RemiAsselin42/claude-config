@@ -65,10 +65,24 @@
     "mempalace": {
       "command": "mempalace",
       "args": ["mcp"]
+    },
+    "context-mode": {
+      "command": "context-mode"
     }
   },
   "hooks": {
-    "PreToolUse": [],
+    "PreToolUse": [
+      {
+        "matcher": "",
+        "hooks": [{ "type": "command", "command": "context-mode hook claude-code pretooluse || true" }]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "",
+        "hooks": [{ "type": "command", "command": "context-mode hook claude-code posttooluse || true" }]
+      }
+    ],
     "Stop": [
       {
         "matcher": "",
@@ -81,7 +95,10 @@
     "PreCompact": [
       {
         "matcher": "",
-        "hooks": [{ "type": "command", "command": "PYTHONUTF8=1 mempalace hook run --hook precompact --harness claude-code" }]
+        "hooks": [
+          { "type": "command", "command": "PYTHONUTF8=1 mempalace hook run --hook precompact --harness claude-code" },
+          { "type": "command", "command": "context-mode hook claude-code precompact" }
+        ]
       }
     ]
   }
