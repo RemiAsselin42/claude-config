@@ -66,19 +66,21 @@ bash install.sh -v
 
 ## Ce que fait `install.sh`
 
-1. Vérifie **Node.js**, installe **uv** si absent, puis installe/met à jour **Graphify**, **MemPalace**, **chromadb** et **RTK**
+1. Vérifie **Node.js**, installe **uv** si absent, puis installe/met à jour **Graphify**, **MemPalace**, **chromadb**, **RTK** et **context-mode**
 2. Synchronise depuis `upstream` si le remote existe (les repos privés récupèrent automatiquement la dernière config partagée)
 3. Demande une seule confirmation si `~/.local/bin` doit être ajouté au PATH persistant (`-y` accepte automatiquement)
-4. Copie les **agents**, **commandes** et **scripts** vers `~/.claude/`
+4. Copie les **agents**, **commandes**, **scripts** et **templates** vers `~/.claude/`
 5. Génère **`session-stop.sh`** avec le chemin absolu du repo (hook Stop)
-6. Initialise **MemPalace** avec reconstruction de l'index depuis les transcripts Claude
-7. Copie **CLAUDE.md** vers `~/.claude/CLAUDE.md`
-8. Restaure le **caveman mode** depuis `defaults/` si absent sur la machine
-9. Génère **`claude.json`** depuis le template (substitution `FIGMA_API_KEY`)
-10. Copie **`settings.json`**
-11. Active **RTK** via `setup-rtk.sh`
-12. Sélection interactive des repos git frères à indexer (graphify + mempalace + vault)
-13. Commit et push automatique du vault si des graphes ont été générés
+6. Exécute **CC Safe Setup** pour installer les hooks de sécurité de façon non-destructive
+7. Initialise **MemPalace** avec reconstruction de l'index depuis les transcripts Claude
+8. Copie **CLAUDE.md** vers `~/.claude/CLAUDE.md`
+9. Restaure le **caveman mode** depuis `defaults/` si absent sur la machine
+10. Génère **`claude.json`** depuis le template (substitution `FIGMA_API_KEY`)
+11. Copie **`settings.json`**
+12. Active **RTK** via `setup-rtk.sh`
+13. Met à jour `.gitignore` dans les repos cibles (bloc graphify + `CLAUDE.md` + `mempalace.yaml` + `context/`) via `templates/gitignore.append`
+14. Sélection interactive des repos git frères à indexer (graphify + mempalace + vault)
+15. Commit et push automatique du vault si des graphes ont été générés
 
 ---
 
@@ -106,7 +108,12 @@ claude-config/
 │   ├── sync-graph-to-vault.sh   # Sync graphify → vault Obsidian
 │   └── exclude-from-index.sh    # Exclure un repo de graphify + mempalace
 └── templates/
-    └── CLAUDE.project.md        # Template CLAUDE.md pour les repos sans config
+    ├── CLAUDE.project.md        # Template CLAUDE.md de départ pour les nouveaux repos
+    ├── gitignore.append         # Entrées .gitignore ajoutées par install.sh
+    └── context/                 # Templates de contexte par repo (copiés par /init-context)
+        ├── architecture.md
+        ├── patterns.md
+        └── constraints.md
 ```
 
 ---
@@ -167,6 +174,7 @@ Ensuite, `install.sh` et le hook `PreToolUse` maintiennent le repo privé synchr
 | `/evaluer-qualite` | Évalue la qualité du code |
 | `/evaluer-stack` | Audit de la pile technologique |
 | `/expliquer-modifications` | Explique les modifications récentes |
+| `/init-context` | Génère `context/architecture.md`, `patterns.md`, `constraints.md` depuis le codebase |
 | `/mettre-a-jour-agents` | Met à jour AGENTS.md |
 | `/mettre-a-jour-documentation` | Met à jour la documentation |
 | `/mettre-a-jour-prompts` | Adapte les exemples des prompts au projet courant |
@@ -201,9 +209,10 @@ Configurés dans `settings.json` :
 
 | Hook | Déclencheur | Action |
 |---|---|---|
-| `PreToolUse` | Chaque appel d'outil | `sync-upstream.sh` — sync depuis upstream (debounce 8h, repos privés uniquement) |
-| `Stop` | Fin de session | Sauvegarde MemPalace + `session-stop.sh` (graphify update + sync vault) |
-| `PreCompact` | Avant compaction | Sauvegarde MemPalace |
+| `PreToolUse` | Chaque appel d'outil | `sync-upstream.sh` — sync depuis upstream (debounce 8h, repos privés uniquement) + hook `context-mode` |
+| `PostToolUse` | Chaque appel d'outil | Hook `context-mode` |
+| `Stop` | Fin de session | Sauvegarde MemPalace + hook `context-mode` + `session-stop.sh` (graphify update + sync vault) |
+| `PreCompact` | Avant compaction | Sauvegarde MemPalace + hook `context-mode` |
 
 ---
 
@@ -253,6 +262,34 @@ mempalace mine ~/.claude/projects/ --mode convos
 ```
 
 Via MCP (dans Claude Code) : `mempalace_search` et `mempalace_add_drawer`.
+
+---
+
+## Zilliz — Recherche sémantique (optionnel)
+
+Quand `MILVUS_ADDRESS` est défini dans `env.local`, Claude utilise la recherche vectorielle sémantique **avant** grep pour les requêtes de type "où est géré X" sur les grands repos. Graphify assure la navigation structurelle ; Zilliz apporte la pertinence sémantique.
+
+Configuration dans `env.local` (voir `env.local.template`) :
+
+```bash
+export MILVUS_ADDRESS="https://xxx.api.gcp-us-west1.zillizcloud.com"
+export MILVUS_TOKEN="your-zilliz-api-key"
+export OPENAI_API_KEY="sk-..."   # utilisé pour les embeddings
+```
+
+`install.sh` installe automatiquement le serveur MCP `@zilliz/claude-context-mcp` quand `MILVUS_ADDRESS` est défini. Sinon, cette étape est silencieusement ignorée.
+
+---
+
+## Contexte par repo
+
+Exécuter `/init-context` dans n'importe quel repo pour générer des fichiers de contexte structurés depuis le codebase réel :
+
+- `context/architecture.md` — décisions majeures et leur justification
+- `context/patterns.md` — patterns de code récurrents
+- `context/constraints.md` — contraintes de performance, sécurité et compatibilité
+
+Les templates sont dans `templates/context/`. Claude lit ces fichiers automatiquement en début de session si le dossier `context/` existe (via la règle Per-Repo Context dans `CLAUDE.md`).
 
 ---
 

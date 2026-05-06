@@ -66,19 +66,21 @@ bash install.sh -v
 
 ## What `install.sh` does
 
-1. Checks **Node.js**, installs **uv** if missing, then installs/upgrades **Graphify**, **MemPalace**, **chromadb**, and **RTK**
+1. Checks **Node.js**, installs **uv** if missing, then installs/upgrades **Graphify**, **MemPalace**, **chromadb**, **RTK**, and **context-mode**
 2. Syncs from `upstream` remote if present (private repos get latest shared config automatically)
 3. Asks once to add `~/.local/bin` to persistent PATH (`-y` skips)
-4. Copies **agents**, **commands**, **scripts** to `~/.claude/`
+4. Copies **agents**, **commands**, **scripts**, **templates** to `~/.claude/`
 5. Generates **`session-stop.sh`** with the absolute repo path (Stop hook)
-6. Initializes **MemPalace** and rebuilds index from Claude transcripts
-7. Copies **CLAUDE.md** to `~/.claude/CLAUDE.md`
-8. Restores **caveman mode** from `defaults/` if not set on this machine
-9. Generates **`claude.json`** from template (substitutes `FIGMA_API_KEY`)
-10. Copies **`settings.json`**
-11. Activates **RTK** via `setup-rtk.sh`
-12. Interactively selects sibling git repos to index (graphify + mempalace + vault)
-13. Auto-commits vault if graphs were generated
+6. Runs **CC Safe Setup** to install safety hooks non-destructively
+7. Initializes **MemPalace** and rebuilds index from Claude transcripts
+8. Copies **CLAUDE.md** to `~/.claude/CLAUDE.md`
+9. Restores **caveman mode** from `defaults/` if not set on this machine
+10. Generates **`claude.json`** from template (substitutes `FIGMA_API_KEY`)
+11. Copies **`settings.json`**
+12. Activates **RTK** via `setup-rtk.sh`
+13. Updates `.gitignore` in target repos (graphify block + `CLAUDE.md` + `mempalace.yaml` + `context/`) using `templates/gitignore.append`
+14. Interactively selects sibling git repos to index (graphify + mempalace + vault)
+15. Auto-commits vault if graphs were generated
 
 ---
 
@@ -106,7 +108,12 @@ claude-config/
 │   ├── sync-graph-to-vault.sh   # Sync Graphify → Obsidian vault
 │   └── exclude-from-index.sh    # Remove a repo from graphify + mempalace
 └── templates/
-    └── CLAUDE.project.md        # CLAUDE.md template for repos without one
+    ├── CLAUDE.project.md        # CLAUDE.md starter template for new repos
+    ├── gitignore.append         # .gitignore entries appended by install.sh
+    └── context/                 # Per-repo context templates (copied by /init-context)
+        ├── architecture.md
+        ├── patterns.md
+        └── constraints.md
 ```
 
 ---
@@ -162,6 +169,7 @@ From then on, `install.sh` and the `PreToolUse` hook keep your private repo in s
 | `/create-commit` | Create a git commit |
 | `/explain-changes` | Explain recent changes |
 | `/find-dead-code` | Find dead code in the project |
+| `/init-context` | Generate `context/architecture.md`, `patterns.md`, `constraints.md` from the codebase |
 | `/review-changes` | Analyze changes since last commit |
 | `/review-codebase` | Evaluate a freshly cloned repository |
 | `/review-comments` | Analyze code comment quality |
@@ -201,9 +209,10 @@ Configured in `settings.json`:
 
 | Hook | Trigger | Action |
 |---|---|---|
-| `PreToolUse` | Every tool call | `sync-upstream.sh` — syncs from upstream (debounced 8h, private repos only) |
-| `Stop` | End of session | MemPalace save + `session-stop.sh` (graphify update + vault sync) |
-| `PreCompact` | Before compaction | MemPalace save |
+| `PreToolUse` | Every tool call | `sync-upstream.sh` — syncs from upstream (debounced 8h, private repos only) + `context-mode` hook |
+| `PostToolUse` | Every tool call | `context-mode` hook |
+| `Stop` | End of session | MemPalace save + `context-mode` hook + `session-stop.sh` (graphify update + vault sync) |
+| `PreCompact` | Before compaction | MemPalace save + `context-mode` hook |
 
 ---
 
@@ -253,6 +262,34 @@ mempalace mine ~/.claude/projects/ --mode convos
 ```
 
 Via MCP (in Claude Code): `mempalace_search` and `mempalace_add_drawer`.
+
+---
+
+## Zilliz — Semantic search (optional)
+
+When `MILVUS_ADDRESS` is set in `env.local`, Claude uses semantic vector search **before** grep for "find where X is handled" queries on large repos. Graphify provides structural navigation; Zilliz provides semantic relevance.
+
+Configure in `env.local` (see `env.local.template`):
+
+```bash
+export MILVUS_ADDRESS="https://xxx.api.gcp-us-west1.zillizcloud.com"
+export MILVUS_TOKEN="your-zilliz-api-key"
+export OPENAI_API_KEY="sk-..."   # used for embeddings
+```
+
+`install.sh` installs the `@zilliz/claude-context-mcp` MCP server automatically when `MILVUS_ADDRESS` is set. If not set, this step is silently skipped.
+
+---
+
+## Per-repo context
+
+Run `/init-context` inside any repo to generate structured context files from the actual codebase:
+
+- `context/architecture.md` — major decisions and their rationale
+- `context/patterns.md` — recurring code patterns
+- `context/constraints.md` — performance, security, and compatibility constraints
+
+Templates are in `templates/context/`. Claude reads these files automatically at session start if the `context/` directory exists (via the Per-Repo Context rule in `CLAUDE.md`).
 
 ---
 
