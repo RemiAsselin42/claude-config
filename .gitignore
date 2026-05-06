@@ -15,3 +15,9 @@ graphify-out/.graphify_python
 
 # Claude Code — local unversioned config
 /.claude
+
+# Todo
+TODO.md
+
+# Context 
+context/

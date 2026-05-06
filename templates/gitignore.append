@@ -1,0 +1,7 @@
+# Graphify — locally generated artifacts
+graphify-out/
+
+# Claude Code — local unversioned config
+CLAUDE.md
+mempalace.yaml
+context/
