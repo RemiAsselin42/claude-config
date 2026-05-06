@@ -59,6 +59,39 @@ rtk gain        # must work without error
 
 All other commands are automatically rewritten via the hook — no action required.
 
+## Zilliz — Semantic Search (optional)
+
+If `MILVUS_ADDRESS` is defined in the environment, use semantic vector search **before** grep for "find where X is handled" queries on large repos. Graphify = structural navigation, Zilliz = semantic relevance.
+
+If `MILVUS_ADDRESS` is absent, skip silently and use Graphify + grep as usual.
+
+## Per-Repo Context
+
+If a `context/` directory exists in the current repo, read all `context/*.md` files **before starting any work**. These files contain project-specific decisions, patterns, and constraints that are not derivable from the code alone.
+
+Standard files (not all repos will have all three):
+- `context/architecture.md` — major decisions and their rationale
+- `context/patterns.md` — recurring code patterns
+- `context/constraints.md` — performance, security, compatibility constraints and known gotchas
+
+If `context/` doesn't exist, skip silently — no action needed.
+
+## Think in Code
+
+When a task requires analyzing many files (counting, searching patterns, aggregating data), **write a script that does the work and prints only the result** — don't read files into context one by one.
+
+```javascript
+// Instead of: 47 × Read() = 700 KB in context
+// Do this:
+ctx_execute("javascript", `
+  const files = fs.readdirSync('src').filter(f => f.endsWith('.ts'));
+  files.forEach(f => console.log(f + ': ' + fs.readFileSync('src/'+f,'utf8').split('\\n').length + ' lines'));
+`);
+// Output: 3.6 KB
+```
+
+Rule: if the answer requires reading N > 3 files to aggregate data, generate a script instead. Use `ctx_execute` (context-mode MCP tool) or Bash.
+
 ## graphify
 
 This project has a graphify knowledge graph at graphify-out/.
