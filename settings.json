@@ -87,7 +87,7 @@
       {
         "matcher": "",
         "hooks": [
-          { "type": "command", "command": "PYTHONUTF8=1 mempalace hook run --hook stop --harness claude-code" },
+          { "type": "command", "command": "bash -c 'timeout 10 mempalace hook run --hook stop --harness claude-code || true'" },
           { "type": "command", "command": "bash ~/.claude/scripts/session-stop.sh" }
         ]
       }
@@ -96,7 +96,7 @@
       {
         "matcher": "",
         "hooks": [
-          { "type": "command", "command": "PYTHONUTF8=1 mempalace hook run --hook precompact --harness claude-code" },
+          { "type": "command", "command": "bash -c 'timeout 10 mempalace hook run --hook precompact --harness claude-code || true'" },
           { "type": "command", "command": "context-mode hook claude-code precompact" }
         ]
       }
