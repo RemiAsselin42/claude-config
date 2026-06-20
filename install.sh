@@ -297,13 +297,8 @@ cat > "$CLAUDE_DIR/scripts/session-stop.sh" << 'STOPSCRIPT'
 graphify update . 2>/dev/null || true
 STOPSCRIPT
 echo "bash \"$SYNC_SCRIPT\"" >> "$CLAUDE_DIR/scripts/session-stop.sh"
-cat >> "$CLAUDE_DIR/scripts/session-stop.sh" << STOPSCRIPT2
-if git -C "$REPO_DIR" status --porcelain vault/ | grep -q .; then
-  git -C "$REPO_DIR" add vault/
-  git -C "$REPO_DIR" commit -m "graphify: sync vault — \$(date +%Y-%m-%d)"
-  git -C "$REPO_DIR" push origin master 2>/dev/null || true
-fi
-STOPSCRIPT2
+# Commit + reconcile + push via the shared, divergence-safe helper (fetch→merge→push).
+echo "bash \"$REPO_DIR/scripts/vault-sync.sh\"" >> "$CLAUDE_DIR/scripts/session-stop.sh"
 chmod +x "$CLAUDE_DIR/scripts/session-stop.sh"
 _detail "  ${GREEN}✓ session-stop.sh generated${RESET}"
 
@@ -623,16 +618,20 @@ else
   echo "  ${DIM}mempalace.yaml already present — kept.${RESET}"
 fi
 
-# Commit the vault if changes were generated
+# Harden vault auto-sync against multi-machine divergence:
+#  - keep THIS machine's regenerated vault on merge conflicts (merge=ours driver,
+#    referenced by .gitattributes' `vault/** merge=ours`)
+#  - ensure a manual `git pull` uses merge (not rebase) so that driver applies
+git -C "$REPO_DIR" config merge.ours.driver true
+git -C "$REPO_DIR" config pull.rebase false
+
+# Commit the vault and reconcile with origin (fetch→merge→push, conflict-safe)
 echo ""
-if git -C "$REPO_DIR" status --porcelain vault/ | grep -q .; then
-  git -C "$REPO_DIR" add vault/
-  git -C "$REPO_DIR" commit -m "graphify: sync vault — $(date +%Y-%m-%d)"
-  echo "${GREEN}✓ Vault committed in claude-config.${RESET}"
+if bash "$REPO_DIR/scripts/vault-sync.sh"; then
+  echo "${GREEN}✓ Vault synced with origin.${RESET}"
 else
-  echo "${DIM}Vault already up to date — no commit needed.${RESET}"
+  echo "${YELLOW}⚠ Vault sync incomplete — see message above.${RESET}"
 fi
-git -C "$REPO_DIR" push origin master 2>/dev/null && echo "${GREEN}✓ Vault pushed.${RESET}" || echo "${YELLOW}⚠ Push failed (no remote?).${RESET}"
 
 echo ""
 echo "${GREEN}Installation complete.${RESET}"

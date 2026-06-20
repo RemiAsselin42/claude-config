@@ -1,2 +1,8 @@
 * text=auto eol=lf
 *.sh text eol=lf
+
+# If a fork versions vault/ (graphify reports + canvas), keep the local freshly
+# regenerated copy on merge conflicts so multi-machine syncs never produce
+# conflict markers. Requires `git config merge.ours.driver true` (install.sh sets
+# it). Harmless when vault/ is gitignored (the default for this public template).
+vault/** merge=ours
