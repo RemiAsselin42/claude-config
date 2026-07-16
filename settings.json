@@ -78,7 +78,7 @@
       },
       {
         "matcher": "Bash",
-        "hooks": [{ "type": "command", "command": "rtk hook claude || true" }]
+        "hooks": [{ "type": "command", "command": "rtk hook claude" }]
       }
     ],
     "PostToolUse": [
