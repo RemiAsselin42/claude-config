@@ -6,3 +6,4 @@
 # conflict markers. Requires `git config merge.ours.driver true` (install.sh sets
 # it). Harmless when vault/ is gitignored (the default for this public template).
 vault/** merge=ours
+graphify-out/graph.json merge=graphify
