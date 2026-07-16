@@ -252,6 +252,15 @@ source "$REPO_DIR/env.local"
 _prepare_dependencies
 
 # --- Sync from upstream if available ---
+# Auto-add the upstream remote on private forks (origin = claude-config-private)
+if ! git -C "$REPO_DIR" remote get-url upstream &>/dev/null; then
+  _origin_url="$(git -C "$REPO_DIR" remote get-url origin 2>/dev/null)"
+  if [[ "$_origin_url" == *claude-config-private* ]]; then
+    git -C "$REPO_DIR" remote add upstream "${_origin_url/claude-config-private/claude-config}"
+    echo "  ${GREEN}✓ upstream remote added${RESET}"
+  fi
+  unset _origin_url
+fi
 if git -C "$REPO_DIR" remote get-url upstream &>/dev/null; then
   echo "${BOLD}${CYAN}Syncing from upstream...${RESET}"
   bash "$REPO_DIR/scripts/sync-upstream.sh" --force
