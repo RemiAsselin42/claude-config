@@ -465,6 +465,18 @@ YAML
   [[ "$VERBOSE" == "true" ]] && echo "  ${GREEN}✓ mempalace.yaml generated (wing: $repo_name)${RESET}" || echo "  ${DIM}· mempalace.yaml: generated${RESET}"
 }
 
+# graphify claude install injects a "## graphify" section into the repo's
+# CLAUDE.md — generalized rules that already live in the global ~/.claude/CLAUDE.md.
+# Keep the hooks it installs, drop the duplicated section (case-sensitive: the
+# injected heading is exactly "## graphify", not "## Graphify (Knowledge Graph)").
+_strip_graphify_md_section() {
+  local md="$1/CLAUDE.md"
+  [[ -f "$md" ]] && grep -q '^## graphify[[:space:]]*$' "$md" || return 0
+  local stripped
+  stripped=$(awk '/^## graphify[[:space:]]*$/{skip=1; next} skip && /^## /{skip=0} !skip' "$md")
+  printf '%s\n' "$stripped" > "$md"
+}
+
 _setup_repo_graphify() {
   local repo="$1"
   local repo_name="$(canonical_repo_name "$repo")"
@@ -480,6 +492,7 @@ _setup_repo_graphify() {
       _run_quiet graphify hook install
       _detail "  ${GREEN}✓ hook install${RESET}"
     )
+    _strip_graphify_md_section "$repo"
     _setup_repo_gitignore "$repo" false
     [[ "$VERBOSE" != "true" ]] && echo "  ${DIM}· CLAUDE.md: versioned — hooks installed${RESET}" || true
   else
@@ -590,6 +603,7 @@ echo ""
 echo "${BOLD}[claude-config]${RESET} Setting up..."
 _run_quiet graphify claude install
 _detail "  ${GREEN}✓ claude install${RESET}"
+_strip_graphify_md_section "$REPO_DIR"
 _run_quiet graphify hook install
 _detail "  ${GREEN}✓ hook install${RESET}"
 if [[ -f "$REPO_DIR/graphify-out/GRAPH_REPORT.md" ]]; then
