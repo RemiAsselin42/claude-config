@@ -1,7 +1,7 @@
 ---
 description: Create logical commits and open PR(s) against a protected main, then critically review Copilot feedback.
 argument-hint: '[scope of changes to include (files, feature, description), or empty to process all changes]'
-allowed-tools: Bash(git *), Bash(gh *), Read, Grep, Glob, Edit
+allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git fetch:*), Bash(git branch:*), Bash(git switch:*), Bash(git add:*), Bash(git restore:*), Bash(git commit:*), Bash(git push:*), Bash(git stash:*), Bash(gh pr create:*), Bash(gh pr view:*), Bash(gh api:*), Read, Grep, Glob, Edit
 ---
 
 # Create Pull Requests on a Protected Main
@@ -31,7 +31,7 @@ Scope filter: $ARGUMENTS
 
 Apply the same analysis as `/create-commit` (change type, scope, related vs independent), but one level higher:
 
-**One PR = one coherent topic, independently reviewable and revertable.**
+**One PR = one coherent topic, independently reviewable and revertible.**
 
 Create **multiple PRs** when changes span independent topics:
 
@@ -85,7 +85,7 @@ If Copilot review is not enabled or has not run yet, say so and stop after PR cr
 
 - Branch names: `type/scope-short-desc` (e.g. `feat/auth-token-refresh`)
 - PR titles in English, Conventional Commits format
-- One PR = one revertable topic; several small PRs beat one mixed PR
+- One PR = one revertible topic; several small PRs beat one mixed PR
 - Question every AI review recommendation before applying it
 
 ❌ **DON'T:**
