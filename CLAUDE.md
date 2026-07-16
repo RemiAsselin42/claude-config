@@ -2,12 +2,14 @@
 
 ## Graphify (Knowledge Graph)
 
-If a knowledge graph exists in the current repo (`graphify-out/GRAPH_REPORT.md`), read it **before** answering architecture questions or searching through files. The graph identifies central nodes (god nodes) and community structure — use it to navigate efficiently.
+If `graphify-out/graph.json` exists in the current repo:
 
-To generate or update the current repo's graph:
-```
-graphify update .
-```
+- For codebase questions, first run `graphify query "<question>"`. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If `graphify-out/wiki/index.md` exists, use it for broad navigation instead of raw source browsing.
+- Read `graphify-out/GRAPH_REPORT.md` only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+
+If no graph exists, generate it with `graphify update .` — or skip silently when the repo isn't meant to be graphified.
 
 ## Persistent Memory (MemPalace)
 
@@ -41,7 +43,7 @@ The Obsidian vault is versioned in the config repo (`vault/`). Structure:
 
 ## RTK — Token Proxy
 
-RTK is a CLI proxy that reduces token consumption by 60-90% on common dev commands. The PreToolUse hook in `settings.json` automatically rewrites Bash commands (e.g. `git status` → `rtk git status`) transparently.
+RTK is a CLI proxy that reduces token consumption by 60-90% on common dev commands. The PreToolUse hook (`rtk hook claude`, versioned in `settings.json`) rewrites Bash commands automatically (e.g. `git status` → `rtk git status`) — manual `rtk` prefixing is unnecessary.
 
 **Meta commands (always call rtk directly):**
 ```bash
@@ -51,13 +53,7 @@ rtk discover          # Analyze history to identify missed opportunities
 rtk proxy <cmd>       # Run the raw command without filtering (debug)
 ```
 
-**Verify:**
-```bash
-rtk --version   # must show rtk X.Y.Z (not Rust Type Kit)
-rtk gain        # must work without error
-```
-
-All other commands are automatically rewritten via the hook — no action required.
+**Verify (install debug):** `rtk --version` must show `rtk X.Y.Z` (not Rust Type Kit) and `rtk gain` must run without error.
 
 ## Zilliz — Semantic Search (optional)
 
@@ -91,13 +87,3 @@ ctx_execute("javascript", `
 ```
 
 Rule: if the answer requires reading N > 3 files to aggregate data, generate a script instead. Use `ctx_execute` (context-mode MCP tool) or Bash.
-
-## graphify
-
-This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
-
-Rules:
-- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
-- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
-- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
-- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
