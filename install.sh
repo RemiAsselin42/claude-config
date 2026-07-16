@@ -472,9 +472,14 @@ YAML
 _strip_graphify_md_section() {
   local md="$1/CLAUDE.md"
   [[ -f "$md" ]] && grep -q '^## graphify[[:space:]]*$' "$md" || return 0
-  local stripped
-  stripped=$(awk '/^## graphify[[:space:]]*$/{skip=1; next} skip && /^## /{skip=0} !skip' "$md")
-  printf '%s\n' "$stripped" > "$md"
+  local tmp
+  tmp="$(mktemp "$md.XXXXXX")"
+  if awk '/^## graphify[[:space:]]*$/{skip=1; next} skip && /^## /{skip=0} !skip' "$md" > "$tmp"; then
+    mv "$tmp" "$md"
+  else
+    rm -f "$tmp"
+    return 1
+  fi
 }
 
 _setup_repo_graphify() {
