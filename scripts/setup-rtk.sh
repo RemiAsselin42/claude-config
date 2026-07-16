@@ -55,7 +55,9 @@ mkdir -p "$TOOL_BIN_DIR"
 _add_tool_paths_to_current_session
 
 if _is_windows; then
-  # --- Windows: install via winget + CLAUDE.md mode (no bash hook) ---
+  # --- Windows: install via winget. The PreToolUse hook (`rtk hook claude`)
+  # ships via the repo's settings.json copied by install.sh — verified working
+  # on Windows — so rtk init only needs to install the RTK.md instructions. ---
   if ! command -v rtk &>/dev/null; then
     log "Installing RTK via winget..."
     run_cmd winget install rtk-ai.rtk --accept-package-agreements --accept-source-agreements || true
