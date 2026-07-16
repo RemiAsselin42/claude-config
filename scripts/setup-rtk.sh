@@ -57,7 +57,8 @@ _add_tool_paths_to_current_session
 if _is_windows; then
   # --- Windows: install via winget. The PreToolUse hook (`rtk hook claude`)
   # ships via the repo's settings.json copied by install.sh — verified working
-  # on Windows — so rtk init only needs to install the RTK.md instructions. ---
+  # on Windows. rtk init runs --hook-only as an idempotent safety net; no
+  # RTK.md is generated (the CLAUDE.md template documents the meta commands). ---
   if ! command -v rtk &>/dev/null; then
     log "Installing RTK via winget..."
     run_cmd winget install rtk-ai.rtk --accept-package-agreements --accept-source-agreements || true
@@ -85,7 +86,7 @@ WRAPPER
 
     if [[ "$SETUP_RTK_INIT" == "true" ]]; then
       run_cmd "$RTK_EXE" telemetry disable || true
-      run_cmd "$RTK_EXE" init -g --claude-md
+      run_cmd "$RTK_EXE" init -g --hook-only --auto-patch
     else
       log "  RTK activation deferred."
     fi
@@ -114,7 +115,7 @@ else
   if [[ "$SETUP_RTK_INIT" == "true" ]]; then
     log "Activating Claude Code hook..."
     run_cmd rtk telemetry disable || true
-    run_cmd rtk init -g
+    run_cmd rtk init -g --hook-only --auto-patch
   else
     log "RTK activation deferred."
   fi
