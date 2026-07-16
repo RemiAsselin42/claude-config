@@ -6,3 +6,9 @@
 # conflict markers. Requires `git config merge.ours.driver true` (install.sh sets
 # it). Harmless when vault/ is gitignored (the default for this public template).
 vault/** merge=ours
+
+# Union-merge for the knowledge graph. Requires graphify's merge driver
+# (`graphify hook install` sets merge.graphify.driver). Clones without it fall
+# back to the default merge; harmless when graphify-out/ is gitignored (the
+# default for this public template).
+graphify-out/graph.json merge=graphify
