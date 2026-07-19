@@ -263,11 +263,14 @@ _prepare_dependencies() {
   # jq is required by the cc-safe-setup hooks for JSON parsing
   if command -v jq >/dev/null; then
     echo "  ${GREEN}✓ jq${RESET}"
-  elif _is_windows && command -v winget >/dev/null; then
-    if _run_quiet winget install jqlang.jq --accept-package-agreements --accept-source-agreements; then
-      echo "  ${GREEN}✓ jq installed (available in new terminals)${RESET}"
+  elif _is_windows; then
+    # Direct release download — usable in the current session, no winget
+    # dependency (winget is often unresolvable from Git Bash, and a winget
+    # install would not be in PATH until a new terminal anyway).
+    if _run_quiet curl -fsSL -o "$TOOL_BIN_DIR/jq.exe" "https://github.com/jqlang/jq/releases/latest/download/jq-windows-amd64.exe"; then
+      echo "  ${GREEN}✓ jq installed ($TOOL_BIN_DIR/jq.exe)${RESET}"
     else
-      echo "  ${YELLOW}⚠ jq: install failed — cc-safe-setup hooks need it (winget install jqlang.jq)${RESET}"
+      echo "  ${YELLOW}⚠ jq: download failed — cc-safe-setup hooks need it (winget install jqlang.jq / scoop install jq)${RESET}"
     fi
   else
     echo "  ${YELLOW}⚠ jq missing — cc-safe-setup hooks need it (brew install jq / apt install jq)${RESET}"

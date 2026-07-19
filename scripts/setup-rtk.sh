@@ -55,44 +55,65 @@ mkdir -p "$TOOL_BIN_DIR"
 _add_tool_paths_to_current_session
 
 if _is_windows; then
-  # --- Windows: install via winget. The PreToolUse hook (`rtk hook claude`)
-  # ships via the repo's settings.json copied by install.sh — verified working
-  # on Windows. rtk init runs --hook-only as an idempotent safety net; no
-  # RTK.md is generated (the CLAUDE.md template documents the meta commands). ---
-  if ! command -v rtk &>/dev/null; then
-    log "Installing RTK via winget..."
-    run_cmd winget install rtk-ai.rtk --accept-package-agreements --accept-source-agreements || true
-  else
+  # --- Windows: winget when resolvable from Git Bash, GitHub release fallback
+  # otherwise (App Execution Alias often breaks winget in Git Bash). The
+  # PreToolUse hook (`rtk hook claude`) ships via the repo's settings.json
+  # copied by install.sh; rtk init runs --hook-only as an idempotent safety net. ---
+  RTK_EXE=""
+  if command -v rtk &>/dev/null; then
     log "RTK already installed: $(rtk --version)"
-  fi
-  # Call rtk.exe directly via its winget path (PATH not refreshed in current session)
-  if [[ "$SETUP_RTK_INIT" == "true" ]]; then
-    log "Activating CLAUDE.md mode (native Windows)..."
-  fi
-  WINGET_PKGS="$(cygpath -u "${LOCALAPPDATA}/Microsoft/WinGet/Packages" 2>/dev/null || true)"
-  RTK_EXE="$(compgen -G "$WINGET_PKGS/rtk-ai.rtk_*/rtk.exe" 2>/dev/null | head -1)"
-  if [[ -x "$RTK_EXE" ]]; then
-    # Create a bash wrapper in ~/.local/bin so rtk is accessible
-    # from Claude Code's bash shell (Windows PATH is not refreshed in session).
-    mkdir -p "$TOOL_BIN_DIR"
-    RTK_EXE_WIN="$(cygpath -w "$RTK_EXE")"
-    cat > "$TOOL_BIN_DIR/rtk" << WRAPPER
+    RTK_EXE="$(command -v rtk)"
+  else
+    if command -v winget &>/dev/null; then
+      log "Installing RTK via winget..."
+      run_cmd winget install rtk-ai.rtk --accept-package-agreements --accept-source-agreements || true
+      # Verify by resolving the installed exe — an empty glob means the install
+      # failed (errors are swallowed above in quiet mode).
+      WINGET_PKGS="$(cygpath -u "${LOCALAPPDATA}/Microsoft/WinGet/Packages" 2>/dev/null || true)"
+      RTK_EXE="$(compgen -G "$WINGET_PKGS/rtk-ai.rtk_*/rtk.exe" 2>/dev/null | head -1)"
+      if [[ -x "$RTK_EXE" ]]; then
+        # Bash wrapper in ~/.local/bin so rtk resolves from Claude Code's bash
+        # shell (Windows PATH is not refreshed in the current session).
+        RTK_EXE_WIN="$(cygpath -w "$RTK_EXE")"
+        cat > "$TOOL_BIN_DIR/rtk" << WRAPPER
 #!/usr/bin/env bash
 exec "$RTK_EXE_WIN" "\$@"
 WRAPPER
-    chmod +x "$TOOL_BIN_DIR/rtk"
-    log "  Bash wrapper created: $TOOL_BIN_DIR/rtk → $RTK_EXE_WIN"
-    _persist_tool_path_if_allowed
+        chmod +x "$TOOL_BIN_DIR/rtk"
+        log "  Bash wrapper created: $TOOL_BIN_DIR/rtk → $RTK_EXE_WIN"
+      else
+        log "  winget install failed — falling back to GitHub release."
+        RTK_EXE=""
+      fi
+    else
+      log "winget not found in this shell — falling back to GitHub release."
+    fi
+    if [[ ! -x "$RTK_EXE" ]]; then
+      log "Downloading RTK from GitHub releases..."
+      RTK_ZIP="$(mktemp)"
+      if curl -fsSL -o "$RTK_ZIP" \
+           "https://github.com/rtk-ai/rtk/releases/latest/download/rtk-x86_64-pc-windows-msvc.zip" \
+         && unzip -o -q "$RTK_ZIP" rtk.exe -d "$TOOL_BIN_DIR"; then
+        RTK_EXE="$TOOL_BIN_DIR/rtk.exe"
+        log "  RTK downloaded: $RTK_EXE"
+      fi
+      rm -f "$RTK_ZIP"
+    fi
+  fi
 
+  if [[ -x "$RTK_EXE" ]]; then
+    _persist_tool_path_if_allowed
     if [[ "$SETUP_RTK_INIT" == "true" ]]; then
+      log "Activating Claude Code hook..."
       run_cmd "$RTK_EXE" telemetry disable || true
       run_cmd "$RTK_EXE" init -g --hook-only --auto-patch
     else
       log "  RTK activation deferred."
     fi
   else
-    echo "WARNING: rtk.exe not found in $WINGET_PKGS"
-    echo "Run 'rtk init -g' manually from a new terminal."
+    echo "WARNING: RTK install failed (winget unavailable or failed, GitHub download failed)."
+    echo "Install App Installer (winget) via Microsoft Store, or download rtk.exe manually:"
+    echo "  https://github.com/rtk-ai/rtk/releases → $TOOL_BIN_DIR/rtk.exe"
     exit 1
   fi
 else
