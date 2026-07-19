@@ -596,7 +596,16 @@ _strip_graphify_md_section() {
   [[ -f "$md" ]] && grep -q '^## graphify[[:space:]]*$' "$md" || return 0
   local tmp
   tmp="$(mktemp "$md.XXXXXX")"
-  if awk '/^## graphify[[:space:]]*$/{skip=1; next} skip && /^## /{skip=0} !skip' "$md" > "$tmp"; then
+  # Buffered blanks are only flushed before content, so the trailing blank line
+  # left behind by the removed section is dropped instead of accumulating
+  # one extra line in the tracked CLAUDE.md on every install run.
+  if awk '
+    /^## graphify[[:space:]]*$/{skip=1; next}
+    skip && /^## /{skip=0}
+    skip{next}
+    /^[[:space:]]*$/{blanks = blanks $0 "\n"; next}
+    {printf "%s", blanks; blanks=""; print}
+  ' "$md" > "$tmp"; then
     mv "$tmp" "$md"
   else
     rm -f "$tmp"
