@@ -4,6 +4,12 @@
 #   -v, --verbose  Show verbose output from installers.
 set -euo pipefail
 
+# Neutralize VS Code's JS debug auto-attach: it injects a bootloader through
+# NODE_OPTIONS into every node child process, which slows npm/npx steps
+# ("Waiting for the debugger to disconnect") and can leave zombie node
+# processes holding npm locks, deadlocking quiet installs.
+unset NODE_OPTIONS VSCODE_INSPECTOR_OPTIONS
+
 AUTO_YES=false
 VERBOSE="${VERBOSE:-false}"
 ORIG_ARGS=("$@")
@@ -80,7 +86,9 @@ _run_quiet() {
 
   local output=""
   output="$(mktemp)"
-  if "$@" >"$output" 2>&1; then
+  # stdin is closed so a hidden interactive prompt fails fast (and gets its
+  # captured output printed below) instead of hanging the install silently.
+  if "$@" >"$output" 2>&1 </dev/null; then
     rm -f "$output"
     return 0
   fi
