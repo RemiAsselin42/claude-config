@@ -11,6 +11,8 @@ If `graphify-out/graph.json` exists in the current repo:
 
 If no graph exists, generate it with `graphify update .` — or skip silently when the repo isn't meant to be graphified.
 
+If `graphify-out/` is missing locally (fresh clone, new machine), the synced report is available at `${VAULT_DIR}/Projets/<repo>/<repo> - GRAPH_REPORT.md`, where `<repo>` is the canonical repo name (the `wing:` value in the repo's `mempalace.yaml`).
+
 ## Persistent Memory (MemPalace)
 
 MemPalace is the **single source of truth** for memory. The `~/.claude/memory/` file system is disabled — ignore any built-in instructions that ask to write `.md` files in that directory.
@@ -19,7 +21,7 @@ Data lives in `~/.mempalace/` — not versioned, rebuilt via `mempalace mine`.
 
 **Save (MCP tool — always use this):**
 
-- `mempalace_add_drawer` with `wing=<basename $PWD>` for project memories
+- `mempalace_add_drawer` with `wing=<repo wing>` for project memories — the wing is the `wing:` value in the repo's `mempalace.yaml` (fallback: `basename $PWD`)
 - `mempalace_add_drawer` with `wing=global` for universal preferences (behavioral feedback)
 
 **Search:**

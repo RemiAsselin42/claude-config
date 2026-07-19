@@ -633,9 +633,17 @@ _setup_repo_graphify() {
     _setup_repo_gitignore "$repo" false
     [[ "$VERBOSE" != "true" ]] && echo "  ${DIM}· CLAUDE.md: versioned — hooks installed${RESET}" || true
   else
-    # Generate CLAUDE.md from template with repo name substituted
-    sed "s|{{REPO_NAME}}|$repo_name|g" "$REPO_DIR/templates/CLAUDE.project.md" > "$repo/CLAUDE.md"
-    _detail "  ${GREEN}✓ CLAUDE.md generated from template (local)${RESET}"
+    # Generate CLAUDE.md from template only when absent — never overwrite a
+    # local (untracked) CLAUDE.md the user may have customized.
+    local claude_md_state
+    if [[ -f "$repo/CLAUDE.md" ]]; then
+      claude_md_state="kept"
+      _detail "  ${DIM}CLAUDE.md already present — kept.${RESET}"
+    else
+      claude_md_state="generated"
+      sed "s|{{REPO_NAME}}|$repo_name|g" "$REPO_DIR/templates/CLAUDE.project.md" > "$repo/CLAUDE.md"
+      _detail "  ${GREEN}✓ CLAUDE.md generated from template (local)${RESET}"
+    fi
     (
       cd "$repo"
       _run_quiet graphify hook install
@@ -643,7 +651,7 @@ _setup_repo_graphify() {
     )
     _patch_graphify_hook_nullbytes "$repo"
     _setup_repo_gitignore "$repo" true
-    [[ "$VERBOSE" != "true" ]] && echo "  ${DIM}· CLAUDE.md: generated (local) — hooks installed${RESET}" || true
+    [[ "$VERBOSE" != "true" ]] && echo "  ${DIM}· CLAUDE.md: $claude_md_state (local) — hooks installed${RESET}" || true
   fi
 
   (
