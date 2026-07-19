@@ -70,7 +70,7 @@ bash install.sh -v
 2. Vérifie **Node.js**, installe **uv** si absent, puis installe/met à jour **Graphify**, **MemPalace**, **chromadb**, **RTK** et **context-mode**
 3. Demande une seule confirmation si `~/.local/bin` doit être ajouté au PATH persistant (`-y` accepte automatiquement)
 4. Copie les **agents**, **commandes**, **scripts** et **templates** vers `~/.claude/`
-5. Génère **`session-stop.sh`** avec le chemin absolu du repo (hook Stop)
+5. Enregistre l'emplacement du repo dans `~/.claude/claude-config.path` et génère **`session-stop.sh`** (hook Stop) ; les hooks résolvent le repo via ce pointeur plutôt que par chemin absolu en dur
 6. Exécute **CC Safe Setup** pour installer les hooks de sécurité de façon non-destructive
 7. Initialise **MemPalace** avec reconstruction de l'index depuis les transcripts Claude
 8. Copie **CLAUDE.md** vers `~/.claude/CLAUDE.md`

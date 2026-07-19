@@ -70,7 +70,7 @@ bash install.sh -v
 2. Checks **Node.js**, installs **uv** if missing, then installs/upgrades **Graphify**, **MemPalace**, **chromadb**, **RTK**, and **context-mode**
 3. Asks once to add `~/.local/bin` to persistent PATH (`-y` skips)
 4. Copies **agents**, **commands**, **scripts**, **templates** to `~/.claude/`
-5. Generates **`session-stop.sh`** with the absolute repo path (Stop hook)
+5. Records the repo location in `~/.claude/claude-config.path` and generates **`session-stop.sh`** (Stop hook); hooks resolve the repo through this pointer instead of hardcoded absolute paths
 6. Runs **CC Safe Setup** to install safety hooks non-destructively
 7. Initializes **MemPalace** and rebuilds index from Claude transcripts
 8. Copies **CLAUDE.md** to `~/.claude/CLAUDE.md`
