@@ -74,13 +74,14 @@ bash install.sh -v
 6. Exécute **CC Safe Setup** pour installer les hooks de sécurité de façon non-destructive
 7. Initialise **MemPalace** avec reconstruction de l'index depuis les transcripts Claude
 8. Copie **CLAUDE.md** vers `~/.claude/CLAUDE.md`
-9. Restaure le **caveman mode** depuis `defaults/` si absent sur la machine
-10. Génère **`claude.json`** depuis le template (substitution `FIGMA_API_KEY`)
-11. Copie **`settings.json`**
-12. Active **RTK** via `setup-rtk.sh`
-13. Met à jour `.gitignore` dans les repos cibles (bloc graphify + `CLAUDE.md` + `mempalace.yaml` + `context/`) via `templates/gitignore.append`
-14. Sélection interactive des repos git frères à indexer (graphify + mempalace + vault)
-15. Commit et push automatique du vault si des graphes ont été générés
+9. Installe les **plugins épinglés** via le CLI `claude` (`ponytail`, `caveman` upstream)
+10. Restaure le **caveman mode** depuis `defaults/` si absent sur la machine (sauté si le plugin caveman upstream est installé — il injecte ses propres instructions)
+11. Génère **`claude.json`** depuis le template (substitution `FIGMA_API_KEY`)
+12. Copie **`settings.json`**
+13. Active **RTK** via `setup-rtk.sh`
+14. Met à jour `.gitignore` dans les repos cibles (bloc graphify + `CLAUDE.md` + `mempalace.yaml` + `context/`) via `templates/gitignore.append`
+15. Sélection interactive des repos git frères à indexer (graphify + mempalace + vault)
+16. Commit et push automatique du vault si des graphes ont été générés
 
 ---
 
@@ -200,6 +201,21 @@ bash ~/.claude/scripts/caveman-toggle.sh [on|off|toggle|inject|status] [niveau]
 | `wenyan-ultra` | Compression extrême, style lettre classique |
 
 L'état et le niveau sont persistés dans `~/.claude/caveman.enabled` et `~/.claude/caveman.level`. Sur une nouvelle machine, `install.sh` restaure ces valeurs depuis `defaults/`.
+
+Quand le [plugin caveman upstream](https://github.com/JuliusBrussee/caveman) est installé (épinglé via `install.sh`), il injecte ses propres instructions de compression et ajoute `/caveman-compress`, `/caveman-stats`, `/caveman-commit`, `/caveman-review`. Le bloc local est alors retiré pour éviter la duplication — `caveman-toggle.sh` reste en fallback quand le plugin est absent.
+
+---
+
+## Plugins épinglés
+
+`install.sh` installe les mêmes plugins Claude Code sur chaque machine via le CLI `claude` (liste : tableau `PINNED_PLUGINS` dans `install.sh`) :
+
+| Plugin | Source | Rôle |
+|---|---|---|
+| `ponytail` | [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) | Échelle de décision YAGNI — moins de code généré (réutilisation → stdlib → dépendance existante → minimum) |
+| `caveman` | [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) | Plugin de compression upstream — remplace le bloc local du CLAUDE.md, ajoute les commandes stats/compress |
+
+Si le CLI `claude` n'est pas dans le PATH, l'étape est sautée avec un avertissement ; installation manuelle : `claude plugin marketplace add <repo> && claude plugin install <nom>@<marketplace>`.
 
 ---
 

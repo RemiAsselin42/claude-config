@@ -74,13 +74,14 @@ bash install.sh -v
 6. Runs **CC Safe Setup** to install safety hooks non-destructively
 7. Initializes **MemPalace** and rebuilds index from Claude transcripts
 8. Copies **CLAUDE.md** to `~/.claude/CLAUDE.md`
-9. Restores **caveman mode** from `defaults/` if not set on this machine
-10. Generates **`claude.json`** from template (substitutes `FIGMA_API_KEY`)
-11. Copies **`settings.json`**
-12. Activates **RTK** via `setup-rtk.sh`
-13. Updates `.gitignore` in target repos (graphify block + `CLAUDE.md` + `mempalace.yaml` + `context/`) using `templates/gitignore.append`
-14. Interactively selects sibling git repos to index (graphify + mempalace + vault)
-15. Auto-commits vault if graphs were generated
+9. Installs **pinned plugins** via the `claude` CLI (`ponytail`, upstream `caveman`)
+10. Restores **caveman mode** from `defaults/` if not set on this machine (skipped when the upstream caveman plugin is installed — it injects its own instructions)
+11. Generates **`claude.json`** from template (substitutes `FIGMA_API_KEY`)
+12. Copies **`settings.json`**
+13. Activates **RTK** via `setup-rtk.sh`
+14. Updates `.gitignore` in target repos (graphify block + `CLAUDE.md` + `mempalace.yaml` + `context/`) using `templates/gitignore.append`
+15. Interactively selects sibling git repos to index (graphify + mempalace + vault)
+16. Auto-commits vault if graphs were generated
 
 ---
 
@@ -200,6 +201,21 @@ bash ~/.claude/scripts/caveman-toggle.sh [on|off|toggle|inject|status] [level]
 | `wenyan-ultra` | Extreme compression, classical letter style |
 
 State and level are stored in `~/.claude/caveman.enabled` and `~/.claude/caveman.level`. On a new machine, `install.sh` restores from `defaults/`.
+
+When the upstream [caveman plugin](https://github.com/JuliusBrussee/caveman) is installed (pinned via `install.sh`), it injects its own compression instructions and adds `/caveman-compress`, `/caveman-stats`, `/caveman-commit`, `/caveman-review`. The local block is then stripped to avoid duplication — `caveman-toggle.sh` remains as fallback when the plugin is absent.
+
+---
+
+## Pinned plugins
+
+`install.sh` installs the same Claude Code plugins on every machine via the `claude` CLI (list: `PINNED_PLUGINS` array in `install.sh`):
+
+| Plugin | Source | Purpose |
+|---|---|---|
+| `ponytail` | [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) | YAGNI decision ladder — less generated code (reuse → stdlib → existing dependency → minimum) |
+| `caveman` | [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) | Upstream compression plugin — replaces the local CLAUDE.md block, adds stats/compress commands |
+
+If the `claude` CLI is not in PATH, the step is skipped with a warning; install manually with `claude plugin marketplace add <repo> && claude plugin install <name>@<marketplace>`.
 
 ---
 
