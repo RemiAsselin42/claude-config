@@ -69,7 +69,7 @@ bash install.sh -v
 1. Synchronise depuis `upstream` **en premier** si le remote existe (les repos privés récupèrent automatiquement la dernière config partagée) ; si la sync apporte des changements, le script se relance automatiquement pour que la suite s'exécute avec la version à jour
 2. Vérifie **Node.js**, installe **uv** si absent, puis installe/met à jour **Graphify**, **MemPalace**, **chromadb**, **RTK** et **context-mode**
 3. Demande une seule confirmation si `~/.local/bin` doit être ajouté au PATH persistant (`-y` accepte automatiquement)
-4. Copie les **agents**, **commandes**, **scripts** et **templates** vers `~/.claude/`
+4. Copie les **agents**, **commandes**, **scripts** et **templates** vers `~/.claude/` — `agents/` et `commands/` sont en miroir : les fichiers déployés retirés du repo sont purgés
 5. Enregistre l'emplacement du repo dans `~/.claude/claude-config.path` et génère **`session-stop.sh`** (hook Stop) ; les hooks résolvent le repo via ce pointeur plutôt que par chemin absolu en dur
 6. Exécute **CC Safe Setup** pour installer les hooks de sécurité de façon non-destructive
 7. Initialise **MemPalace** avec reconstruction de l'index depuis les transcripts Claude

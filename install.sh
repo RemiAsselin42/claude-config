@@ -356,6 +356,20 @@ mkdir -p "$CLAUDE_DIR/agents" "$CLAUDE_DIR/commands" "$CLAUDE_DIR/scripts" "$CLA
   done
 )
 chmod +x "$CLAUDE_DIR/hooks/"*.sh 2>/dev/null || true
+
+# Mirror commands/ and agents/: prune deployed files whose source was removed
+# from the repo, so deletions propagate to every machine. Other directories
+# stay additive (scripts/ holds generated files like session-stop.sh).
+for dir in agents commands; do
+  for f in "$CLAUDE_DIR/$dir"/*; do
+    [[ -e "$f" ]] || continue
+    base="$(basename "$f")"
+    if [[ ! -e "$REPO_DIR/$dir/$base" ]]; then
+      rm -rf "$f"
+      echo "  ${DIM}· pruned stale $dir/$base${RESET}"
+    fi
+  done
+done
 _detail "  ${GREEN}✓ Claude files copied${RESET}"
 
 # --- Record the config repo location for hooks ---

@@ -69,7 +69,7 @@ bash install.sh -v
 1. Syncs from `upstream` remote **first** if present (private repos get latest shared config automatically); if the sync brings changes, the script re-executes itself so the rest of the run uses the updated version
 2. Checks **Node.js**, installs **uv** if missing, then installs/upgrades **Graphify**, **MemPalace**, **chromadb**, **RTK**, and **context-mode**
 3. Asks once to add `~/.local/bin` to persistent PATH (`-y` skips)
-4. Copies **agents**, **commands**, **scripts**, **templates** to `~/.claude/`
+4. Copies **agents**, **commands**, **scripts**, **templates** to `~/.claude/` — `agents/` and `commands/` are mirrored: deployed files removed from the repo are pruned
 5. Records the repo location in `~/.claude/claude-config.path` and generates **`session-stop.sh`** (Stop hook); hooks resolve the repo through this pointer instead of hardcoded absolute paths
 6. Runs **CC Safe Setup** to install safety hooks non-destructively
 7. Initializes **MemPalace** and rebuilds index from Claude transcripts
