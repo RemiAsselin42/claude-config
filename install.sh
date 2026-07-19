@@ -415,7 +415,7 @@ fi
 # --- Install CC Safe Setup (after settings.json copy — it appends hooks non-destructively) ---
 _step "Installing safety hooks (cc-safe-setup)..."
 if command -v npx >/dev/null; then
-  if _run_quiet npx cc-safe-setup; then
+  if _run_quiet npx --yes cc-safe-setup; then
     echo "  ${GREEN}✓ CC Safe Setup (safety hooks active)${RESET}"
   else
     echo "  ${YELLOW}⚠ CC Safe Setup failed — run manually: npx cc-safe-setup${RESET}"
@@ -533,6 +533,17 @@ YAML
   [[ "$VERBOSE" == "true" ]] && echo "  ${GREEN}✓ mempalace.yaml generated (wing: $repo_name)${RESET}" || echo "  ${DIM}· mempalace.yaml: generated${RESET}"
 }
 
+# graphify's generated post-commit hook reads the first line of the graphify
+# launcher to find its shebang; on Windows that launcher is a binary, so the
+# command substitution ingests null bytes and bash warns on every commit.
+# Stripping them with tr is harmless on POSIX installs too.
+_patch_graphify_hook_nullbytes() {
+  local hook="$1/.git/hooks/post-commit"
+  [[ -f "$hook" ]] || return 0
+  grep -qF 'tr -d "[:cntrl:]"' "$hook" && return 0
+  sed -i 's#head -1 "$GRAPHIFY_BIN" | sed#head -1 "$GRAPHIFY_BIN" | tr -d "[:cntrl:]" | sed#' "$hook"
+}
+
 # graphify claude install injects a "## graphify" section into the repo's
 # CLAUDE.md — generalized rules that already live in the global ~/.claude/CLAUDE.md.
 # Keep the hooks it installs, drop the duplicated section (case-sensitive: the
@@ -565,6 +576,7 @@ _setup_repo_graphify() {
       _run_quiet graphify hook install
       _detail "  ${GREEN}✓ hook install${RESET}"
     )
+    _patch_graphify_hook_nullbytes "$repo"
     _strip_graphify_md_section "$repo"
     _setup_repo_gitignore "$repo" false
     [[ "$VERBOSE" != "true" ]] && echo "  ${DIM}· CLAUDE.md: versioned — hooks installed${RESET}" || true
@@ -577,6 +589,7 @@ _setup_repo_graphify() {
       _run_quiet graphify hook install
       _detail "  ${GREEN}✓ hook install${RESET}"
     )
+    _patch_graphify_hook_nullbytes "$repo"
     _setup_repo_gitignore "$repo" true
     [[ "$VERBOSE" != "true" ]] && echo "  ${DIM}· CLAUDE.md: generated (local) — hooks installed${RESET}" || true
   fi
@@ -679,6 +692,7 @@ _detail "  ${GREEN}✓ claude install${RESET}"
 _strip_graphify_md_section "$REPO_DIR"
 _run_quiet graphify hook install
 _detail "  ${GREEN}✓ hook install${RESET}"
+_patch_graphify_hook_nullbytes "$REPO_DIR"
 if [[ -f "$REPO_DIR/graphify-out/GRAPH_REPORT.md" ]]; then
   _detail "  ${DIM}(existing graph kept)${RESET}"
 else
