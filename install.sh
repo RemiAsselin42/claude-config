@@ -6,6 +6,7 @@ set -euo pipefail
 
 AUTO_YES=false
 VERBOSE="${VERBOSE:-false}"
+ORIG_ARGS=("$@")
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -y|--yes)
@@ -42,6 +43,34 @@ source "$REPO_DIR/scripts/repo-identity.sh"
 UV_INSTALL_DIR="${UV_INSTALL_DIR:-$TOOL_BIN_DIR}"
 PATH_PERSIST_DECIDED=false
 PATH_PERSIST_APPROVED=false
+
+# --- Sync from upstream FIRST so the rest of the script runs the latest version ---
+# If the sync brings changes, re-exec the updated install.sh and abandon this run.
+# CLAUDE_CONFIG_SYNCED guards against re-exec loops.
+if [[ "${CLAUDE_CONFIG_SYNCED:-}" != "1" ]]; then
+  # Auto-add the upstream remote on private forks (origin = claude-config-private)
+  if ! git -C "$REPO_DIR" remote get-url upstream &>/dev/null; then
+    _origin_url="$(git -C "$REPO_DIR" remote get-url origin 2>/dev/null)"
+    if [[ "$_origin_url" == *claude-config-private* ]]; then
+      git -C "$REPO_DIR" remote add upstream "${_origin_url/claude-config-private/claude-config}"
+      echo "  ${GREEN}✓ upstream remote added${RESET}"
+    fi
+    unset _origin_url
+  fi
+  if git -C "$REPO_DIR" remote get-url upstream &>/dev/null; then
+    echo "${BOLD}${CYAN}Syncing from upstream...${RESET}"
+    _head_before="$(git -C "$REPO_DIR" rev-parse HEAD)"
+    bash "$REPO_DIR/scripts/sync-upstream.sh" --force
+    _head_after="$(git -C "$REPO_DIR" rev-parse HEAD)"
+    if [[ "$_head_before" != "$_head_after" ]]; then
+      echo "  ${YELLOW}Config updated from upstream — restarting install.sh with the new version...${RESET}"
+      export CLAUDE_CONFIG_SYNCED=1
+      exec bash "$REPO_DIR/install.sh" ${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}
+    fi
+    echo "  ${GREEN}✓ upstream synced (no changes)${RESET}"
+    unset _head_before _head_after
+  fi
+fi
 
 _run_quiet() {
   if [[ "$VERBOSE" == "true" ]]; then
@@ -288,22 +317,6 @@ source "$REPO_DIR/env.local"
 
 # --- Check prerequisites ---
 _prepare_dependencies
-
-# --- Sync from upstream if available ---
-# Auto-add the upstream remote on private forks (origin = claude-config-private)
-if ! git -C "$REPO_DIR" remote get-url upstream &>/dev/null; then
-  _origin_url="$(git -C "$REPO_DIR" remote get-url origin 2>/dev/null)"
-  if [[ "$_origin_url" == *claude-config-private* ]]; then
-    git -C "$REPO_DIR" remote add upstream "${_origin_url/claude-config-private/claude-config}"
-    echo "  ${GREEN}✓ upstream remote added${RESET}"
-  fi
-  unset _origin_url
-fi
-if git -C "$REPO_DIR" remote get-url upstream &>/dev/null; then
-  echo "${BOLD}${CYAN}Syncing from upstream...${RESET}"
-  bash "$REPO_DIR/scripts/sync-upstream.sh" --force
-  echo "  ${GREEN}✓ upstream synced${RESET}"
-fi
 
 # --- Clean broken symlinks in ~/.claude ---
 echo "${BOLD}${CYAN}Configuring Claude...${RESET}"

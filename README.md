@@ -66,8 +66,8 @@ bash install.sh -v
 
 ## What `install.sh` does
 
-1. Checks **Node.js**, installs **uv** if missing, then installs/upgrades **Graphify**, **MemPalace**, **chromadb**, **RTK**, and **context-mode**
-2. Syncs from `upstream` remote if present (private repos get latest shared config automatically)
+1. Syncs from `upstream` remote **first** if present (private repos get latest shared config automatically); if the sync brings changes, the script re-executes itself so the rest of the run uses the updated version
+2. Checks **Node.js**, installs **uv** if missing, then installs/upgrades **Graphify**, **MemPalace**, **chromadb**, **RTK**, and **context-mode**
 3. Asks once to add `~/.local/bin` to persistent PATH (`-y` skips)
 4. Copies **agents**, **commands**, **scripts**, **templates** to `~/.claude/`
 5. Generates **`session-stop.sh`** with the absolute repo path (Stop hook)
