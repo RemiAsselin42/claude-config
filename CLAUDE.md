@@ -18,17 +18,21 @@ MemPalace is the **single source of truth** for memory. The `~/.claude/memory/` 
 Data lives in `~/.mempalace/` — not versioned, rebuilt via `mempalace mine`.
 
 **Save (MCP tool — always use this):**
+
 - `mempalace_add_drawer` with `wing=<basename $PWD>` for project memories
 - `mempalace_add_drawer` with `wing=global` for universal preferences (behavioral feedback)
 
 **Search:**
+
 ```bash
 mempalace search "something" --wing $(basename $PWD)   # scoped to current repo
 mempalace search "something"                           # global search
 ```
+
 Or via MCP: `mempalace_search`
 
 **Rebuild index on a new machine:**
+
 ```bash
 mempalace init ~/.mempalace
 mempalace mine ~/.claude/projects/ --mode convos
@@ -37,6 +41,7 @@ mempalace mine ~/.claude/projects/ --mode convos
 ## Obsidian Vault
 
 The Obsidian vault is versioned in the config repo (`vault/`). Structure:
+
 - `Projets/` — One folder per repo, with the Graphify graph
 - `Décisions/` — Important technical decisions
 - `Patterns/` — Recurring code patterns and best practices
@@ -46,6 +51,7 @@ The Obsidian vault is versioned in the config repo (`vault/`). Structure:
 RTK is a CLI proxy that reduces token consumption by 60-90% on common dev commands. The PreToolUse hook (`rtk hook claude`, versioned in `settings.json`) rewrites Bash commands automatically (e.g. `git status` → `rtk git status`) — manual `rtk` prefixing is unnecessary.
 
 **Meta commands (always call rtk directly):**
+
 ```bash
 rtk gain              # Show token savings
 rtk gain --history    # Savings history per command
@@ -66,6 +72,7 @@ If `MILVUS_ADDRESS` is absent, skip silently and use Graphify + grep as usual.
 If a `context/` directory exists in the current repo, read all `context/*.md` files **before starting any work**. These files contain project-specific decisions, patterns, and constraints that are not derivable from the code alone.
 
 Standard files (not all repos will have all three):
+
 - `context/architecture.md` — major decisions and their rationale
 - `context/patterns.md` — recurring code patterns
 - `context/constraints.md` — performance, security, compatibility constraints and known gotchas
@@ -79,10 +86,13 @@ When a task requires analyzing many files (counting, searching patterns, aggrega
 ```javascript
 // Instead of: 47 × Read() = 700 KB in context
 // Do this:
-ctx_execute("javascript", `
+ctx_execute(
+  "javascript",
+  `
   const files = fs.readdirSync('src').filter(f => f.endsWith('.ts'));
   files.forEach(f => console.log(f + ': ' + fs.readFileSync('src/'+f,'utf8').split('\\n').length + ' lines'));
-`);
+`,
+);
 // Output: 3.6 KB
 ```
 
