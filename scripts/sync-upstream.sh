@@ -29,6 +29,24 @@ _UPSTREAM_PATHS=(
   install.sh settings.json CLAUDE.md .gitattributes
   mempalace.yaml claude.json.template env.local.template
 )
+
+# Apply upstream deletions first: `checkout upstream/main -- <dir>` only adds or
+# overwrites files, it never removes what upstream deleted, so retired files
+# (renamed commands, dropped agents) would survive in forks forever. The diff
+# below only lists files that once existed upstream — private-only additions in
+# the fork are never touched. The last synced upstream commit is remembered in
+# .git/upstream-sync-ref; on first run the fork point serves as baseline.
+_LAST_REF_FILE="$REPO_DIR/.git/upstream-sync-ref"
+_OLD_REF="$(cat "$_LAST_REF_FILE" 2>/dev/null)"
+[[ -z "$_OLD_REF" ]] && _OLD_REF="$(git -C "$REPO_DIR" merge-base HEAD upstream/main 2>/dev/null)"
+if [[ -n "$_OLD_REF" ]]; then
+  while IFS= read -r _f; do
+    [[ -n "$_f" ]] || continue
+    git -C "$REPO_DIR" rm --quiet -f --ignore-unmatch -- "$_f" 2>/dev/null || true
+  done < <(git -C "$REPO_DIR" diff --name-only --diff-filter=D "$_OLD_REF" upstream/main -- "${_UPSTREAM_PATHS[@]}" 2>/dev/null)
+fi
+unset _LAST_REF_FILE _OLD_REF _f
+
 for _p in "${_UPSTREAM_PATHS[@]}"; do
   git -C "$REPO_DIR" checkout upstream/main -- "$_p" 2>/dev/null || true
 done
@@ -37,4 +55,6 @@ unset _UPSTREAM_PATHS _p
 git -C "$REPO_DIR" diff --cached --quiet || \
   git -C "$REPO_DIR" commit -m "chore: sync from upstream" --quiet
 
+git -C "$REPO_DIR" rev-parse upstream/main > "$REPO_DIR/.git/upstream-sync-ref" 2>/dev/null || true
+mkdir -p "$(dirname "$STAMP")"
 echo "$NOW" > "$STAMP"
