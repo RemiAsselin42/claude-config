@@ -240,6 +240,44 @@ _prepare_dependencies() {
   fi
 }
 
+# Pinned Claude Code plugins, replicated on every machine.
+# Format: "<marketplace-repo>|<plugin>@<marketplace-name>"
+PINNED_PLUGINS=(
+  "DietrichGebert/ponytail|ponytail@ponytail"
+  "JuliusBrussee/caveman|caveman@caveman"
+)
+
+_caveman_plugin_installed() {
+  command -v claude >/dev/null 2>&1 || return 1
+  claude plugin list 2>/dev/null | grep -qi "caveman"
+}
+
+_install_pinned_plugins() {
+  if ! command -v claude >/dev/null 2>&1; then
+    echo "  ${YELLOW}⚠ claude CLI not found — install plugins manually in Claude Code: /plugin install <name>${RESET}"
+    return 0
+  fi
+  local entry marketplace plugin name
+  for entry in "${PINNED_PLUGINS[@]}"; do
+    marketplace="${entry%%|*}"
+    plugin="${entry#*|}"
+    name="${plugin%%@*}"
+    if claude plugin list 2>/dev/null | grep -qi "$name"; then
+      echo "  ${DIM}· ${name}: already installed${RESET}"
+      continue
+    fi
+    if ! claude plugin marketplace list 2>/dev/null | grep -qi "${marketplace##*/}"; then
+      _run_quiet claude plugin marketplace add "$marketplace" || true
+    fi
+    if _run_quiet claude plugin install "$plugin"; then
+      echo "  ${GREEN}✓ ${plugin}${RESET}"
+    else
+      echo "  ${YELLOW}⚠ ${plugin}: install failed — run manually:${RESET}"
+      echo "    claude plugin marketplace add ${marketplace} && claude plugin install ${plugin}"
+    fi
+  done
+}
+
 # --- Load machine-specific vars ---
 if [[ ! -f "$REPO_DIR/env.local" ]]; then
   echo "${RED}Copy env.local.template to env.local and fill in the values.${RESET}"
@@ -344,22 +382,6 @@ else
   _detail "  ${GREEN}✓ CLAUDE.md copied${RESET}"
 fi
 
-# --- Preserve/restore caveman mode ---
-# Copy defaults if not present on this machine (new install)
-if [[ ! -f "$CLAUDE_DIR/caveman.enabled" && -f "$REPO_DIR/defaults/caveman.enabled" ]]; then
-  cp "$REPO_DIR/defaults/caveman.enabled" "$CLAUDE_DIR/caveman.enabled"
-  _detail "  ${DIM}caveman.enabled restored from defaults${RESET}"
-fi
-if [[ ! -f "$CLAUDE_DIR/caveman.level" && -f "$REPO_DIR/defaults/caveman.level" ]]; then
-  cp "$REPO_DIR/defaults/caveman.level" "$CLAUDE_DIR/caveman.level"
-  _detail "  ${DIM}caveman.level restored from defaults${RESET}"
-fi
-# Always inject if flag present (block goes to top of CLAUDE.md)
-if [[ -f "$CLAUDE_DIR/caveman.enabled" ]]; then
-  bash "$CLAUDE_DIR/scripts/caveman-toggle.sh" inject 2>/dev/null || true
-  _detail "  ${GREEN}✓ Caveman mode injected ($(cat "$CLAUDE_DIR/caveman.level" 2>/dev/null || echo full))${RESET}"
-fi
-
 # --- Generate claude.json from template ---
 _step "Generating claude.json..."
 sed "s|\${FIGMA_API_KEY}|${FIGMA_API_KEY}|g" \
@@ -387,6 +409,30 @@ if command -v npx >/dev/null; then
   fi
 else
   echo "  ${YELLOW}⚠ npx not found — CC Safe Setup skipped${RESET}"
+fi
+
+# --- Install pinned plugins (after settings.json copy — plugin state must survive it) ---
+_step "Installing pinned plugins..."
+_install_pinned_plugins
+
+# --- Preserve/restore caveman mode (after plugins — upstream plugin takes precedence) ---
+# Copy defaults if not present on this machine (new install)
+if [[ ! -f "$CLAUDE_DIR/caveman.enabled" && -f "$REPO_DIR/defaults/caveman.enabled" ]]; then
+  cp "$REPO_DIR/defaults/caveman.enabled" "$CLAUDE_DIR/caveman.enabled"
+  _detail "  ${DIM}caveman.enabled restored from defaults${RESET}"
+fi
+if [[ ! -f "$CLAUDE_DIR/caveman.level" && -f "$REPO_DIR/defaults/caveman.level" ]]; then
+  cp "$REPO_DIR/defaults/caveman.level" "$CLAUDE_DIR/caveman.level"
+  _detail "  ${DIM}caveman.level restored from defaults${RESET}"
+fi
+if _caveman_plugin_installed; then
+  # The upstream plugin injects its own compression instructions via hook —
+  # a local block in CLAUDE.md would duplicate them.
+  bash "$CLAUDE_DIR/scripts/caveman-toggle.sh" remove 2>/dev/null || true
+  echo "  ${DIM}· Caveman: handled by upstream plugin (local block stripped)${RESET}"
+elif [[ -f "$CLAUDE_DIR/caveman.enabled" ]]; then
+  bash "$CLAUDE_DIR/scripts/caveman-toggle.sh" inject 2>/dev/null || true
+  _detail "  ${GREEN}✓ Caveman mode injected ($(cat "$CLAUDE_DIR/caveman.level" 2>/dev/null || echo full))${RESET}"
 fi
 
 echo "  ${GREEN}✓ Claude configuration updated${RESET}"

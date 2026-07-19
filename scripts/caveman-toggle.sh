@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Toggle caveman mode on/off with optional intensity level.
-# Usage: caveman-toggle.sh [on|off|toggle|inject|status] [level]
+# Usage: caveman-toggle.sh [on|off|toggle|inject|remove|status] [level]
 #   Levels: lite, full (default), ultra, wenyan-lite, wenyan-full, wenyan-ultra
 #   toggle (default) — flip current state (preserves current level)
 #   inject           — idempotent inject if flag exists (called by install.sh)
+#   remove           — strip block from CLAUDE.md, keep flag/level (used when
+#                      the upstream caveman plugin handles injection)
 #   status           — print current state and level without changing it
 set -euo pipefail
 
@@ -128,6 +130,9 @@ case "$cmd" in
       inject_block "$(get_level)"
     fi
     ;;
+  remove)
+    remove_block
+    ;;
   status)
     if [[ -f "$FLAG" ]]; then
       echo "caveman ON [$(get_level)]"
@@ -150,7 +155,7 @@ case "$cmd" in
     ;;
   *)
     echo "Unknown command: $cmd" >&2
-    echo "Usage: caveman-toggle.sh [on|off|toggle|inject|status] [level]" >&2
+    echo "Usage: caveman-toggle.sh [on|off|toggle|inject|remove|status] [level]" >&2
     exit 1
     ;;
 esac
