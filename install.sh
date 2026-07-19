@@ -252,6 +252,19 @@ _prepare_dependencies() {
     echo "  ${YELLOW}⚠ RTK: install/prepare failed, will attempt activation later.${RESET}"
   fi
 
+  # jq is required by the cc-safe-setup hooks for JSON parsing
+  if command -v jq >/dev/null; then
+    echo "  ${GREEN}✓ jq${RESET}"
+  elif _is_windows && command -v winget >/dev/null; then
+    if _run_quiet winget install jqlang.jq --accept-package-agreements --accept-source-agreements; then
+      echo "  ${GREEN}✓ jq installed (available in new terminals)${RESET}"
+    else
+      echo "  ${YELLOW}⚠ jq: install failed — cc-safe-setup hooks need it (winget install jqlang.jq)${RESET}"
+    fi
+  else
+    echo "  ${YELLOW}⚠ jq missing — cc-safe-setup hooks need it (brew install jq / apt install jq)${RESET}"
+  fi
+
   if _run_quiet npm install -g context-mode; then
     echo "  ${GREEN}✓ context-mode${RESET}"
   else
@@ -422,7 +435,9 @@ fi
 # --- Install CC Safe Setup (after settings.json copy — it appends hooks non-destructively) ---
 _step "Installing safety hooks (cc-safe-setup)..."
 if command -v npx >/dev/null; then
-  if _run_quiet npx --yes cc-safe-setup; then
+  # cc-safe-setup has no --yes flag and its "Install all N hooks?" prompt
+  # hangs invisibly under _run_quiet — feed it a stream of "y" instead.
+  if _run_quiet bash -c 'yes | npx --yes cc-safe-setup'; then
     echo "  ${GREEN}✓ CC Safe Setup (safety hooks active)${RESET}"
   else
     echo "  ${YELLOW}⚠ CC Safe Setup failed — run manually: npx cc-safe-setup${RESET}"
