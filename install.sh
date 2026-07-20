@@ -164,6 +164,9 @@ _persist_tool_path_if_approved() {
 
 _ensure_uv() {
   export UV_INSTALL_DIR
+  # Cache and tool dirs may sit on different filesystems (common on Windows);
+  # copy mode avoids uv's hardlink-fallback warning.
+  export UV_LINK_MODE=copy
   mkdir -p "$UV_INSTALL_DIR"
   _add_tool_paths_to_current_session
   _ask_for_tool_path_persistence
@@ -223,7 +226,9 @@ _ensure_chromadb() {
   _detail "  Installing chromadb into current Python..."
   # Use 'python -m pip install' rather than 'uv pip install --python' to avoid
   # environment validation issues on Windows
-  if _run_quiet "$python_cmd" -m pip install chromadb; then
+  # -q + --no-warn-script-location: chromadb is only needed as an importable
+  # library; its console scripts (chroma.exe, uvicorn.exe, ...) are unused.
+  if _run_quiet "$python_cmd" -m pip install -q --no-warn-script-location chromadb; then
     "$python_cmd" -c 'import chromadb' >/dev/null 2>&1 || {
       echo "  ${YELLOW}⚠ chromadb installed but not importable by $python_cmd.${RESET}"
       return 0
@@ -276,14 +281,14 @@ _prepare_dependencies() {
     echo "  ${YELLOW}⚠ jq missing — cc-safe-setup hooks need it (brew install jq / apt install jq)${RESET}"
   fi
 
-  if _run_quiet npm install -g context-mode; then
+  if _run_quiet npm install -g --no-fund --no-audit --loglevel=error context-mode; then
     echo "  ${GREEN}✓ context-mode${RESET}"
   else
     echo "  ${YELLOW}⚠ context-mode: install failed — run manually: npm install -g context-mode${RESET}"
   fi
 
   if [[ -n "${MILVUS_ADDRESS:-}" ]]; then
-    if _run_quiet npm install -g @zilliz/claude-context-mcp; then
+    if _run_quiet npm install -g --no-fund --no-audit --loglevel=error @zilliz/claude-context-mcp; then
       echo "  ${GREEN}✓ Zilliz (semantic search — add MCP server manually to settings.json if needed)${RESET}"
     else
       echo "  ${YELLOW}⚠ Zilliz install failed — run manually: npm install -g @zilliz/claude-context-mcp${RESET}"
@@ -414,7 +419,18 @@ if [[ -d "$HOME/.mempalace" ]]; then
   _detail "  ${DIM}Already initialized.${RESET}"
 else
   mkdir -p "$HOME/.mempalace"
-  mempalace init --yes ~/.mempalace
+  # LLM-assisted refinement only when the default Ollama model is actually
+  # available; otherwise heuristics-only, without the graceful-fallback notice.
+  mempalace_llm_flag=""
+  # timeout: `ollama list` blocks indefinitely when the binary exists but the
+  # daemon is down — never let the gate hang the install.
+  if ! timeout 5 ollama list 2>/dev/null | grep -q gemma4; then
+    mempalace_llm_flag="--no-llm"
+    _detail "  ${DIM}· Ollama model unavailable — heuristics-only init${RESET}"
+  fi
+  # Pipe 'n' to decline init's "Mine this directory now?" prompt: mining
+  # ~/.mempalace itself only indexes its own config.json into a junk wing.
+  printf 'n\n' | mempalace init --yes $mempalace_llm_flag ~/.mempalace
   echo "  ${GREEN}✓ MemPalace initialized${RESET}"
   if [[ -d "$CLAUDE_DIR/projects" ]]; then
     _detail "  Rebuilding index from transcripts..."
