@@ -18,7 +18,7 @@ source "$SCRIPT_DIR/repo-identity.sh"
 VAULT_PROJETS="$SCRIPT_DIR/../vault/Projets"
 
 # ── colors ────────────────────────────────────────────────────────────────────
-RED='\033[1;31m'; GREEN='\033[1;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; DIM='\033[2m'; NC='\033[0m'
+RED='\033[1;31m'; GREEN='\033[1;32m'; YELLOW='\033[1;33m'; DIM='\033[2m'; NC='\033[0m'
 ok()   { echo -e "  ${DIM}✓ $*${NC}"; }
 warn() { echo -e "  ${YELLOW}⚠  $*${NC}"; }
 info() { echo -e "  ${DIM}· $*${NC}"; }
