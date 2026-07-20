@@ -84,7 +84,7 @@ _run_quiet() {
     return
   fi
 
-  local output=""
+  local output
   output="$(mktemp)"
   # stdin is closed so a hidden interactive prompt fails fast (and gets its
   # captured output printed below) instead of hanging the install silently.
@@ -107,6 +107,13 @@ _step() {
 _detail() {
   [[ "$VERBOSE" == "true" ]] && echo "$*"
   return 0
+}
+
+# Accepts y/yes/o/oui, case-insensitive. Empty string is NOT a yes — callers
+# decide their own default before calling.
+_is_yes() {
+  local a="${1,,}"
+  [[ "$a" == "y" || "$a" == "yes" || "$a" == "o" || "$a" == "oui" ]]
 }
 
 _tool_path_persistence_needed() {
@@ -136,7 +143,7 @@ _ask_for_tool_path_persistence() {
   echo "${DIM}Required to find uv/rtk from future Git Bash terminals.${RESET}"
   printf "Add this directory to persistent PATH (~/.bashrc, ~/.bash_profile, ~/.profile) ${CYAN}[Y/n]${RESET}? "
   read -r answer
-  if [[ -z "$answer" || "${answer,,}" == "o" || "${answer,,}" == "oui" || "${answer,,}" == "y" || "${answer,,}" == "yes" ]]; then
+  if [[ -z "$answer" ]] || _is_yes "$answer"; then
     PATH_PERSIST_APPROVED=true
   else
     PATH_PERSIST_APPROVED=false
@@ -580,16 +587,20 @@ _setup_repo_gitignore() {
 
 _generate_mempalace_yaml() {
   local repo="$1"
-  local repo_name="$(canonical_repo_name "$repo")"
+  local repo_name
+  repo_name="$(canonical_repo_name "$repo")"
   local yaml_file="$repo/mempalace.yaml"
   if [[ -f "$yaml_file" ]]; then
     [[ "$VERBOSE" == "true" ]] && echo "  ${DIM}mempalace.yaml already present — kept.${RESET}" || echo "  ${DIM}· mempalace.yaml: present${RESET}"
     return
   fi
+  # vault/ only exists in the config repo (Obsidian notes, not code);
+  # excluding a nonexistent dir is harmless elsewhere, so one list fits all.
   cat > "$yaml_file" << YAML
 wing: $repo_name
 exclude:
   - graphify-out/
+  - vault/
   - .git/
   - node_modules/
 YAML
@@ -656,7 +667,13 @@ _strip_graphify_md_section() {
 
 _setup_repo_graphify() {
   local repo="$1"
-  local repo_name="$(canonical_repo_name "$repo")"
+  # Config-repo mode: skip .gitignore management (the repo versions its own),
+  # and always refresh the graph synchronously so the vault-sync commit below
+  # includes it — a stale graph left the post-commit hook's background rebuild
+  # to dirty graphify-out/ after install finished.
+  local is_config="${2:-false}"
+  local repo_name
+  repo_name="$(canonical_repo_name "$repo")"
   local obsidian_dir="$VAULT_DIR/Projets/$repo_name"
   mkdir -p "$obsidian_dir"
 
@@ -671,7 +688,7 @@ _setup_repo_graphify() {
     )
     _patch_graphify_hook_nullbytes "$repo"
     _strip_graphify_md_section "$repo"
-    _setup_repo_gitignore "$repo" false
+    [[ "$is_config" == "true" ]] || _setup_repo_gitignore "$repo" false
     [[ "$VERBOSE" != "true" ]] && echo "  ${DIM}· CLAUDE.md: versioned — hooks installed${RESET}" || true
   else
     # Generate CLAUDE.md from template only when absent — never overwrite a
@@ -697,14 +714,14 @@ _setup_repo_graphify() {
 
   (
     cd "$repo"
-    if [[ -f "graphify-out/GRAPH_REPORT.md" ]]; then
+    if [[ "$is_config" != "true" && -f "graphify-out/GRAPH_REPORT.md" ]]; then
       [[ "$VERBOSE" == "true" ]] && echo "  ${DIM}(existing graph kept)${RESET}" || echo "  ${DIM}· graph: kept${RESET}"
     else
-      _detail "  Generating graph..."
+      _detail "  Updating graph..."
       if [[ "$VERBOSE" == "true" ]]; then
-        graphify update . && echo "  ${GREEN}✓ graph generated${RESET}" || echo "  ${YELLOW}⚠ graph: post-processing error (non-blocking)${RESET}"
+        graphify update . && echo "  ${GREEN}✓ graph updated${RESET}" || echo "  ${YELLOW}⚠ graph: post-processing error (non-blocking)${RESET}"
       else
-        graphify update . >/dev/null 2>&1 && echo "  ${DIM}· graph: generated${RESET}" || echo "  ${DIM}· graph: post-processing error (non-blocking)${RESET}"
+        graphify update . >/dev/null 2>&1 && echo "  ${DIM}· graph: updated${RESET}" || echo "  ${DIM}· graph: post-processing error (non-blocking)${RESET}"
       fi
     fi
   )
@@ -764,7 +781,7 @@ else
       fi
     fi
 
-    if [[ "${answer,,}" == "y" || "${answer,,}" == "yes" || "${answer,,}" == "o" ]]; then
+    if _is_yes "$answer"; then
       # Make sure it is not excluded (remove .graphifyignore if present)
       rm -f "$repo/.graphifyignore"
       echo "${BOLD}[$repo_label]${RESET} ${YELLOW}Setting up...${RESET}"
@@ -778,41 +795,11 @@ else
   done
 fi
 
-# Graphify for the config repo itself
+# Graphify for the config repo itself — same pipeline as indexed repos,
+# in config mode (no .gitignore management, forced graph refresh).
 echo ""
 echo "${BOLD}[claude-config]${RESET} Setting up..."
-_run_quiet graphify claude install
-_detail "  ${GREEN}✓ claude install${RESET}"
-_strip_graphify_md_section "$REPO_DIR"
-_run_quiet graphify hook install
-_detail "  ${GREEN}✓ hook install${RESET}"
-_patch_graphify_hook_nullbytes "$REPO_DIR"
-_install_vault_sync_hook "$REPO_DIR"
-# Always refresh the graph synchronously (AST-only, cheap) so the vault-sync
-# commit below includes it. Keeping a stale graph here left the post-commit
-# hook's background rebuild to rewrite graphify-out/ AFTER install finished,
-# leaving a permanent dirty diff.
-_detail "  Updating graph..."
-if [[ "$VERBOSE" == "true" ]]; then
-  graphify update . && echo "  ${GREEN}✓ graph updated${RESET}" || echo "  ${YELLOW}⚠ graph: post-processing error (non-blocking)${RESET}"
-else
-  graphify update . >/dev/null 2>&1 && echo "  ${DIM}· graph: updated${RESET}" || echo "  ${DIM}· graph: post-processing error (non-blocking)${RESET}"
-fi
-bash "$REPO_DIR/scripts/sync-graph-to-vault.sh"
-
-# mempalace.yaml for claude-config (vault/ excluded — Obsidian notes, not code)
-if [[ ! -f "$REPO_DIR/mempalace.yaml" ]]; then
-  cat > "$REPO_DIR/mempalace.yaml" << YAML
-wing: claude-config
-exclude:
-  - graphify-out/
-  - vault/
-  - .git/
-YAML
-  echo "  ${GREEN}✓ mempalace.yaml generated for claude-config${RESET}"
-else
-  echo "  ${DIM}mempalace.yaml already present — kept.${RESET}"
-fi
+_setup_repo_graphify "$REPO_DIR" true
 
 # Harden vault auto-sync against multi-machine divergence:
 #  - keep THIS machine's regenerated vault on merge conflicts (merge=ours driver,
