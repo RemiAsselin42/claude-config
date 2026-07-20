@@ -788,15 +788,15 @@ _run_quiet graphify hook install
 _detail "  ${GREEN}✓ hook install${RESET}"
 _patch_graphify_hook_nullbytes "$REPO_DIR"
 _install_vault_sync_hook "$REPO_DIR"
-if [[ -f "$REPO_DIR/graphify-out/GRAPH_REPORT.md" ]]; then
-  _detail "  ${DIM}(existing graph kept)${RESET}"
+# Always refresh the graph synchronously (AST-only, cheap) so the vault-sync
+# commit below includes it. Keeping a stale graph here left the post-commit
+# hook's background rebuild to rewrite graphify-out/ AFTER install finished,
+# leaving a permanent dirty diff.
+_detail "  Updating graph..."
+if [[ "$VERBOSE" == "true" ]]; then
+  graphify update . && echo "  ${GREEN}✓ graph updated${RESET}" || echo "  ${YELLOW}⚠ graph: post-processing error (non-blocking)${RESET}"
 else
-  _detail "  Generating graph..."
-  if [[ "$VERBOSE" == "true" ]]; then
-    graphify update . && echo "  ${GREEN}✓ graph generated${RESET}" || echo "  ${YELLOW}⚠ graph: post-processing error (non-blocking)${RESET}"
-  else
-    graphify update . >/dev/null 2>&1 && echo "  ${DIM}· graph: generated${RESET}" || echo "  ${DIM}· graph: post-processing error (non-blocking)${RESET}"
-  fi
+  graphify update . >/dev/null 2>&1 && echo "  ${DIM}· graph: updated${RESET}" || echo "  ${DIM}· graph: post-processing error (non-blocking)${RESET}"
 fi
 bash "$REPO_DIR/scripts/sync-graph-to-vault.sh"
 

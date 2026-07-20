@@ -23,10 +23,17 @@ BRANCH="${VAULT_SYNC_BRANCH:-$(git -C "$REPO_DIR" symbolic-ref --short HEAD 2>/d
 
 git -C "$REPO_DIR" rev-parse --git-dir >/dev/null 2>&1 || exit 0
 
-# 1. Commit local vault changes (if any).
-if git -C "$REPO_DIR" status --porcelain vault/ | grep -q .; then
-  git -C "$REPO_DIR" add vault/
-  git -C "$REPO_DIR" commit -q -m "graphify: sync vault — $(date +%Y-%m-%d)" || true
+# 1. Commit local vault and graph changes (if any). graphify-out/ is versioned
+# in forks (gitignored in the public template — porcelain is then empty and the
+# path is skipped), and without committing it every graph rebuild leaves a
+# permanent dirty diff behind install.sh / session-stop.sh.
+paths=()
+for p in vault graphify-out; do
+  git -C "$REPO_DIR" status --porcelain "$p/" 2>/dev/null | grep -q . && paths+=("$p/")
+done
+if [[ ${#paths[@]} -gt 0 ]]; then
+  git -C "$REPO_DIR" add "${paths[@]}"
+  git -C "$REPO_DIR" commit -q -m "graphify: sync vault + graph — $(date +%Y-%m-%d)" || true
 fi
 
 # 2. No remote → local commit is all we can do.
