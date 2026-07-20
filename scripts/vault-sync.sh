@@ -32,7 +32,13 @@ for p in vault graphify-out; do
   git -C "$REPO_DIR" status --porcelain "$p/" 2>/dev/null | grep -q . && paths+=("$p/")
 done
 if [[ ${#paths[@]} -gt 0 ]]; then
-  git -C "$REPO_DIR" add "${paths[@]}"
+  # A path can be tracked-but-gitignored (forks list graphify-out/ in .gitignore
+  # while versioning the graph): plain `git add` then refuses the whole pathspec
+  # because of untracked ignored files (rebuild backups). Fall back to `add -u`,
+  # which stages tracked modifications only and never touches ignored files.
+  for p in "${paths[@]}"; do
+    git -C "$REPO_DIR" add "$p" 2>/dev/null || git -C "$REPO_DIR" add -u "$p" 2>/dev/null || true
+  done
   git -C "$REPO_DIR" commit -q -m "graphify: sync vault + graph — $(date +%Y-%m-%d)" || true
 fi
 
