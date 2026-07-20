@@ -1,7 +1,4 @@
-# Graphify — locally generated artifacts
+# Graphify, MemPalace, and context directories are generated at runtime and should not be committed.
 graphify-out/
-
-# Claude Code — local unversioned config
-CLAUDE.md
 mempalace.yaml
 context/
