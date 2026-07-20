@@ -6,6 +6,10 @@
 # conflict markers. Requires `git config merge.ours.driver true` (install.sh sets
 # it). Harmless when vault/ is gitignored (the default for this public template).
 vault/** merge=ours
+# Explicit eol for vault content: generated on Windows (CRLF), synced across
+# machines — declaring lf up front avoids "CRLF will be replaced by LF" warnings
+# from text=auto detection.
+vault/** text eol=lf
 
 # Union-merge for the knowledge graph. Requires graphify's merge driver
 # (`graphify hook install` sets merge.graphify.driver). Clones without it fall
