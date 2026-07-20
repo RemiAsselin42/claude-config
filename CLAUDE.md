@@ -24,21 +24,26 @@ Data lives in `~/.mempalace/` — not versioned, rebuilt via `mempalace mine`.
 - `mempalace_add_drawer` with `wing=<repo wing>` for project memories — the wing is the `wing:` value in the repo's `mempalace.yaml` (fallback: `basename $PWD`)
 - `mempalace_add_drawer` with `wing=global` for universal preferences (behavioral feedback)
 
-**Search:**
+**Search — two rules, always:**
+
+1. **Always pass `--wing`.** An unscoped search returns other projects' memories and buries the relevant ones. The wing is the `wing:` value in the repo's `mempalace.yaml`. Only drop it when deliberately looking across projects.
+2. **Write the query in English**, even when the conversation is in another language. Identifiers, error strings and commit prefixes in the indexed content are English, and English keeps results stable whichever embedding model this machine ended up with.
 
 ```bash
-mempalace search "something" --wing $(basename $PWD)   # scoped to current repo
-mempalace search "something"                           # global search
+wing=$(sed -n 's/^wing:[[:space:]]*//p' mempalace.yaml)   # fallback: basename $PWD
+mempalace search "install script dependencies" --wing "$wing"
 ```
 
-Or via MCP: `mempalace_search`
+Or via MCP: `mempalace_search` — pass `wing` there too.
 
-**Rebuild index on a new machine:**
+**If a search prints `vector search disabled`**, the HNSW index has diverged and
+results are BM25 keyword matches. `mempalace repair-status` confirms it;
+`mempalace repair rebuild-index --yes` fixes it (plain `mempalace repair` exits 0
+without doing anything in this state). Writing to a diverged palace segfaults —
+repair before mining.
 
-```bash
-mempalace init ~/.mempalace
-mempalace mine ~/.claude/projects/ --mode convos
-```
+**Rebuild index on a new machine:** re-run `install.sh` — it initializes the
+palace, picks the multilingual embedder, and mines each repo into its own wing.
 
 ## Obsidian Vault
 

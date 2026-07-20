@@ -246,6 +246,223 @@ _ensure_chromadb() {
   fi
 }
 
+# --- MemPalace ---------------------------------------------------------------
+# Defaults only. env.local is sourced further down, well after this point, so
+# the overrides are re-read in _setup_mempalace — assigning them here alone
+# would freeze them before the user's values ever land.
+MEMPALACE_MODEL="embeddinggemma"
+MEMPALACE_CONFIG="$HOME/.mempalace/config.json"
+MEMPALACE_PALACE="$HOME/.mempalace/palace"
+
+# The configured model is also the model the existing palace was built with:
+# chromadb refuses reads when the two diverge, so a palace that opens at all
+# agrees with config.json. No palace introspection needed.
+_mempalace_configured_model() {
+  local model=""
+  if [[ -f "$MEMPALACE_CONFIG" ]]; then
+    model="$(jq -r '.embedding_model // empty' "$MEMPALACE_CONFIG" 2>/dev/null || true)"
+  fi
+  printf '%s\n' "${model:-minilm}"
+}
+
+# No CLI subcommand writes this key (`palace set-embedder` only records identity
+# metadata), so the config file is edited directly. Never export
+# MEMPALACE_EMBEDDING_MODEL instead: the env var outranks the file, and a stale
+# one left in a shell profile would silently override the palace on later runs.
+_mempalace_set_model() {
+  local model="$1"
+  local tmp
+  mkdir -p "$(dirname "$MEMPALACE_CONFIG")"
+  [[ -f "$MEMPALACE_CONFIG" ]] || printf '{}\n' > "$MEMPALACE_CONFIG"
+  tmp="$(mktemp)"
+  if jq --arg m "$model" '.embedding_model = $m' "$MEMPALACE_CONFIG" > "$tmp"; then
+    mv "$tmp" "$MEMPALACE_CONFIG"
+    chmod 600 "$MEMPALACE_CONFIG" 2>/dev/null || true
+    return 0
+  fi
+  rm -f "$tmp"
+  return 1
+}
+
+# A palace with no recorded embedder identity prints an EmbedderIdentityUnknown
+# warning on every single search — noise in front of every result Claude reads.
+# `init` and `repair rebuild-index` both leave it unrecorded, so record it after
+# each. --force is safe only here: we call this right after building the palace
+# with exactly the configured model, so the vectors are known to match.
+_mempalace_record_identity() {
+  _run_quiet mempalace palace set-embedder --model "$(_mempalace_configured_model)" --force \
+    || echo "  ${DIM}· mempalace: embedder identity not recorded${RESET}"
+}
+
+# Independent of the model comparison: a palace can be both on the wrong model
+# and diverged, and the divergence is what breaks reads and segfaults writes.
+_mempalace_diverged() {
+  [[ -f "$MEMPALACE_PALACE/chroma.sqlite3" ]] || return 1
+  mempalace repair-status 2>/dev/null | grep -q 'DIVERGED'
+}
+
+# missing | mismatch | diverged | ok
+_mempalace_state() {
+  # chroma.sqlite3, not the directory: `mempalace init` writes config.json but
+  # never creates palace/, so "directory exists" is not "initialized".
+  [[ -f "$MEMPALACE_PALACE/chroma.sqlite3" ]] || { printf 'missing\n'; return; }
+  [[ "$(_mempalace_configured_model)" == "$MEMPALACE_MODEL" ]] || { printf 'mismatch\n'; return; }
+  _mempalace_diverged && { printf 'diverged\n'; return; }
+  printf 'ok\n'
+}
+
+# Yes/no prompt. $2 is the answer used for empty input and for -y runs.
+_ask() {
+  local prompt="$1" default="$2" answer
+  if [[ "$AUTO_YES" == "true" ]]; then
+    _is_yes "$default"
+    return
+  fi
+  printf '%s ' "$prompt"
+  read -r answer
+  [[ -z "$answer" ]] && answer="$default"
+  _is_yes "$answer"
+}
+
+_setup_mempalace() {
+  export PYTHONUTF8=1
+  # Now that env.local has been sourced, honour its overrides.
+  # Multilingual by default: repo content and session transcripts here are
+  # largely non-English, and MemPalace's own default (minilm /
+  # all-MiniLM-L6-v2) is trained on English only.
+  MEMPALACE_MODEL="${MEMPALACE_EMBEDDING_MODEL:-embeddinggemma}"
+  MEMPALACE_PALACE="${MEMPALACE_PALACE_PATH:-$HOME/.mempalace/palace}"
+
+  if ! command -v jq >/dev/null; then
+    echo "  ${YELLOW}⚠ jq missing — MemPalace embedding model left as configured.${RESET}"
+    MEMPALACE_MODEL="$(_mempalace_configured_model)"
+  fi
+
+  local state current drawers
+  state="$(_mempalace_state)"
+  current="$(_mempalace_configured_model)"
+
+  case "$state" in
+    missing)
+      mkdir -p "$HOME/.mempalace"
+      # Set the model before init so the palace is built with it from the start
+      # and no re-embed is ever needed on a fresh machine.
+      command -v jq >/dev/null && _mempalace_set_model "$MEMPALACE_MODEL"
+      # LLM-assisted refinement only when the default Ollama model is actually
+      # available; otherwise heuristics-only, without the graceful-fallback
+      # notice. timeout: `ollama list` blocks indefinitely when the binary
+      # exists but the daemon is down — never let the gate hang the install.
+      local -a llm_flag=()
+      timeout 5 ollama list 2>/dev/null | grep -q gemma4 || llm_flag=(--no-llm)
+      # Pipe 'n' to decline init's "Mine this directory now?" prompt: mining
+      # ~/.mempalace itself only indexes its own config.json into a junk wing.
+      # Repos are mined into their own wings by _mine_repo_into_wing instead.
+      printf 'n\n' | mempalace init --yes ${llm_flag[@]+"${llm_flag[@]}"} ~/.mempalace
+      _mempalace_record_identity
+      echo "  ${GREEN}✓ MemPalace initialized (embedder: $MEMPALACE_MODEL)${RESET}"
+      ;;
+    mismatch)
+      drawers="$(mempalace repair-status 2>/dev/null | sed -n 's/.*sqlite count:[[:space:]]*//p' | head -1)"
+      echo "  ${YELLOW}MemPalace embedder: palace holds '$current', target is '$MEMPALACE_MODEL'.${RESET}"
+      echo "  ${DIM}Switching re-embeds every drawer (${drawers:-?}) and downloads the model — several minutes.${RESET}"
+      # Default no, including under -y: an unbounded download plus full re-embed
+      # must not ambush an unattended install.
+      if _ask "  Re-index now ${CYAN}[y/N]${RESET}?" "n"; then
+        _mempalace_set_model "$MEMPALACE_MODEL"
+        if mempalace repair rebuild-index --yes; then
+          _mempalace_record_identity
+          echo "  ${GREEN}✓ MemPalace re-indexed with $MEMPALACE_MODEL${RESET}"
+        else
+          _mempalace_set_model "$current"
+          echo "  ${YELLOW}⚠ Re-index failed — reverted to '$current', palace still readable.${RESET}"
+        fi
+      else
+        echo "  ${DIM}· Kept '$current' — re-run install.sh and accept to switch.${RESET}"
+      fi
+      ;;
+    diverged)
+      _mempalace_repair_divergence
+      ;;
+    *)
+      echo "  ${GREEN}✓ MemPalace ($current)${RESET}"
+      ;;
+  esac
+
+  # A declined re-index leaves the palace on its old model — and possibly still
+  # diverged, which silently degrades every search to keyword matching. Re-check
+  # rather than letting the mismatch branch mask it.
+  [[ "$state" == "mismatch" ]] && _mempalace_diverged && _mempalace_repair_divergence
+
+  # Gate for _mine_repo_into_wing: mining a diverged palace segfaults chromadb.
+  if _mempalace_diverged; then MEMPALACE_READY=false; else MEMPALACE_READY=true; fi
+  return 0
+}
+
+_mempalace_repair_divergence() {
+  echo "  ${YELLOW}MemPalace: vector search disabled — HNSW index diverged from SQLite.${RESET}"
+  mempalace repair-status 2>/dev/null | sed -n 's/^\(.*count:.*\|.*divergence:.*\)$/  \1/p'
+  # Default yes, including under -y: bounded work, and semantic search stays
+  # broken until it runs.
+  if _ask "  Rebuild the index now ${CYAN}[Y/n]${RESET}?" "y"; then
+    # rebuild-index (--mode from-sqlite --archive-existing), not plain `repair`:
+    # legacy mode bails when the chromadb client cannot open the collection —
+    # which is exactly the diverged state — and exits 0 having done nothing.
+    # from-sqlite reads the rows directly and archives the old palace first.
+    if mempalace repair rebuild-index --yes; then
+      _mempalace_record_identity
+      echo "  ${GREEN}✓ MemPalace index rebuilt — semantic search restored${RESET}"
+      echo "  ${DIM}  (previous palace kept as ~/.mempalace/palace.pre-rebuild-*)${RESET}"
+    else
+      echo "  ${YELLOW}⚠ Repair failed — searches stay keyword-only (mempalace repair rebuild-index)${RESET}"
+    fi
+  else
+    echo "  ${DIM}· Skipped — searches stay keyword-only until the rebuild runs.${RESET}"
+  fi
+}
+
+# Claude Code stores transcripts in ~/.claude/projects/<native path with every
+# non-alphanumeric character replaced by '-'>. Drive-letter case varies between
+# entries, so the comparison is case-insensitive.
+_transcript_dir_for() {
+  local repo="$1"
+  local native="$repo"
+  _is_windows && native="$(cygpath -w "$repo" 2>/dev/null || printf '%s' "$repo")"
+  local encoded
+  encoded="$(printf '%s' "$native" | sed 's/[^a-zA-Z0-9]/-/g')"
+  local dir
+  for dir in "$CLAUDE_DIR/projects"/*/; do
+    [[ -d "$dir" ]] || continue
+    if [[ "$(basename "$dir")" == "${encoded,,}" || "${dir,,}" == *"/${encoded,,}/" ]]; then
+      printf '%s\n' "${dir%/}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Files and past transcripts of one repo, both into that repo's own wing —
+# this is what makes `mempalace search --wing <repo>` return anything.
+_mine_repo_into_wing() {
+  local repo="$1" wing="$2"
+  command -v mempalace >/dev/null || return 0
+  # Writing into a palace whose HNSW index has diverged segfaults chromadb
+  # (observed: exit 139, nothing filed). _setup_mempalace clears this flag when
+  # the index is healthy; without it, every repo would crash in turn.
+  [[ "${MEMPALACE_READY:-false}" == "true" ]] || return 0
+  # --background: mining 18 repos synchronously would add minutes to every run.
+  if mempalace mine "$repo" --wing "$wing" --background >/dev/null 2>&1; then
+    [[ "$VERBOSE" != "true" ]] && echo "  ${DIM}· mempalace: mining → wing '$wing'${RESET}" || true
+  else
+    echo "  ${DIM}· mempalace: file mining skipped${RESET}"
+  fi
+  local transcripts
+  transcripts="$(_transcript_dir_for "$repo" || true)"
+  if [[ -n "$transcripts" ]]; then
+    mempalace mine "$transcripts" --mode convos --wing "$wing" --background >/dev/null 2>&1 \
+      || echo "  ${DIM}· mempalace: transcript mining skipped${RESET}"
+  fi
+}
+
 _ensure_shellcheck() {
   if command -v shellcheck >/dev/null; then
     echo "  ${GREEN}✓ shellcheck${RESET}"
@@ -435,6 +652,13 @@ cat > "$CLAUDE_DIR/scripts/session-stop.sh" << 'STOPSCRIPT'
 # Claude Code Stop hook: updates graphify and syncs the vault if in a graphified repo.
 [[ -d "graphify-out" ]] || exit 0
 graphify update . 2>/dev/null || true
+# Refresh this repo's MemPalace wing so the other machines' sessions see today's
+# work. The wing is read from the repo's own mempalace.yaml — this script is
+# standalone and cannot source repo-identity.sh.
+if command -v mempalace >/dev/null 2>&1 && [ -f mempalace.yaml ]; then
+  wing="$(sed -n 's/^wing:[[:space:]]*//p' mempalace.yaml | head -1)"
+  [ -n "$wing" ] && mempalace mine . --wing "$wing" --background >/dev/null 2>&1 || true
+fi
 CLAUDE_CONFIG_DIR="$(cat "$HOME/.claude/claude-config.path" 2>/dev/null)"
 [[ -d "$CLAUDE_CONFIG_DIR" ]] || exit 0
 bash "$CLAUDE_CONFIG_DIR/scripts/sync-graph-to-vault.sh"
@@ -444,34 +668,13 @@ STOPSCRIPT
 chmod +x "$CLAUDE_DIR/scripts/session-stop.sh"
 _detail "  ${GREEN}✓ session-stop.sh generated${RESET}"
 
-# --- Initialize MemPalace ---
-_step "Initializing MemPalace..."
-export PYTHONUTF8=1
-if [[ -d "$HOME/.mempalace" ]]; then
-  _detail "  ${DIM}Already initialized.${RESET}"
-else
-  mkdir -p "$HOME/.mempalace"
-  # LLM-assisted refinement only when the default Ollama model is actually
-  # available; otherwise heuristics-only, without the graceful-fallback notice.
-  mempalace_llm_flag=""
-  # timeout: `ollama list` blocks indefinitely when the binary exists but the
-  # daemon is down — never let the gate hang the install.
-  if ! timeout 5 ollama list 2>/dev/null | grep -q gemma4; then
-    mempalace_llm_flag="--no-llm"
-    _detail "  ${DIM}· Ollama model unavailable — heuristics-only init${RESET}"
-  fi
-  # Pipe 'n' to decline init's "Mine this directory now?" prompt: mining
-  # ~/.mempalace itself only indexes its own config.json into a junk wing.
-  printf 'n\n' | mempalace init --yes $mempalace_llm_flag ~/.mempalace
-  echo "  ${GREEN}✓ MemPalace initialized${RESET}"
-  if [[ -d "$CLAUDE_DIR/projects" ]]; then
-    _detail "  Rebuilding index from transcripts..."
-    mempalace mine "$CLAUDE_DIR/projects/" --mode convos || true
-    echo "  ${GREEN}✓ MemPalace index rebuilt${RESET}"
-  else
-    echo "  ${DIM}No transcripts — empty index (normal on a new machine).${RESET}"
-  fi
-fi
+# --- MemPalace: init, embedder, index health ---
+# Repos are NOT mined here: each one is mined into its own wing by
+# _mine_repo_into_wing, from _setup_repo_graphify. A single global mine of
+# ~/.claude/projects/ is what produced the unscoped `projects`/`sessions` wings
+# that made `search --wing <repo>` return nothing.
+_step "Setting up MemPalace..."
+_setup_mempalace
 
 # --- Copy global CLAUDE.md (with vault path substitution) ---
 _step "Copying global CLAUDE.md..."
@@ -690,6 +893,29 @@ _strip_graphify_md_section() {
   fi
 }
 
+# CLAUDE.md files generated before the vault moved into the config repo point at
+# ~/.claude/vault, which no longer exists — Claude follows a dead path looking
+# for the graph report. Repair the path in place instead of regenerating, so any
+# repo notes written below the template survive. Returns 0 only when it edited.
+# Untracked CLAUDE.md only: rewriting a versioned one would dirty the repo.
+_fix_stale_vault_path() {
+  local md="$1/CLAUDE.md"
+  [[ -f "$md" ]] || return 1
+  # Literal text to find inside the file, not a path to expand — hence the
+  # split, which also keeps shellcheck from reading it as a stray tilde (SC2088).
+  local tilde='~'
+  local stale="$tilde/.claude/vault"
+  grep -qF "$stale" "$md" 2>/dev/null || return 1
+  local tmp
+  tmp="$(mktemp "$md.XXXXXX")"
+  if sed "s|$stale|$VAULT_DIR|g" "$md" > "$tmp"; then
+    mv "$tmp" "$md"
+    return 0
+  fi
+  rm -f "$tmp"
+  return 1
+}
+
 _setup_repo_graphify() {
   local repo="$1"
   # Config-repo mode: skip .gitignore management (the repo versions its own),
@@ -721,10 +947,12 @@ _setup_repo_graphify() {
     local claude_md_state
     if [[ -f "$repo/CLAUDE.md" ]]; then
       claude_md_state="kept"
-      _detail "  ${DIM}CLAUDE.md already present — kept.${RESET}"
+      _fix_stale_vault_path "$repo" && claude_md_state="repaired"
+      _detail "  ${DIM}CLAUDE.md already present — $claude_md_state.${RESET}"
     else
       claude_md_state="generated"
-      sed "s|{{REPO_NAME}}|$repo_name|g" "$REPO_DIR/templates/CLAUDE.project.md" > "$repo/CLAUDE.md"
+      sed -e "s|{{REPO_NAME}}|$repo_name|g" -e "s|{{VAULT_DIR}}|$VAULT_DIR|g" \
+        "$REPO_DIR/templates/CLAUDE.project.md" > "$repo/CLAUDE.md"
       _detail "  ${GREEN}✓ CLAUDE.md generated from template (local)${RESET}"
     fi
     (
@@ -760,6 +988,7 @@ _setup_repo_graphify() {
   _detail "  ${GREEN}✓ vault sync hook${RESET}"
 
   _generate_mempalace_yaml "$repo"
+  _mine_repo_into_wing "$repo" "$repo_name"
 }
 
 if [[ ${#REPOS_FOUND[@]} -eq 0 ]]; then
