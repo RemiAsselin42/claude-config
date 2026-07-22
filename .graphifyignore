@@ -1,0 +1,9 @@
+# Graphify exclusions for the config repo itself.
+#
+# vault/ holds what graphify GENERATES for every other repo: the reports, the
+# file trees, and one Obsidian note per graph node. Indexing it feeds graphify
+# its own output — the graph grew to 32877 nodes here, of which 32546 were vault
+# notes, and each sync then regenerated notes from that inflated graph.
+#
+# Nothing in vault/ is source: it is rebuilt from graph.json on every sync.
+vault/
