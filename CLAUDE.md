@@ -26,12 +26,12 @@ Data lives in `~/.mempalace/` — not versioned, rebuilt via `mempalace mine`.
 
 **Search — two rules, always:**
 
-1. **Always pass `--wing`.** An unscoped search returns other projects' memories and buries the relevant ones. The wing is the `wing:` value in the repo's `mempalace.yaml`. Only drop it when deliberately looking across projects.
+1. **Always pass `--wing`, in its stored form.** An unscoped search returns other projects' memories and buries the relevant ones. `mempalace mine` stores the wing as `wing_` + the name with `-` replaced by `_`, and `search --wing` matches that stored name exactly — passing the raw `mempalace.yaml` value returns 0 results. Only drop `--wing` when deliberately looking across projects. `mempalace status` lists the real wing names.
 2. **Write the query in English**, even when the conversation is in another language. Identifiers, error strings and commit prefixes in the indexed content are English, and English keeps results stable whichever embedding model this machine ended up with.
 
 ```bash
 wing=$(sed -n 's/^wing:[[:space:]]*//p' mempalace.yaml)   # fallback: basename $PWD
-mempalace search "install script dependencies" --wing "$wing"
+mempalace search "install script dependencies" --wing "wing_${wing//-/_}"
 ```
 
 Or via MCP: `mempalace_search` — pass `wing` there too.
