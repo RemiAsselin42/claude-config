@@ -723,6 +723,23 @@ else
   echo "  ${YELLOW}⚠ npx not found — CC Safe Setup skipped${RESET}"
 fi
 
+# cc-safe-setup registers hooks as bare .sh paths. On Windows that goes through
+# the file association, which is `bash --login -i` — a fresh console window pops
+# up on every hook fire. Prefix with an explicit interpreter.
+# It also installs api-error-alert.sh, which reads a .stop_reason field Claude Code
+# never sends: it fires on every normal Stop and its notifier is Linux/macOS-only.
+# Drop it.
+if command -v jq >/dev/null && [[ -f "$CLAUDE_DIR/settings.json" ]]; then
+  if jq '(.hooks[]?[]?.hooks[]?.command) |= (if test("^[^ ]+[.]sh$") then "bash \"" + . + "\"" else . end)
+         | (.hooks[]?) |= map(select((.hooks | map(.command) | join(" ") | test("api-error-alert")) | not))' \
+       "$CLAUDE_DIR/settings.json" > "$CLAUDE_DIR/settings.json.tmp" 2>/dev/null; then
+    mv "$CLAUDE_DIR/settings.json.tmp" "$CLAUDE_DIR/settings.json"
+    _detail "  ${DIM}hook commands normalized (bash prefix)${RESET}"
+  else
+    rm -f "$CLAUDE_DIR/settings.json.tmp"
+  fi
+fi
+
 # --- Install pinned plugins (after settings.json copy — plugin state must survive it) ---
 _step "Installing pinned plugins..."
 _install_pinned_plugins
