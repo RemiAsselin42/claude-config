@@ -925,10 +925,17 @@ _fix_stale_vault_path() {
 # Only runs when there is something to name: `graphify label` re-clusters and
 # rewrites graph.json on every invocation, which is not free even when the LLM
 # has nothing left to do.
+#
+# Two kinds of non-name to catch. "Community 12" is the bare placeholder. The
+# second is graphify's LLM-free fallback, which names each community after its
+# highest-degree hub — so the labels come out as file names ("renderer.js",
+# "package.json"). Both mean no LLM has ever described these communities, and
+# matching only the first left such repos stuck on hub names forever.
 _graphify_needs_labels() {
   local labels="$1/graphify-out/.graphify_labels.json"
   [[ -f "$labels" ]] || return 0
-  grep -q '"Community [0-9]' "$labels"
+  grep -q '"Community [0-9]' "$labels" && return 0
+  grep -qE '"[^"]+\.(js|mjs|cjs|jsx|ts|tsx|vue|svelte|py|php|rb|go|rs|java|kt|cs|swift|sh|sql|json|ya?ml|toml|md|css|scss|html)"' "$labels"
 }
 
 _graphify_semantic_pass() {
@@ -957,8 +964,13 @@ _graphify_semantic_pass() {
         || echo "  ${YELLOW}⚠ deep extraction failed (non-blocking)${RESET}"
     fi
     if _graphify_needs_labels "$repo"; then
+      # No --missing-only: it narrows the LLM to communities whose label is absent
+      # or exactly "Community N", so a repo sitting on hub-derived file names would
+      # come back untouched. _graphify_needs_labels is the gate; once it fires, the
+      # whole set gets named. Labeling is batched 100 communities per call, so a
+      # full pass costs a handful of calls even on the largest repo here.
       _detail "  Naming communities ($backend)..."
-      _run_quiet graphify label . --backend "$backend" "${model_args[@]}" --missing-only \
+      _run_quiet graphify label . --backend "$backend" "${model_args[@]}" \
         && echo "  ${DIM}· labels: named${RESET}" \
         || echo "  ${YELLOW}⚠ community labeling failed (non-blocking)${RESET}"
     else
