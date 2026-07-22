@@ -117,5 +117,9 @@
   "enabledPlugins": {
     "ponytail@ponytail": true,
     "caveman@caveman": true
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "bash -c 'exec ~/.claude/plugins/cache/caveman/caveman/*/src/hooks/caveman-statusline.sh'"
   }
 }
