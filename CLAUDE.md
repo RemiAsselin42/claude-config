@@ -49,7 +49,7 @@ palace, picks the multilingual embedder, and mines each repo into its own wing.
 
 The Obsidian vault is versioned in the config repo (`vault/`). Structure:
 
-- `Projets/` — One folder per repo, with the Graphify graph
+- `Projets/` — One folder per repo: GRAPH_REPORT, FILE_TREE, `<repo>.canvas` (community map) and `obsidian/` (one note per graph node, linked by the canvas)
 - `Décisions/` — Important technical decisions
 - `Patterns/` — Recurring code patterns and best practices
 
