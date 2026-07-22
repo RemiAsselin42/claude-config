@@ -109,11 +109,12 @@ _detail() {
   return 0
 }
 
-# Accepts y/yes/o/oui, case-insensitive. Empty string is NOT a yes — callers
-# decide their own default before calling.
+# Accepts y/yes/o/oui/true/1, case-insensitive. Empty string is NOT a yes —
+# callers decide their own default before calling. true/1 are here for env.local
+# toggles, which read as booleans rather than as answers to a prompt.
 _is_yes() {
   local a="${1,,}"
-  [[ "$a" == "y" || "$a" == "yes" || "$a" == "o" || "$a" == "oui" ]]
+  [[ "$a" == "y" || "$a" == "yes" || "$a" == "o" || "$a" == "oui" || "$a" == "true" || "$a" == "1" ]]
 }
 
 _tool_path_persistence_needed() {
@@ -916,6 +917,56 @@ _fix_stale_vault_path() {
   return 1
 }
 
+# `graphify update` is AST-only, so communities come out of it as "Community 12"
+# — in GRAPH_REPORT, in the canvas groups and in every vault note. Naming them is
+# a separate LLM pass. Default backend is the `claude` CLI already on PATH, so
+# this costs no API key; set GRAPHIFY_LABEL_BACKEND=none in env.local to skip it.
+#
+# Only runs when there is something to name: `graphify label` re-clusters and
+# rewrites graph.json on every invocation, which is not free even when the LLM
+# has nothing left to do.
+_graphify_needs_labels() {
+  local labels="$1/graphify-out/.graphify_labels.json"
+  [[ -f "$labels" ]] || return 0
+  grep -q '"Community [0-9]' "$labels"
+}
+
+_graphify_semantic_pass() {
+  local repo="$1"
+  local backend="${GRAPHIFY_LABEL_BACKEND:-claude-cli}"
+  [[ "$backend" == "none" ]] && return 0
+  [[ -f "$repo/graphify-out/graph.json" ]] || return 0
+
+  local model_args=()
+  [[ -n "${GRAPHIFY_LABEL_MODEL:-}" ]] && model_args=(--model "$GRAPHIFY_LABEL_MODEL")
+
+  if [[ "$backend" == "claude-cli" ]] && ! command -v claude >/dev/null 2>&1; then
+    echo "  ${DIM}· labels: skipped (claude CLI not on PATH)${RESET}"
+    return 0
+  fi
+
+  (
+    cd "$repo" || exit 0
+    # Deep semantic re-extraction: adds the INFERRED edges that connect files the
+    # AST pass leaves as isolated islands. Slow and token-hungry on every repo,
+    # hence opt-in.
+    if _is_yes "${GRAPHIFY_DEEP_EXTRACT:-false}"; then
+      _detail "  Deep semantic extraction ($backend)..."
+      _run_quiet graphify extract . --backend "$backend" "${model_args[@]}" --mode deep \
+        && echo "  ${DIM}· graph: deep extraction done${RESET}" \
+        || echo "  ${YELLOW}⚠ deep extraction failed (non-blocking)${RESET}"
+    fi
+    if _graphify_needs_labels "$repo"; then
+      _detail "  Naming communities ($backend)..."
+      _run_quiet graphify label . --backend "$backend" "${model_args[@]}" --missing-only \
+        && echo "  ${DIM}· labels: named${RESET}" \
+        || echo "  ${YELLOW}⚠ community labeling failed (non-blocking)${RESET}"
+    else
+      _detail "  ${DIM}· labels: already named${RESET}"
+    fi
+  )
+}
+
 _setup_repo_graphify() {
   local repo="$1"
   # Config-repo mode: skip .gitignore management (the repo versions its own),
@@ -979,7 +1030,11 @@ _setup_repo_graphify() {
     fi
   )
 
-  # Sync vault: GRAPH_REPORT.md + FILE_TREE.md + graph.canvas
+  # Name communities before syncing, so the vault gets the real names rather than
+  # "Community 12" frozen into the canvas groups and the notes' frontmatter.
+  _graphify_semantic_pass "$repo"
+
+  # Sync vault: GRAPH_REPORT.md + FILE_TREE.md + canvas + one note per graph node
   (cd "$repo" && bash "$REPO_DIR/scripts/sync-graph-to-vault.sh")
   [[ "$VERBOSE" != "true" ]] && echo "  ${DIM}· vault: synced${RESET}" || true
 
