@@ -53,9 +53,14 @@ export function getGitInfo(cwd) {
 
   // Line-level diff vs HEAD (staged + unstaged) — live repo state, unlike the
   // session-cumulative cost.total_lines_* in the Claude Code payload.
+  // Generated dirs are excluded: graphify background rebuilds keep them dirty
+  // mid-session (thousands of lines) until the Stop hook commits them, which
+  // would drown the real diff. ponytail: names hardcoded — this setup's only
+  // churn sources; derive from .gitattributes if that ever varies.
   let linesAdded = 0;
   let linesRemoved = 0;
-  for (const l of run('git diff HEAD --numstat', cwd).split('\n')) {
+  const numstat = 'git diff HEAD --numstat -- ":(top,exclude)graphify-out" ":(top,exclude)vault"';
+  for (const l of run(numstat, cwd).split('\n')) {
     const [a, r] = l.split('\t');
     linesAdded += parseInt(a, 10) || 0;
     linesRemoved += parseInt(r, 10) || 0;
