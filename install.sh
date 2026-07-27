@@ -621,7 +621,7 @@ mkdir -p "$CLAUDE_DIR/agents" "$CLAUDE_DIR/commands" "$CLAUDE_DIR/scripts" "$CLA
     fi
   done
 )
-chmod +x "$CLAUDE_DIR/hooks/"*.sh 2>/dev/null || true
+chmod +x "$CLAUDE_DIR/hooks/"*.sh "$CLAUDE_DIR/scripts/"*.sh 2>/dev/null || true
 
 # Mirror commands/ and agents/: prune deployed files whose source was removed
 # from the repo, so deletions propagate to every machine. Other directories
@@ -743,6 +743,22 @@ fi
 # --- Install pinned plugins (after settings.json copy — plugin state must survive it) ---
 _step "Installing pinned plugins..."
 _install_pinned_plugins
+
+# --- Statusline: @allthingsclaude/bar (rendered under the caveman badge by
+# scripts/statusline.sh, which settings.json points at) ---
+_step "Installing statusline (claude-bar)..."
+# Pinned like the plugins: same version on every machine. npm is a fast no-op
+# when the pinned version is already installed, so this also upgrades stale ones.
+CLAUDE_BAR_VERSION="0.1.6"
+if command -v npm >/dev/null; then
+  if _run_quiet npm install -g --no-fund --no-audit --loglevel=error "@allthingsclaude/bar@$CLAUDE_BAR_VERSION"; then
+    echo "  ${GREEN}✓ claude-bar $CLAUDE_BAR_VERSION installed${RESET} ${DIM}— run 'claude-bar login' once to authenticate${RESET}"
+  else
+    echo "  ${YELLOW}⚠ claude-bar failed — run manually: npm i -g @allthingsclaude/bar@$CLAUDE_BAR_VERSION${RESET}"
+  fi
+else
+  echo "  ${YELLOW}⚠ npm not found — claude-bar skipped${RESET}"
+fi
 
 # --- Preserve/restore caveman mode (after plugins — upstream plugin takes precedence) ---
 # Copy defaults if not present on this machine (new install)

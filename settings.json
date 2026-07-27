@@ -121,6 +121,6 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "bash -c 'exec ~/.claude/plugins/cache/caveman/caveman/*/src/hooks/caveman-statusline.sh'"
+    "command": "bash -c 'exec bash ~/.claude/scripts/statusline.sh'"
   }
 }
