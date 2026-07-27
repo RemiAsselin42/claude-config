@@ -51,7 +51,17 @@ export function getGitInfo(cwd) {
   const gitCommon = run('git rev-parse --git-common-dir', cwd);
   const worktree = gitDir !== gitCommon;
 
-  const info = { branch, staged, modified, untracked, worktree };
+  // Line-level diff vs HEAD (staged + unstaged) — live repo state, unlike the
+  // session-cumulative cost.total_lines_* in the Claude Code payload.
+  let linesAdded = 0;
+  let linesRemoved = 0;
+  for (const l of run('git diff HEAD --numstat', cwd).split('\n')) {
+    const [a, r] = l.split('\t');
+    linesAdded += parseInt(a, 10) || 0;
+    linesRemoved += parseInt(r, 10) || 0;
+  }
+
+  const info = { branch, staged, modified, untracked, worktree, linesAdded, linesRemoved };
   try { writeFileSync(cp, JSON.stringify(info)); } catch {}
   return info;
 }

@@ -68,8 +68,6 @@ export function render(input, usage) {
   // ── Parse input ────────────────────────────────────────────
   const model = input?.model?.display_name || '?';
   const rawCtxSize = input?.context_window?.context_window_size || 200_000;
-  const linesAdded = input?.cost?.total_lines_added || 0;
-  const linesRemoved = input?.cost?.total_lines_removed || 0;
 
   const cur = input?.context_window?.current_usage || {};
   const usedTokens = (cur.input_tokens || 0) + (cur.cache_creation_input_tokens || 0) + (cur.cache_read_input_tokens || 0);
@@ -125,8 +123,8 @@ export function render(input, usage) {
   if (git?.branch) {
     line3 = `${label('Github')}${BRAND}\u2387 ${git.branch}${RESET}`;
     if (git.worktree) line3 += `${DIM} \u00B7 \u16B0 ${projectName}${RESET}`;
-    if (linesAdded > 0 || linesRemoved > 0) {
-      line3 += `${DIM} \u00B7 ${RESET}${BRAND_LIGHT}+${linesAdded}${RESET} ${BRAND_DARK}-${linesRemoved}${RESET}`;
+    if (git.linesAdded > 0 || git.linesRemoved > 0) {
+      line3 += `${DIM} \u00B7 ${RESET}${BRAND_LIGHT}+${git.linesAdded}${RESET} ${BRAND_DARK}-${git.linesRemoved}${RESET}`;
     }
   }
 
