@@ -8,7 +8,7 @@ Configuration partagée pour Claude Code : agents spécialisés, slash-commands,
 > `install.sh` et les scripts utilitaires effectuent des opérations destructives et persistantes :
 >
 > - **Écritures** dans `~/.claude/` (agents, commandes, hooks, scripts, settings, CLAUDE.md)
-> - **Installation de paquets** globaux (`graphify`, `mempalace`, `rtk`)
+> - **Installation de paquets** globaux (`graphify`, `mempalace`, `rtk`, `@allthingsclaude/bar` — statusline authentifiée ; nécessite un `claude-bar login` unique)
 > - **Modification du PATH** : ajoute `~/.local/bin` dans `~/.bashrc`, `~/.bash_profile` et `~/.profile`, après confirmation sauf en mode `-y`
 > - **Suppression de fichiers** (`graphify-out/`, wings mempalace, dossiers vault) via `exclude-from-index.sh`
 > - **Écriture de hooks et de config git** dans les repos cibles (post-commit sync vault, gate `pre-commit` shellcheck dans ce repo, `merge.ours.driver` / `pull.rebase false`)
@@ -49,19 +49,20 @@ Le repo privé se synchronise automatiquement avec celui-ci — voir [Installati
 3. Demande une seule confirmation si `~/.local/bin` doit être ajouté au PATH persistant (`-y` accepte automatiquement)
 4. Copie les **agents**, **commandes**, **scripts** et **templates** vers `~/.claude/` — `agents/` et `commands/` sont en miroir : les fichiers déployés retirés du repo sont purgés
 5. Enregistre l'emplacement du repo dans `~/.claude/claude-config.path` et génère **`session-stop.sh`** (hook Stop : `graphify update` + mining du repo dans son wing MemPalace + sync vault) ; les hooks résolvent le repo via ce pointeur plutôt que par chemin absolu en dur
-6. Initialise **MemPalace** : création du palace, choix du modèle d'embedding, vérification de l'index. Les repos ne sont _pas_ minés ici — chacun l'est dans son propre wing à l'étape 15
+6. Initialise **MemPalace** : création du palace, choix du modèle d'embedding, vérification de l'index. Les repos ne sont _pas_ minés ici — chacun l'est dans son propre wing à l'étape 16
 7. Copie **CLAUDE.md** vers `~/.claude/CLAUDE.md` (substitution `${VAULT_DIR}`)
 8. Génère **`claude.json`** depuis le template (substitution `FIGMA_API_KEY`)
-9. Copie **`settings.json`**
+9. Copie **`settings.json`** — épingle le modèle/effort par défaut (`claude-fable-5[1m]` · `xhigh`) et pointe la statusline vers `scripts/statusline.sh` sur chaque machine
 10. Active **RTK** via `setup-rtk.sh`
 11. Exécute **CC Safe Setup** pour installer les hooks de sécurité de façon non-destructive
 12. Installe les **plugins épinglés** via le CLI `claude` (`ponytail`, `caveman` upstream)
-13. Restaure le **caveman mode** depuis `defaults/` si absent sur la machine (sauté si le plugin caveman upstream est installé — il injecte ses propres instructions)
-14. Met à jour `.gitignore` dans les repos cibles (bloc graphify + `CLAUDE.md` + `mempalace.yaml` + `context/`) via `templates/gitignore.append`
-15. Sélection interactive des repos git frères à indexer. Par repo : hooks + graphe graphify, **nommage LLM des communautés**, sync vault (rapport + arbre de fichiers + canvas + une note par nœud), génération de `mempalace.yaml` et mining dans le wing du repo
-16. Applique le même pipeline au repo de config lui-même (graphe rafraîchi de force, pas de gestion du `.gitignore`)
-17. Installe un **gate pre-commit shellcheck** dans le repo de config — les `*.sh` stagés doivent passer `shellcheck -S warning`
-18. Commit le vault et le réconcilie avec `origin` (fetch → merge → push, réessayé en cas de course) via `scripts/vault-sync.sh`
+13. Installe **`@allthingsclaude/bar`** (version épinglée, npm global) — le backend de statusline rendu par `scripts/statusline.sh` avec le badge caveman ; exécuter `claude-bar login` une fois pour s'authentifier
+14. Restaure le **caveman mode** depuis `defaults/` si absent sur la machine (sauté si le plugin caveman upstream est installé — il injecte ses propres instructions)
+15. Met à jour `.gitignore` dans les repos cibles (bloc graphify + `CLAUDE.md` + `mempalace.yaml` + `context/`) via `templates/gitignore.append`
+16. Sélection interactive des repos git frères à indexer. Par repo : hooks + graphe graphify, **nommage LLM des communautés**, sync vault (rapport + arbre de fichiers + canvas + une note par nœud), génération de `mempalace.yaml` et mining dans le wing du repo
+17. Applique le même pipeline au repo de config lui-même (graphe rafraîchi de force, pas de gestion du `.gitignore`)
+18. Installe un **gate pre-commit shellcheck** dans le repo de config — les `*.sh` stagés doivent passer `shellcheck -S warning`
+19. Commit le vault et le réconcilie avec `origin` (fetch → merge → push, réessayé en cas de course) via `scripts/vault-sync.sh`
 
 ---
 

@@ -8,7 +8,7 @@ Shared Claude Code configuration: specialized agents, slash-commands, scripts, p
 > `install.sh` performs persistent, potentially destructive operations:
 >
 > - **Writes** to `~/.claude/` (agents, commands, hooks, scripts, settings, CLAUDE.md)
-> - **Installs** global packages (`graphify`, `mempalace`, `rtk`)
+> - **Installs** global packages (`graphify`, `mempalace`, `rtk`, `@allthingsclaude/bar` — an authenticated statusline; requires a one-time `claude-bar login`)
 > - **Modifies PATH** — adds `~/.local/bin` to `~/.bashrc` / `~/.bash_profile` / `~/.profile` (with confirmation, or silently with `-y`)
 > - **Deletes files** (`graphify-out/`, mempalace wings, vault folders) via `exclude-from-index.sh`
 > - **Writes git hooks and config** in target repos (post-commit vault sync, `pre-commit` shellcheck gate in this repo, `merge.ours.driver` / `pull.rebase false`)
@@ -49,19 +49,20 @@ Your private repo stays in sync with this one automatically — see [Minimal set
 3. Asks once to add `~/.local/bin` to persistent PATH (`-y` skips)
 4. Copies **agents**, **commands**, **scripts**, **templates** to `~/.claude/` — `agents/` and `commands/` are mirrored: deployed files removed from the repo are pruned
 5. Records the repo location in `~/.claude/claude-config.path` and generates **`session-stop.sh`** (Stop hook: `graphify update` + mining the repo into its MemPalace wing + vault sync); hooks resolve the repo through this pointer instead of hardcoded absolute paths
-6. Initializes **MemPalace**: creates the palace, selects the embedding model, checks index health. Repos are _not_ mined here — each one is mined into its own wing during step 15
+6. Initializes **MemPalace**: creates the palace, selects the embedding model, checks index health. Repos are _not_ mined here — each one is mined into its own wing during step 16
 7. Copies **CLAUDE.md** to `~/.claude/CLAUDE.md` (substitutes `${VAULT_DIR}`)
 8. Generates **`claude.json`** from template (substitutes `FIGMA_API_KEY`)
-9. Copies **`settings.json`**
+9. Copies **`settings.json`** — this pins the default model/effort (`claude-fable-5[1m]` · `xhigh`) and points the statusline at `scripts/statusline.sh` on every machine
 10. Activates **RTK** via `setup-rtk.sh`
 11. Runs **CC Safe Setup** to install safety hooks non-destructively
 12. Installs **pinned plugins** via the `claude` CLI (`ponytail`, upstream `caveman`)
-13. Restores **caveman mode** from `defaults/` if not set on this machine (skipped when the upstream caveman plugin is installed — it injects its own instructions)
-14. Updates `.gitignore` in target repos (graphify block + `CLAUDE.md` + `mempalace.yaml` + `context/`) using `templates/gitignore.append`
-15. Interactively selects sibling git repos to index. Per repo: graphify hooks + graph, LLM **community naming**, vault sync (report + file tree + canvas + one note per node), `mempalace.yaml` generation and mining into the repo's own wing
-16. Runs the same pipeline on the config repo itself (forced graph refresh, no `.gitignore` management)
-17. Installs a **shellcheck pre-commit gate** in the config repo — staged `*.sh` must pass `shellcheck -S warning`
-18. Commits the vault and reconciles with `origin` (fetch → merge → push, retried on races) via `scripts/vault-sync.sh`
+13. Installs **`@allthingsclaude/bar`** (pinned version, global npm) — the statusline backend rendered by `scripts/statusline.sh` together with the caveman badge; run `claude-bar login` once to authenticate
+14. Restores **caveman mode** from `defaults/` if not set on this machine (skipped when the upstream caveman plugin is installed — it injects its own instructions)
+15. Updates `.gitignore` in target repos (graphify block + `CLAUDE.md` + `mempalace.yaml` + `context/`) using `templates/gitignore.append`
+16. Interactively selects sibling git repos to index. Per repo: graphify hooks + graph, LLM **community naming**, vault sync (report + file tree + canvas + one note per node), `mempalace.yaml` generation and mining into the repo's own wing
+17. Runs the same pipeline on the config repo itself (forced graph refresh, no `.gitignore` management)
+18. Installs a **shellcheck pre-commit gate** in the config repo — staged `*.sh` must pass `shellcheck -S warning`
+19. Commits the vault and reconciles with `origin` (fetch → merge → push, retried on races) via `scripts/vault-sync.sh`
 
 ---
 
