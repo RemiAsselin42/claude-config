@@ -51,7 +51,7 @@ Your private repo stays in sync with this one automatically — see [Minimal set
 5. Records the repo location in `~/.claude/claude-config.path` and generates **`session-stop.sh`** (Stop hook: `graphify update` + mining the repo into its MemPalace wing + vault sync); hooks resolve the repo through this pointer instead of hardcoded absolute paths
 6. Initializes **MemPalace**: creates the palace, selects the embedding model, checks index health. Repos are _not_ mined here — each one is mined into its own wing during step 16
 7. Copies **CLAUDE.md** to `~/.claude/CLAUDE.md` (substitutes `${VAULT_DIR}`)
-8. Generates **`claude.json`** from template (substitutes `FIGMA_API_KEY`)
+8. Registers the **MCP servers** in user scope via `claude mcp add` — `mempalace` (`mempalace-mcp`), `context-mode` and `figma`. Claude Code reads MCP servers from `~/.claude.json` or a project `.mcp.json` only, never from `settings.json`. Figma authenticates over OAuth: run `/mcp` once inside Claude Code
 9. Copies **`settings.json`** — this pins the default model/effort (`claude-fable-5[1m]` · `xhigh`) and points the statusline at `scripts/statusline.sh` on every machine
 10. Activates **RTK** via `setup-rtk.sh`
 11. Runs **CC Safe Setup** to install safety hooks non-destructively
@@ -104,7 +104,6 @@ Nothing below is required — defaults work.
 | CLI         | `install.sh -v`                                      | Verbose installer output                                                                |
 | Prompt      | PATH                                                 | Asked once, to add `~/.local/bin` to `~/.bashrc` / `~/.bash_profile` / `~/.profile`     |
 | Prompt      | Repo selection                                       | Which sibling git repos to index (graphify + MemPalace + vault)                         |
-| `env.local` | `FIGMA_API_KEY`                                      | Enables the Figma MCP server                                                            |
 | `env.local` | `MEMPALACE_EMBEDDING_MODEL`                          | `embeddinggemma` (default, multilingual) or `minilm` (English-only, faster)             |
 | `env.local` | `MEMPALACE_PALACE_PATH`                              | Move the palace off `~/.mempalace/palace` (small system drive, synced folder)           |
 | `env.local` | `GRAPHIFY_LABEL_BACKEND` / `_MODEL`                  | Which LLM names the graph communities (default: the `claude` CLI, no API key)           |
@@ -122,8 +121,7 @@ claude-config/
 ├── install.sh                   # Main installation script
 ├── env.local.template           # Machine-specific variables (Figma key, embedder, label backend…)
 ├── CLAUDE.md                    # Global instructions for Claude Code
-├── claude.json.template         # MCP config template (Figma, etc.)
-├── settings.json                # Permissions, hooks, effort level, MCP servers
+├── settings.json                # Permissions, hooks, effort level, attribution
 ├── mempalace.yaml               # This repo's own MemPalace wing + mining exclusions
 ├── .graphifyignore              # Keeps vault/ (generated) out of this repo's own graph
 │

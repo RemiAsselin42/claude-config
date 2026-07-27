@@ -27,7 +27,7 @@ git -C "$REPO_DIR" fetch upstream --quiet 2>/dev/null || exit 0
 _UPSTREAM_PATHS=(
   agents/ commands/ scripts/ templates/ defaults/ hooks/
   install.sh settings.json CLAUDE.md .gitattributes
-  mempalace.yaml claude.json.template env.local.template
+  mempalace.yaml env.local.template
 )
 
 # Apply upstream deletions first: `checkout upstream/main -- <dir>` only adds or

@@ -194,6 +194,28 @@ _persist_tool_path_if_approved() {
   done
 }
 
+# npm's global bin is not on PATH by default on Windows: `npm install -g` lands
+# CLIs in %APPDATA%\npm, which neither the user nor the machine PATH contains.
+# Every globally installed tool is then unreachable — context-mode's settings.json
+# hooks silently no-op behind `|| true`, and its MCP server can never start.
+_ensure_npm_bin_on_path() {
+  local native session
+  native="$(_npm_global_bin)" || return 0
+  if _is_windows; then
+    session="$(cygpath -u "$native" 2>/dev/null || printf '%s' "$native")"
+  else
+    session="$native"
+  fi
+  [[ -d "$session" ]] || return 0
+  [[ ":$PATH:" == *":$session:"* ]] || export PATH="$session:$PATH"
+
+  [[ "$PATH_PERSIST_APPROVED" == "true" ]] || return 0
+  _write_tool_path_to_profiles "$session" "npm global bin"
+  # The Windows PATH is the one Claude Code's own child processes inherit.
+  [[ -n "$(_ensure_windows_user_path "$native")" ]] && _ok "npm global bin on user PATH"
+  return 0
+}
+
 _ensure_uv() {
   export UV_INSTALL_DIR
   # Cache and tool dirs may sit on different filesystems (common on Windows);
@@ -518,6 +540,8 @@ _prepare_dependencies() {
 
   command -v node >/dev/null || { echo "${RED}Node.js is required (https://nodejs.org)${RESET}"; exit 1; }
   _ensure_uv
+  # After _ensure_uv: it is what asks for PATH-persistence consent.
+  _ensure_npm_bin_on_path
 
   _run_quiet uv tool install graphifyy --upgrade
   command -v graphify >/dev/null || { echo "${RED}Graphify installed but not found in current PATH.${RESET}"; exit 1; }
@@ -609,6 +633,56 @@ _install_pinned_plugins() {
       echo "    claude plugin marketplace add ${marketplace} && claude plugin install ${plugin}"
     fi
   done
+}
+
+# stdio MCP servers, as "<name> <command> [args...]".
+# The MemPalace server is its own binary: `mempalace mcp` only prints setup help,
+# which is why a client that ran it saw the process exit immediately.
+MCP_STDIO_SERVERS=(
+  "mempalace mempalace-mcp"
+  "context-mode context-mode"
+)
+
+# `claude mcp add --scope user` writes to ~/.claude.json, the only place (with a
+# project .mcp.json) Claude Code reads MCP servers from. Idempotent: an existing
+# registration is left alone, so a re-run never duplicates or resets a server.
+_setup_mcp_servers() {
+  if ! command -v claude >/dev/null 2>&1; then
+    echo "  ${YELLOW}⚠ claude CLI not found — MCP servers not registered${RESET}"
+    return 0
+  fi
+
+  local entry name cmd
+  for entry in "${MCP_STDIO_SERVERS[@]}"; do
+    # shellcheck disable=SC2086  # deliberate split: entry is "name command args..."
+    set -- $entry
+    name="$1"; cmd="$2"; shift 2
+    if claude mcp get "$name" >/dev/null 2>&1; then
+      _detail "  ${DIM}· MCP $name: already registered${RESET}"
+      continue
+    fi
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+      echo "  ${YELLOW}⚠ MCP $name: '$cmd' not on PATH — not registered${RESET}"
+      continue
+    fi
+    if _run_quiet claude mcp add --scope user "$name" -- "$cmd" "$@"; then
+      _ok "MCP $name"
+    else
+      echo "  ${YELLOW}⚠ MCP $name: registration failed${RESET}"
+    fi
+  done
+
+  # Figma's remote server authenticates over OAuth, not with a personal access
+  # token: figd_ keys are rejected there (401) whether sent as a bearer or as
+  # X-Figma-Token — they only work against the desktop app's local server. So no
+  # header at all; the browser flow runs once, from /mcp inside Claude Code.
+  if claude mcp get figma >/dev/null 2>&1; then
+    _detail "  ${DIM}· MCP figma: already registered${RESET}"
+  elif _run_quiet claude mcp add --scope user --transport http figma "https://mcp.figma.com/mcp"; then
+    _ok "MCP figma (authenticate once with /mcp)"
+  else
+    echo "  ${YELLOW}⚠ MCP figma: registration failed${RESET}"
+  fi
 }
 
 # --- Load machine-specific vars ---
@@ -717,10 +791,14 @@ else
   _detail "  ${GREEN}✓ CLAUDE.md copied${RESET}"
 fi
 
-# --- Generate claude.json from template ---
-_step "Generating claude.json..."
-sed "s|\${FIGMA_API_KEY}|${FIGMA_API_KEY}|g" \
-  "$REPO_DIR/claude.json.template" > "$CLAUDE_DIR/claude.json"
+# --- MCP servers (user scope) ---
+# Claude Code reads MCP servers from ~/.claude.json (what `claude mcp add`
+# writes), from a project .mcp.json, or from managed policy — never from
+# settings.json's "mcpServers" key nor from ~/.claude/claude.json. Both were
+# used here and neither ever loaded a single server.
+_step "Registering MCP servers..."
+rm -f "$CLAUDE_DIR/claude.json"   # migration: unread file, and it held the Figma token
+_setup_mcp_servers
 
 # --- Copy settings.json ---
 _step "Copying settings.json..."
