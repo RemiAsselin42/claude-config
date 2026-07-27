@@ -16,5 +16,5 @@ context/
 
 
 mempalace.yaml
-# Graphify — locally generated artifacts
+# Graphify, MemPalace, and context directories are generated at runtime and should not be committed.
 graphify-out/
