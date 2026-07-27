@@ -21,16 +21,20 @@ done
 badge=""
 [ -n "$badge_script" ] && badge=$(bash "$badge_script" 2>/dev/null)
 
-# Resolve claude-bar: PATH first, then common npm-prefix locations (the
-# statusline shell is non-login, so nvm/asdf/Homebrew paths may be missing).
-bar_bin=""
-if command -v claude-bar >/dev/null 2>&1; then
-  bar_bin=claude-bar
+# Resolve claude-bar into "$@": vendored copy first (scripts/claude-bar,
+# deployed by install.sh — no npm dependency), then PATH, then npm-prefix
+# fallbacks (the statusline shell is non-login, so nvm/asdf/Homebrew paths
+# may be missing).
+set --
+if [ -f "$CFG/scripts/claude-bar/src/index.js" ] && command -v node >/dev/null 2>&1; then
+  set -- node "$CFG/scripts/claude-bar/src/index.js"
+elif command -v claude-bar >/dev/null 2>&1; then
+  set -- claude-bar
 else
   for c in "$APPDATA/npm/claude-bar" "$HOME/.npm-global/bin/claude-bar" \
            /opt/homebrew/bin/claude-bar /usr/local/bin/claude-bar \
            "$HOME/.asdf/shims/claude-bar" "$HOME"/.nvm/versions/node/*/bin/claude-bar; do
-    [ -x "$c" ] && bar_bin="$c" && break
+    [ -x "$c" ] && set -- "$c" && break
   done
 fi
 
@@ -38,7 +42,7 @@ fi
 # comes in the stdin payload (.effort.level); fallback walks the same override
 # order Claude Code uses (settings.local.json before settings.json). Only
 # claude-bar consumes the patched payload — skip the jq work without it.
-if [ -n "$bar_bin" ] && command -v jq >/dev/null 2>&1; then
+if [ $# -gt 0 ] && command -v jq >/dev/null 2>&1; then
   effort=$(printf '%s' "$input" | jq -r '.effort.level // empty' 2>/dev/null)
   if [ -z "$effort" ]; then
     for f in "$CFG/settings.local.json" "$CFG/settings.json"; do
@@ -57,11 +61,11 @@ fi
 # claude-bar does auth/usage lookups — cap it so a network stall can never
 # blank the whole statusline (the caveman half is a pure local read).
 bar=""
-if [ -n "$bar_bin" ]; then
+if [ $# -gt 0 ]; then
   if command -v timeout >/dev/null 2>&1; then
-    bar=$(printf '%s' "$input" | timeout 2 "$bar_bin" 2>/dev/null)
+    bar=$(printf '%s' "$input" | timeout 2 "$@" 2>/dev/null)
   else
-    bar=$(printf '%s' "$input" | "$bar_bin" 2>/dev/null)
+    bar=$(printf '%s' "$input" | "$@" 2>/dev/null)
   fi
 fi
 
@@ -79,18 +83,27 @@ if [ -n "$badge" ]; then
       mode=$(printf '%s' "$plain" | sed -n 's/^\[CAVEMAN:\([A-Z0-9-]*\)\].*/\1/p' | tr '[:upper:]' '[:lower:]')
       [ -n "$mode" ] || mode=full
       savings=$(printf '%s' "$plain" | sed 's/^\[[^]]*\]//; s/^ *//')
-      cave_line="${B}Caveman${R}${D} │ ${R}${D}${mode}${R}"
-      [ -n "$savings" ] && cave_line="${cave_line}${D} │ ${R}${D}${savings}${R}"
+      cave_line="${B}Caveman${R}${D} │ ${R}${D}On · ${mode^}${R}"
+      [ -n "$savings" ] && cave_line="${cave_line}${D} · ${savings}${R}"
       ;;
     *) cave_line="$badge" ;;
   esac
 fi
 
 if [ -n "$bar" ] && [ -n "$cave_line" ]; then
-  first=$(printf '%s\n' "$bar" | head -n 1)
-  rest=$(printf '%s\n' "$bar" | tail -n +2)
-  printf '%s\n%s\n' "$first" "$cave_line"
-  [ -n "$rest" ] && printf '%s\n' "$rest"
+  # Caveman line goes after bar's usage lines (Model/Cache/Usage), just
+  # above the git line when bar ends with one ("Github" label).
+  last=$(printf '%s\n' "$bar" | tail -n 1)
+  plain_last=$(printf '%s' "$last" | sed "s/${ESC}\[[0-9;]*m//g")
+  case "$plain_last" in
+    "Github"*)
+      printf '%s\n' "$bar" | sed '$d'
+      printf '%s\n%s\n' "$cave_line" "$last"
+      ;;
+    *)
+      printf '%s\n%s\n' "$bar" "$cave_line"
+      ;;
+  esac
 elif [ -n "$bar" ]; then
   printf '%s' "$bar"
 elif [ -n "$cave_line" ]; then

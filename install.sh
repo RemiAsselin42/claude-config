@@ -744,20 +744,14 @@ fi
 _step "Installing pinned plugins..."
 _install_pinned_plugins
 
-# --- Statusline: @allthingsclaude/bar (rendered under the caveman badge by
-# scripts/statusline.sh, which settings.json points at) ---
-_step "Installing statusline (claude-bar)..."
-# Pinned like the plugins: same version on every machine. npm is a fast no-op
-# when the pinned version is already installed, so this also upgrades stale ones.
-CLAUDE_BAR_VERSION="0.1.6"
-if command -v npm >/dev/null; then
-  if _run_quiet npm install -g --no-fund --no-audit --loglevel=error "@allthingsclaude/bar@$CLAUDE_BAR_VERSION"; then
-    echo "  ${GREEN}✓ claude-bar $CLAUDE_BAR_VERSION installed${RESET} ${DIM}— run 'claude-bar login' once to authenticate${RESET}"
-  else
-    echo "  ${YELLOW}⚠ claude-bar failed — run manually: npm i -g @allthingsclaude/bar@$CLAUDE_BAR_VERSION${RESET}"
-  fi
+# --- Statusline: claude-bar, vendored at scripts/claude-bar (fork of
+# @allthingsclaude/bar 0.1.6 with local fixes — no npm dependency). Already
+# deployed by the scripts/ copy above; statusline.sh resolves it first. ---
+_step "Checking statusline (claude-bar, vendored)..."
+if command -v node >/dev/null; then
+  echo "  ${GREEN}✓ claude-bar vendored${RESET} ${DIM}— login once: node ~/.claude/scripts/claude-bar/src/index.js login${RESET}"
 else
-  echo "  ${YELLOW}⚠ npm not found — claude-bar skipped${RESET}"
+  echo "  ${YELLOW}⚠ node not found — claude-bar half of the statusline disabled${RESET}"
 fi
 
 # --- Preserve/restore caveman mode (after plugins — upstream plugin takes precedence) ---

@@ -1,0 +1,30 @@
+{
+  "name": "@allthingsclaude/bar",
+  "version": "0.1.6",
+  "description": "Battery-themed statusline for Claude Code",
+  "type": "module",
+  "bin": {
+    "bar": "./src/index.js",
+    "claude-bar": "./src/index.js"
+  },
+  "files": [
+    "src/"
+  ],
+  "keywords": [
+    "claude",
+    "claude-code",
+    "statusline",
+    "terminal",
+    "battery"
+  ],
+  "license": "MIT",
+  "scripts": {
+    "release:patch": "npm version patch && git push && git push --tags",
+    "release:minor": "npm version minor && git push && git push --tags",
+    "release:major": "npm version major && git push && git push --tags"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/allthingsclaude/bar"
+  }
+}
