@@ -643,6 +643,19 @@ MCP_STDIO_SERVERS=(
   "context-mode context-mode"
 )
 
+# Claude Code spawns stdio MCP servers without a shell, so on Windows only a real
+# .exe is launchable: npm's shims (an extensionless sh script plus a .cmd) both
+# fail with ENOENT, which the client reports as "Connection closed" (-32000).
+# Those commands have to go through `cmd /c`.
+_mcp_needs_cmd_shim() {
+  _is_windows || return 1
+  local resolved
+  resolved="$(command -v "$1" 2>/dev/null)" || return 1
+  # command -v drops the .exe suffix, so probe the file itself.
+  [[ "$resolved" == *.exe || -f "$resolved.exe" ]] && return 1
+  return 0
+}
+
 # `claude mcp add --scope user` writes to ~/.claude.json, the only place (with a
 # project .mcp.json) Claude Code reads MCP servers from. Idempotent: an existing
 # registration is left alone, so a re-run never duplicates or resets a server.
@@ -665,7 +678,12 @@ _setup_mcp_servers() {
       echo "  ${YELLOW}⚠ MCP $name: '$cmd' not on PATH — not registered${RESET}"
       continue
     fi
-    if _run_quiet claude mcp add --scope user "$name" -- "$cmd" "$@"; then
+    local -a spawn=("$cmd" "$@")
+    # //c, not /c: Git Bash rewrites a lone /c into a Windows path (C:/) before
+    # the argument ever reaches claude, which registers a server that times out.
+    # The leading // is the MSYS escape and collapses back to /c.
+    _mcp_needs_cmd_shim "$cmd" && spawn=(cmd //c "$cmd" "$@")
+    if _run_quiet claude mcp add --scope user "$name" -- "${spawn[@]}"; then
       _ok "MCP $name"
     else
       echo "  ${YELLOW}⚠ MCP $name: registration failed${RESET}"
