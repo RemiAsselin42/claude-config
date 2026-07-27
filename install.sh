@@ -11,7 +11,8 @@ set -euo pipefail
 unset NODE_OPTIONS VSCODE_INSPECTOR_OPTIONS
 
 AUTO_YES=false
-VERBOSE="${VERBOSE:-false}"
+# Exported: child scripts (exclude-from-index.sh) gate their own detail lines on it.
+export VERBOSE="${VERBOSE:-false}"
 ORIG_ARGS=("$@")
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -106,6 +107,29 @@ _step() {
 
 _detail() {
   [[ "$VERBOSE" == "true" ]] && echo "$*"
+  return 0
+}
+
+# Steady-state confirmations. Verbose prints one line each; otherwise they are
+# queued and _ok_flush collapses the whole section into a single line — a
+# re-run on an already-configured machine has nothing new to say per item.
+OK_ITEMS=()
+_ok() {
+  if [[ "$VERBOSE" == "true" ]]; then
+    echo "  ${GREEN}✓ $*${RESET}"
+  else
+    OK_ITEMS+=("$*")
+  fi
+  return 0
+}
+
+_ok_flush() {
+  if [[ "$VERBOSE" != "true" && ${#OK_ITEMS[@]} -gt 0 ]]; then
+    local joined
+    printf -v joined '%s, ' "${OK_ITEMS[@]}"
+    echo "  ${GREEN}✓${RESET} ${DIM}${joined%, }${RESET}"
+  fi
+  OK_ITEMS=()
   return 0
 }
 
@@ -227,7 +251,7 @@ _ensure_chromadb() {
   fi
 
   if "$python_cmd" -c 'import chromadb' >/dev/null 2>&1; then
-    echo "  ${GREEN}✓ chromadb${RESET}"
+    _ok "chromadb"
     return 0
   fi
 
@@ -241,7 +265,7 @@ _ensure_chromadb() {
       echo "  ${YELLOW}⚠ chromadb installed but not importable by $python_cmd.${RESET}"
       return 0
     }
-    echo "  ${GREEN}✓ chromadb installed${RESET}"
+    _ok "chromadb installed"
   else
     echo "  ${YELLOW}⚠ chromadb not installed — MemPalace cleanup will fall back to uv if available.${RESET}"
   fi
@@ -385,7 +409,7 @@ _setup_mempalace() {
       _mempalace_repair_divergence
       ;;
     *)
-      echo "  ${GREEN}✓ MemPalace ($current)${RESET}"
+      _ok "MemPalace ($current)"
       ;;
   esac
 
@@ -452,7 +476,7 @@ _mine_repo_into_wing() {
   [[ "${MEMPALACE_READY:-false}" == "true" ]] || return 0
   # --background: mining 18 repos synchronously would add minutes to every run.
   if mempalace mine "$repo" --wing "$wing" --background >/dev/null 2>&1; then
-    [[ "$VERBOSE" != "true" ]] && echo "  ${DIM}· mempalace: mining → wing '$wing'${RESET}" || true
+    _detail "  ${DIM}· mempalace: mining → wing '$wing'${RESET}"
   else
     echo "  ${DIM}· mempalace: file mining skipped${RESET}"
   fi
@@ -466,7 +490,7 @@ _mine_repo_into_wing() {
 
 _ensure_shellcheck() {
   if command -v shellcheck >/dev/null; then
-    echo "  ${GREEN}✓ shellcheck${RESET}"
+    _ok "shellcheck"
     return 0
   fi
   if _is_windows; then
@@ -477,7 +501,7 @@ _ensure_shellcheck() {
     if _run_quiet curl -fsSL -o "$tmp/shellcheck.zip" "https://github.com/koalaman/shellcheck/releases/download/stable/shellcheck-stable.zip" \
       && _run_quiet powershell.exe -NoProfile -Command "Expand-Archive -Force '$(cygpath -w "$tmp/shellcheck.zip")' '$(cygpath -w "$tmp")'" \
       && cp "$tmp/shellcheck.exe" "$TOOL_BIN_DIR/"; then
-      echo "  ${GREEN}✓ shellcheck installed ($TOOL_BIN_DIR/shellcheck.exe)${RESET}"
+      _ok "shellcheck installed ($TOOL_BIN_DIR/shellcheck.exe)"
     else
       echo "  ${YELLOW}⚠ shellcheck: install failed — pre-commit lint will be skipped (scoop install shellcheck)${RESET}"
     fi
@@ -497,31 +521,31 @@ _prepare_dependencies() {
 
   _run_quiet uv tool install graphifyy --upgrade
   command -v graphify >/dev/null || { echo "${RED}Graphify installed but not found in current PATH.${RESET}"; exit 1; }
-  echo "  ${GREEN}✓ Graphify${RESET}"
+  _ok "Graphify"
 
   _run_quiet uv tool install mempalace --upgrade
   command -v mempalace >/dev/null || { echo "${RED}MemPalace installed but not found in current PATH.${RESET}"; exit 1; }
-  echo "  ${GREEN}✓ MemPalace${RESET}"
+  _ok "MemPalace"
 
   _ensure_chromadb
 
   if command -v rtk >/dev/null; then
-    echo "  ${GREEN}✓ RTK${RESET}"
+    _ok "RTK"
   elif SETUP_RTK_INIT=false SETUP_RTK_MANAGE_PATH=false SETUP_RTK_QUIET=true bash "$REPO_DIR/scripts/setup-rtk.sh"; then
-    echo "  ${GREEN}✓ RTK ready${RESET}"
+    _ok "RTK ready"
   else
     echo "  ${YELLOW}⚠ RTK: install/prepare failed, will attempt activation later.${RESET}"
   fi
 
   # jq is required by the cc-safe-setup hooks for JSON parsing
   if command -v jq >/dev/null; then
-    echo "  ${GREEN}✓ jq${RESET}"
+    _ok "jq"
   elif _is_windows; then
     # Direct release download — usable in the current session, no winget
     # dependency (winget is often unresolvable from Git Bash, and a winget
     # install would not be in PATH until a new terminal anyway).
     if _run_quiet curl -fsSL -o "$TOOL_BIN_DIR/jq.exe" "https://github.com/jqlang/jq/releases/latest/download/jq-windows-amd64.exe"; then
-      echo "  ${GREEN}✓ jq installed ($TOOL_BIN_DIR/jq.exe)${RESET}"
+      _ok "jq installed ($TOOL_BIN_DIR/jq.exe)"
     else
       echo "  ${YELLOW}⚠ jq: download failed — cc-safe-setup hooks need it (winget install jqlang.jq / scoop install jq)${RESET}"
     fi
@@ -532,20 +556,21 @@ _prepare_dependencies() {
   _ensure_shellcheck
 
   if _run_quiet npm install -g --no-fund --no-audit --loglevel=error context-mode; then
-    echo "  ${GREEN}✓ context-mode${RESET}"
+    _ok "context-mode"
   else
     echo "  ${YELLOW}⚠ context-mode: install failed — run manually: npm install -g context-mode${RESET}"
   fi
 
   if [[ -n "${MILVUS_ADDRESS:-}" ]]; then
     if _run_quiet npm install -g --no-fund --no-audit --loglevel=error @zilliz/claude-context-mcp; then
-      echo "  ${GREEN}✓ Zilliz (semantic search — add MCP server manually to settings.json if needed)${RESET}"
+      _ok "Zilliz (semantic search — add MCP server manually to settings.json if needed)"
     else
       echo "  ${YELLOW}⚠ Zilliz install failed — run manually: npm install -g @zilliz/claude-context-mcp${RESET}"
     fi
   else
-    echo "  ${DIM}· Zilliz: skipped (MILVUS_ADDRESS not set in env.local)${RESET}"
+    _detail "  ${DIM}· Zilliz: skipped (MILVUS_ADDRESS not set in env.local)${RESET}"
   fi
+  _ok_flush
 }
 
 # Pinned Claude Code plugins, replicated on every machine.
@@ -571,14 +596,14 @@ _install_pinned_plugins() {
     plugin="${entry#*|}"
     name="${plugin%%@*}"
     if claude plugin list 2>/dev/null | grep -qi "$name"; then
-      echo "  ${DIM}· ${name}: already installed${RESET}"
+      _detail "  ${DIM}· ${name}: already installed${RESET}"
       continue
     fi
     if ! claude plugin marketplace list 2>/dev/null | grep -qi "${marketplace##*/}"; then
       _run_quiet claude plugin marketplace add "$marketplace" || true
     fi
     if _run_quiet claude plugin install "$plugin"; then
-      echo "  ${GREEN}✓ ${plugin}${RESET}"
+      _ok "${plugin}"
     else
       echo "  ${YELLOW}⚠ ${plugin}: install failed — run manually:${RESET}"
       echo "    claude plugin marketplace add ${marketplace} && claude plugin install ${plugin}"
@@ -715,7 +740,7 @@ if command -v npx >/dev/null; then
   # cc-safe-setup has no --yes flag and its "Install all N hooks?" prompt
   # hangs invisibly under _run_quiet — feed it a stream of "y" instead.
   if _run_quiet bash -c 'yes | npx --yes cc-safe-setup'; then
-    echo "  ${GREEN}✓ CC Safe Setup (safety hooks active)${RESET}"
+    _ok "CC Safe Setup (safety hooks active)"
   else
     echo "  ${YELLOW}⚠ CC Safe Setup failed — run manually: npx cc-safe-setup${RESET}"
   fi
@@ -749,7 +774,8 @@ _install_pinned_plugins
 # deployed by the scripts/ copy above; statusline.sh resolves it first. ---
 _step "Checking statusline (claude-bar, vendored)..."
 if command -v node >/dev/null; then
-  echo "  ${GREEN}✓ claude-bar vendored${RESET} ${DIM}— login once: node ~/.claude/scripts/claude-bar/src/index.js login${RESET}"
+  _ok "claude-bar vendored"
+  _detail "    ${DIM}login once: node ~/.claude/scripts/claude-bar/src/index.js login${RESET}"
 else
   echo "  ${YELLOW}⚠ node not found — claude-bar half of the statusline disabled${RESET}"
 fi
@@ -768,13 +794,14 @@ if _caveman_plugin_installed; then
   # The upstream plugin injects its own compression instructions via hook —
   # a local block in CLAUDE.md would duplicate them.
   bash "$CLAUDE_DIR/scripts/caveman-toggle.sh" remove 2>/dev/null || true
-  echo "  ${DIM}· Caveman: handled by upstream plugin (local block stripped)${RESET}"
+  _detail "  ${DIM}· Caveman: handled by upstream plugin (local block stripped)${RESET}"
 elif [[ -f "$CLAUDE_DIR/caveman.enabled" ]]; then
   bash "$CLAUDE_DIR/scripts/caveman-toggle.sh" inject 2>/dev/null || true
   _detail "  ${GREEN}✓ Caveman mode injected ($(cat "$CLAUDE_DIR/caveman.level" 2>/dev/null || echo full))${RESET}"
 fi
 
-echo "  ${GREEN}✓ Claude configuration updated${RESET}"
+_ok_flush
+_detail "  ${GREEN}✓ Claude configuration updated${RESET}"
 
 # --- Obsidian Vault ---
 _detail "${BOLD}${CYAN}Obsidian Vault${RESET} ${DIM}$VAULT_DIR${RESET}"
@@ -847,7 +874,7 @@ _generate_mempalace_yaml() {
   repo_name="$(canonical_repo_name "$repo")"
   local yaml_file="$repo/mempalace.yaml"
   if [[ -f "$yaml_file" ]]; then
-    [[ "$VERBOSE" == "true" ]] && echo "  ${DIM}mempalace.yaml already present — kept.${RESET}" || echo "  ${DIM}· mempalace.yaml: present${RESET}"
+    _detail "  ${DIM}· mempalace.yaml: already present — kept.${RESET}"
     return
   fi
   # vault/ only exists in the config repo (Obsidian notes, not code);
@@ -1030,7 +1057,7 @@ _setup_repo_graphify() {
     _patch_graphify_hook_nullbytes "$repo"
     _strip_graphify_md_section "$repo"
     [[ "$is_config" == "true" ]] || _setup_repo_gitignore "$repo" false
-    [[ "$VERBOSE" != "true" ]] && echo "  ${DIM}· CLAUDE.md: versioned — hooks installed${RESET}" || true
+    _detail "  ${DIM}· CLAUDE.md: versioned — hooks installed${RESET}"
   else
     # Generate CLAUDE.md from template only when absent — never overwrite a
     # local (untracked) CLAUDE.md the user may have customized.
@@ -1052,19 +1079,19 @@ _setup_repo_graphify() {
     )
     _patch_graphify_hook_nullbytes "$repo"
     _setup_repo_gitignore "$repo" true
-    [[ "$VERBOSE" != "true" ]] && echo "  ${DIM}· CLAUDE.md: $claude_md_state (local) — hooks installed${RESET}" || true
+    _detail "  ${DIM}· CLAUDE.md: $claude_md_state (local) — hooks installed${RESET}"
   fi
 
   (
     cd "$repo"
     if [[ "$is_config" != "true" && -f "graphify-out/GRAPH_REPORT.md" ]]; then
-      [[ "$VERBOSE" == "true" ]] && echo "  ${DIM}(existing graph kept)${RESET}" || echo "  ${DIM}· graph: kept${RESET}"
+      _detail "  ${DIM}· graph: kept${RESET}"
     else
       _detail "  Updating graph..."
       if [[ "$VERBOSE" == "true" ]]; then
         graphify update . && echo "  ${GREEN}✓ graph updated${RESET}" || echo "  ${YELLOW}⚠ graph: post-processing error (non-blocking)${RESET}"
       else
-        graphify update . >/dev/null 2>&1 && echo "  ${DIM}· graph: updated${RESET}" || echo "  ${DIM}· graph: post-processing error (non-blocking)${RESET}"
+        graphify update . >/dev/null 2>&1 && _detail "  ${DIM}· graph: updated${RESET}" || echo "  ${YELLOW}⚠ graph: post-processing error (non-blocking)${RESET}"
       fi
     fi
   )
@@ -1075,7 +1102,7 @@ _setup_repo_graphify() {
 
   # Sync vault: GRAPH_REPORT.md + FILE_TREE.md + canvas + one note per graph node
   (cd "$repo" && bash "$REPO_DIR/scripts/sync-graph-to-vault.sh")
-  [[ "$VERBOSE" != "true" ]] && echo "  ${DIM}· vault: synced${RESET}" || true
+  _detail "  ${DIM}· vault: synced${RESET}"
 
   # Post-commit hook for vault sync (pointer-based, migrates legacy absolute paths)
   _install_vault_sync_hook "$repo"
@@ -1132,7 +1159,7 @@ else
     if _is_yes "$answer"; then
       # Make sure it is not excluded (remove .graphifyignore if present)
       rm -f "$repo/.graphifyignore"
-      echo "${BOLD}[$repo_label]${RESET} ${YELLOW}Setting up...${RESET}"
+      _detail "${BOLD}[$repo_label]${RESET} ${YELLOW}Setting up...${RESET}"
       _setup_repo_graphify "$repo"
       echo "  ${GREEN}✓ $repo_label${RESET}"
     else
@@ -1146,8 +1173,9 @@ fi
 # Graphify for the config repo itself — same pipeline as indexed repos,
 # in config mode (no .gitignore management, forced graph refresh).
 echo ""
-echo "${BOLD}[claude-config]${RESET} Setting up..."
+_detail "${BOLD}[claude-config]${RESET} Setting up..."
 _setup_repo_graphify "$REPO_DIR" true
+echo "  ${GREEN}✓ claude-config${RESET}"
 
 # Lint gate (shellcheck) — config repo ONLY: its scripts are deployed to
 # every machine and inherited by forks, so quality is enforced at the source.

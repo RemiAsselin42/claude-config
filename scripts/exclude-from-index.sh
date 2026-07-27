@@ -21,7 +21,9 @@ VAULT_PROJETS="$SCRIPT_DIR/../vault/Projets"
 RED='\033[1;31m'; GREEN='\033[1;32m'; YELLOW='\033[1;33m'; DIM='\033[2m'; NC='\033[0m'
 ok()   { echo -e "  ${DIM}✓ $*${NC}"; }
 warn() { echo -e "  ${YELLOW}⚠  $*${NC}"; }
-info() { echo -e "  ${DIM}· $*${NC}"; }
+# Steady-state notes ("already absent", "no folder found"): VERBOSE=true only.
+# install.sh exports VERBOSE; standalone runs get the quiet form by default.
+info() { [[ "${VERBOSE:-false}" == "true" ]] && echo -e "  ${DIM}· $*${NC}"; return 0; }
 err()  { echo -e "  ${RED}✗ $*${NC}"; }
 
 # ── python available? ─────────────────────────────────────────────────────────
@@ -115,7 +117,7 @@ exclude_repo() {
   local repo_label="$repo_name"
   [[ "$local_name" != "$repo_name" ]] && repo_label="$local_name -> $repo_name"
 
-  echo -e "\033[1m[$repo_label]\033[0m \033[1;33mExcluding...\033[0m"
+  [[ "${VERBOSE:-false}" == "true" ]] && echo -e "\033[1m[$repo_label]\033[0m \033[1;33mExcluding...\033[0m" || true
 
   # validation
   if [[ ! -d "$repo_path" ]]; then
