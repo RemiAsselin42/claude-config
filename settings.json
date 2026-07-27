@@ -62,6 +62,10 @@
   "model": "claude-fable-5[1m]",
   "effortLevel": "xhigh",
   "autoUpdatesChannel": "latest",
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
   "mcpServers": {
     "mempalace": {
       "command": "mempalace",
