@@ -1204,6 +1204,16 @@ _setup_repo_graphify() {
   # includes it — a stale graph left the post-commit hook's background rebuild
   # to dirty graphify-out/ after install finished.
   local is_config="${2:-false}"
+  # graphify skips hooks that already exist (even with --force), so a repo keeps
+  # whatever template it got first. Old templates detached the background rebuild
+  # with DETACHED_PROCESS: the console-less child then flashes a visible console
+  # window for every git call it spawns during the rebuild. Uninstall+install
+  # rewrites the block with the current template (CREATE_NO_WINDOW, no flash);
+  # non-graphify hook content (vault sync line) is preserved by both commands.
+  _graphify_hook_refresh() {
+    _run_quiet graphify hook uninstall || true
+    _run_quiet graphify hook install
+  }
   local repo_name
   repo_name="$(canonical_repo_name "$repo")"
   local obsidian_dir="$VAULT_DIR/Projets/$repo_name"
@@ -1215,7 +1225,7 @@ _setup_repo_graphify() {
       cd "$repo"
       _run_quiet graphify claude install
       _detail "  ${GREEN}✓ claude install${RESET}"
-      _run_quiet graphify hook install
+      _graphify_hook_refresh
       _detail "  ${GREEN}✓ hook install${RESET}"
     )
     _patch_graphify_hook_nullbytes "$repo"
@@ -1238,7 +1248,7 @@ _setup_repo_graphify() {
     fi
     (
       cd "$repo"
-      _run_quiet graphify hook install
+      _graphify_hook_refresh
       _detail "  ${GREEN}✓ hook install${RESET}"
     )
     _patch_graphify_hook_nullbytes "$repo"
