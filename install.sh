@@ -533,6 +533,25 @@ _ensure_shellcheck() {
   fi
 }
 
+# On Windows, `uv tool install --upgrade` fails with "Accès refusé (os error 5)"
+# when a running process (e.g. an MCP server spawned by an open Claude Code
+# session) holds files open under the tool's venv — Windows cannot delete open
+# files. Kill the lockers and retry with --reinstall to recover the half-upgraded
+# venv the failed attempt leaves behind.
+_uv_tool_install() {
+  local pkg="$1"
+  _run_quiet uv tool install "$pkg" --upgrade && return 0
+  _is_windows || return 1
+  echo "  ${DIM}· $pkg: venv locked by a running process — stopping it and retrying${RESET}"
+  # Win32_Process, not Get-Process: enumerating Get-Process .Path aborts the
+  # pipeline on the first process whose MainModule is inaccessible (PS 5.1).
+  local pat
+  # shellcheck disable=SC1003  # literal backslashes, not an escaped quote
+  pat="${APPDATA:-}"'\uv\tools\'"$pkg"'\*'
+  powershell.exe -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { \$_.ExecutablePath -like '$pat' } | ForEach-Object { Stop-Process -Id \$_.ProcessId -Force }" >/dev/null 2>&1 || true
+  _run_quiet uv tool install "$pkg" --upgrade --reinstall
+}
+
 _prepare_dependencies() {
   echo "${BOLD}${CYAN}Preparing dependencies...${RESET}"
   mkdir -p "$TOOL_BIN_DIR"
@@ -543,11 +562,11 @@ _prepare_dependencies() {
   # After _ensure_uv: it is what asks for PATH-persistence consent.
   _ensure_npm_bin_on_path
 
-  _run_quiet uv tool install graphifyy --upgrade
+  _uv_tool_install graphifyy
   command -v graphify >/dev/null || { echo "${RED}Graphify installed but not found in current PATH.${RESET}"; exit 1; }
   _ok "Graphify"
 
-  _run_quiet uv tool install mempalace --upgrade
+  _uv_tool_install mempalace
   command -v mempalace >/dev/null || { echo "${RED}MemPalace installed but not found in current PATH.${RESET}"; exit 1; }
   _ok "MemPalace"
 
