@@ -596,6 +596,10 @@ _prepare_dependencies() {
 
   _uv_tool_install graphifyy
   command -v graphify >/dev/null || { echo "${RED}Graphify installed but not found in current PATH.${RESET}"; exit 1; }
+  # Keep the user-level Claude skill in step with the package: it is written
+  # once by `graphify install` and never refreshed by upgrades, so every
+  # graphify command warns "skill is from X, package is Y" until re-run.
+  _run_quiet graphify install --platform claude || true
   _ok "Graphify"
 
   _uv_tool_install mempalace
