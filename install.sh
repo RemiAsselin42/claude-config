@@ -212,7 +212,12 @@ _ensure_npm_bin_on_path() {
   [[ "$PATH_PERSIST_APPROVED" == "true" ]] || return 0
   _write_tool_path_to_profiles "$session" "npm global bin"
   # The Windows PATH is the one Claude Code's own child processes inherit.
-  [[ -n "$(_ensure_windows_user_path "$native")" ]] && _ok "npm global bin on user PATH"
+  if [[ -n "$(_ensure_windows_user_path "$native")" ]]; then
+    _ok "npm global bin on user PATH"
+  elif _is_windows; then
+    echo "  ${YELLOW}⚠ npm global bin missing from the Windows user PATH — MCP servers will fail with -32000.${RESET}"
+    echo "  ${YELLOW}  Add it manually: Settings > Environment Variables > Path > ${native}${RESET}"
+  fi
   return 0
 }
 

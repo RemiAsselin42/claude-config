@@ -61,8 +61,10 @@ _npm_global_bin() {
 
 # Windows keeps a persistent PATH of its own, which shell profiles never feed.
 # A dir missing from it is invisible to every process Claude Code spawns —
-# MCP servers and hook commands included. Idempotent; prints "added" when it
-# actually changed the user PATH.
+# MCP servers and hook commands included. Idempotent; prints "ok" only when the
+# entry is verified present AFTER the call (re-read from the registry), so a
+# silent write failure — or a concurrent tool clobbering the PATH between write
+# and verify — reads as failure, never as success.
 _ensure_windows_user_path() {
   local dir="$1"
   _is_windows || return 0
@@ -72,8 +74,8 @@ _ensure_windows_user_path() {
     \$p = [Environment]::GetEnvironmentVariable('Path','User')
     if ((\$p -split ';') -notcontains \$d) {
       [Environment]::SetEnvironmentVariable('Path', (\$p.TrimEnd(';') + ';' + \$d), 'User')
-      Write-Output 'added'
     }
+    if (([Environment]::GetEnvironmentVariable('Path','User') -split ';') -contains \$d) { Write-Output 'ok' }
   " 2>/dev/null | tr -d '\r'
 }
 
