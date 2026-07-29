@@ -716,24 +716,40 @@ _setup_mcp_servers() {
     return 0
   fi
 
-  local entry name cmd
+  local entry name cmd shim
   for entry in "${MCP_STDIO_SERVERS[@]}"; do
     # shellcheck disable=SC2086  # deliberate split: entry is "name command args..."
     set -- $entry
     name="$1"; cmd="$2"; shift 2
-    if claude mcp get "$name" >/dev/null 2>&1; then
-      _detail "  ${DIM}· MCP $name: already registered${RESET}"
-      continue
-    fi
     if ! command -v "$cmd" >/dev/null 2>&1; then
-      echo "  ${YELLOW}⚠ MCP $name: '$cmd' not on PATH — not registered${RESET}"
+      if claude mcp get "$name" >/dev/null 2>&1; then
+        _detail "  ${DIM}· MCP $name: already registered${RESET}"
+      else
+        echo "  ${YELLOW}⚠ MCP $name: '$cmd' not on PATH — not registered${RESET}"
+      fi
       continue
     fi
     local -a spawn=("$cmd" "$@")
-    # //c, not /c: Git Bash rewrites a lone /c into a Windows path (C:/) before
-    # the argument ever reaches claude, which registers a server that times out.
-    # The leading // is the MSYS escape and collapses back to /c.
-    _mcp_needs_cmd_shim "$cmd" && spawn=(cmd //c "$cmd" "$@")
+    if _mcp_needs_cmd_shim "$cmd"; then
+      # Absolute path to the .cmd shim, not the bare name: Claude Code inherits
+      # its launcher's env, and a terminal opened before the npm dir landed on
+      # the user PATH (or any GUI launch without it) spawns `cmd /c context-mode`
+      # into "'context-mode' n'est pas reconnu" → -32000. The registration is
+      # machine-local (~/.claude.json), so an absolute path is safe there.
+      # //c, not /c: Git Bash rewrites a lone /c into a Windows path (C:/)
+      # before the argument ever reaches claude; // collapses back to /c.
+      shim="$(cygpath -w "$(command -v "$cmd")").cmd"
+      spawn=(cmd //c "$shim" "$@")
+    fi
+    if claude mcp get "$name" >/dev/null 2>&1; then
+      # Upgrade legacy bare-name registrations to the absolute shim in place;
+      # anything else already registered is left alone.
+      if ! _mcp_needs_cmd_shim "$cmd" || claude mcp get "$name" 2>/dev/null | grep -qF "$shim"; then
+        _detail "  ${DIM}· MCP $name: already registered${RESET}"
+        continue
+      fi
+      _run_quiet claude mcp remove --scope user "$name" || true
+    fi
     if _run_quiet claude mcp add --scope user "$name" -- "${spawn[@]}"; then
       _ok "MCP $name"
     else
