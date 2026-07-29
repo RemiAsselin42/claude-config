@@ -533,6 +533,33 @@ _ensure_shellcheck() {
   fi
 }
 
+# Windows 11 delegates hidden-console allocations to Windows Terminal by
+# default ("Let Windows decide"), and Windows Terminal cannot create an
+# invisible window — so every background spawn (Stop-hook vault sync, graphify
+# rebuilds, the per-commit FILE_TREE powershell) flashes a terminal window.
+# Delegating to the classic Windows Console Host honours hidden spawns.
+# Revert: Windows Terminal > Settings > Startup > Default terminal application.
+CONHOST_DELEGATION_GUID="{B23D10C0-E52E-411E-9D5B-C09FDF709C7D}"
+_setup_terminal_delegation() {
+  _is_windows || return 0
+  local key='HKCU\Console\%%Startup' current
+  current="$(reg.exe query "$key" //v DelegationTerminal 2>/dev/null | tr -d '\r')" || true
+  if [[ "$current" == *"$CONHOST_DELEGATION_GUID"* ]]; then
+    _ok "terminal delegation (conhost)"
+    return 0
+  fi
+  echo "${BOLD}${CYAN}Windows default terminal:${RESET} Windows Terminal handles hidden-console spawns"
+  echo "${DIM}Background hooks (automatic vault commits, graph rebuilds) briefly flash a terminal window. Delegating to Windows Console Host makes them silent; regular terminals are unaffected.${RESET}"
+  if _ask "Set the default terminal to Windows Console Host ${CYAN}[Y/n]${RESET}?" "y"; then
+    reg.exe add "$key" //v DelegationConsole //t REG_SZ //d "$CONHOST_DELEGATION_GUID" //f >/dev/null \
+      && reg.exe add "$key" //v DelegationTerminal //t REG_SZ //d "$CONHOST_DELEGATION_GUID" //f >/dev/null \
+      && _ok "terminal delegation → conhost" \
+      || echo "  ${YELLOW}⚠ could not update terminal delegation (registry write failed)${RESET}"
+  else
+    echo "  ${YELLOW}Default terminal left unchanged — background hooks may flash windows.${RESET}"
+  fi
+}
+
 # On Windows, `uv tool install --upgrade` fails with "Accès refusé (os error 5)"
 # when a running process (e.g. an MCP server spawned by an open Claude Code
 # session) holds files open under the tool's venv — Windows cannot delete open
@@ -732,6 +759,7 @@ source "$REPO_DIR/env.local"
 
 # --- Check prerequisites ---
 _prepare_dependencies
+_setup_terminal_delegation
 
 # --- Clean broken symlinks in ~/.claude ---
 echo "${BOLD}${CYAN}Configuring Claude...${RESET}"
