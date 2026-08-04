@@ -944,10 +944,12 @@ else
 fi
 
 # --- Default terse mode: ponytail (never together with caveman — both compress
-# output; scripts/style-toggle.sh switches between them via the plugins' own
-# flag files, which their hooks and statusline badges key on) ---
-if [[ ! -f "$CLAUDE_DIR/.ponytail-active" && ! -f "$CLAUDE_DIR/.caveman-active" ]]; then
-  printf 'full\n' > "$CLAUDE_DIR/.ponytail-active"
+# output; scripts/style-toggle.sh switches between them via the plugins' user
+# configs, which their SessionStart hooks re-read on every session — a bare
+# flag file would be reset to the builtin 'full' default at the next session) ---
+_style_cfg_root="${XDG_CONFIG_HOME:-${APPDATA:-$HOME/.config}}"
+if [[ ! -f "$_style_cfg_root/ponytail/config.json" && ! -f "$_style_cfg_root/caveman/config.json" ]]; then
+  bash "$CLAUDE_DIR/scripts/style-toggle.sh" ponytail full >/dev/null
   _detail "  ${DIM}ponytail enabled by default (full) — switch: style-toggle.sh caveman${RESET}"
 fi
 # Legacy caveman-toggle machinery (pre plugin-flag era) — retire deployed copies.

@@ -204,7 +204,7 @@ bash ~/.claude/scripts/style-toggle.sh [ponytail|caveman|off|status] [niveau]
 
 Niveaux ponytail : `lite`, `full` (défaut), `ultra`. Caveman ajoute `wenyan-lite`, `wenyan-full`, `wenyan-ultra`.
 
-L'état vit dans les fichiers-drapeaux des plugins eux-mêmes (`~/.claude/.ponytail-active` / `~/.claude/.caveman-active`) — les hooks et le badge statusline de chaque plugin s'activent sur la présence de son flag, donc les deux plugins restent installés et l'inactif est simplement dormant. `/ponytail` et `/caveman` restent utilisables pour des ajustements par session. Sur une nouvelle machine, `install.sh` active ponytail (`full`) si aucun flag n'existe. `scripts/statusline.sh` affiche le mode actif.
+L'état persistant est la config utilisateur de chaque plugin (`defaultMode` dans `%APPDATA%\<plugin>\config.json`, ou `$XDG_CONFIG_HOME`/`~/.config`) : leurs hooks SessionStart la relisent et réécrivent le flag de session (`~/.claude/.ponytail-active` / `.caveman-active`) à chaque démarrage — le défaut intégré est `full`, donc la bascule doit écrire la config, pas seulement le flag. `style-toggle.sh` écrit les deux (config pour la persistance, flag pour la mise à jour immédiate de la statusline). Les deux plugins restent installés — l'inactif est simplement dormant ; `/ponytail` et `/caveman` restent utilisables par session. Sur une nouvelle machine, `install.sh` active ponytail (`full`) si aucune config plugin n'existe. `scripts/statusline.sh` affiche le mode actif.
 
 </details>
 
