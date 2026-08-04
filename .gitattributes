@@ -12,3 +12,8 @@ vault/** merge=ours
 # Store the bytes as produced; the merge drivers below absorb cross-machine noise.
 vault/** -text
 graphify-out/** -text
+# graphify's hook installer registers this merge driver on every install run;
+# without the line committed, each run re-adds it and .gitattributes shows as
+# perpetually modified after every upstream sync. Harmless when graphify-out/
+# is gitignored (the default).
+graphify-out/graph.json merge=graphify
