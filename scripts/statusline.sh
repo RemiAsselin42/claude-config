@@ -92,7 +92,9 @@ if [ -n "$badge" ]; then
       mode=$(printf '%s' "$plain" | sed -n 's/^\[[A-Z]*:\([A-Z0-9-]*\)\].*/\1/p' | tr '[:upper:]' '[:lower:]')
       [ -n "$mode" ] || mode=full
       savings=$(printf '%s' "$plain" | sed 's/^\[[^]]*\]//; s/^ *//')
-      style_line="${B}${name^}${R}${D} │ ${R}${D}On · ${mode^}${R}"
+      # Pad the label to 8 chars — keep in sync with PAD in claude-bar's
+      # render.js so "Caveman" (7) aligns with "Ponytail" (8) and bar's labels.
+      style_line="${B}$(printf '%-8s' "${name^}")${R}${D} │ ${R}${D}On · ${mode^}${R}"
       [ -n "$savings" ] && style_line="${style_line}${D} · ${savings}${R}"
       ;;
     *) style_line="$badge" ;;
