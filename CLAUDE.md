@@ -104,3 +104,14 @@ ctx_execute(
 ```
 
 Rule: if the answer requires reading N > 3 files to aggregate data, generate a script instead. Use `ctx_execute` (context-mode MCP tool) or Bash.
+
+## PowerShell Environment (Windows)
+
+Interactive shell on Windows machines: **PowerShell 7** (`pwsh`) ~90% of the time, Git Bash for the rest. Windows Terminal defaults: PowerShell 7 profile.
+
+**Tools to use (instead of raw equivalents):**
+
+- **Locate a directory the user names**: `zoxide query <fragment>` (e.g. `zoxide query claude` → full path of the best-matching known directory). Try this before filesystem searches — it knows every directory the user actually visits.
+- **Interactive-only tools** (never invoke from Claude, they need a TTY): `lg`/lazygit (git TUI — use plain git instead), fzf keybindings, `z` (its `cd` dies with the spawned shell — use `zoxide query` to resolve, then use the path).
+- **Fuzzy-filter a list without a TTY**: `<list> | fzf --filter <term>` — ranked fuzzy matches on stdout. Useful when the user names a file/entry approximately and Grep/Glob's exact patterns miss it.
+- **winget in spawned sessions**: often off PATH — fall back to `$env:LOCALAPPDATA\Microsoft\WindowsApps\winget.exe`.
