@@ -80,9 +80,9 @@ export function render(input, usage) {
   const totalFmt = fmtTokens(ctxSize);
   const ctxIntensity = intensityColor(pct);
 
-  // Label column width — keep in sync with the "Caveman" label statusline.sh
-  // inserts (7 chars) so all labels align.
-  const PAD = 7;
+  // Label column width — keep in sync with the longest mode label statusline.sh
+  // inserts ("Ponytail", 8 chars) so all labels align.
+  const PAD = 8;
   const label = (t) => `${BRAND}${t.padEnd(PAD)}${RESET}${SEP}`;
 
   // ── LINE 1: Model ──────────────────────────────────────────

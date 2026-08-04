@@ -56,8 +56,8 @@ Le repo privé se synchronise automatiquement avec celui-ci — voir [Installati
 10. Active **RTK** via `setup-rtk.sh`
 11. Exécute **CC Safe Setup** pour installer les hooks de sécurité de façon non-destructive
 12. Installe les **plugins épinglés** via le CLI `claude` (`ponytail`, `caveman` upstream)
-13. Installe **`@allthingsclaude/bar`** (version épinglée, npm global) — le backend de statusline rendu par `scripts/statusline.sh` avec le badge caveman ; exécuter `claude-bar login` une fois pour s'authentifier
-14. Restaure le **caveman mode** depuis `defaults/` si absent sur la machine (sauté si le plugin caveman upstream est installé — il injecte ses propres instructions)
+13. Installe **`@allthingsclaude/bar`** (version épinglée, npm global) — le backend de statusline rendu par `scripts/statusline.sh` avec le badge du mode terse actif ; exécuter `claude-bar login` une fois pour s'authentifier
+14. Active **ponytail** par défaut (plugin de mode terse) si aucun flag de mode n'existe sur la machine — `style-toggle.sh` bascule entre ponytail et caveman
 15. Met à jour `.gitignore` dans les repos cibles (bloc graphify + `CLAUDE.md` + `mempalace.yaml` + `context/`) via `templates/gitignore.append`
 16. Sélection interactive des repos git frères à indexer. Par repo : hooks + graphe graphify, **nommage LLM des communautés**, sync vault (rapport + arbre de fichiers + canvas + une note par nœud), génération de `mempalace.yaml` et mining dans le wing du repo
 17. Applique le même pipeline au repo de config lui-même (graphe rafraîchi de force, pas de gestion du `.gitignore`)
@@ -127,12 +127,9 @@ claude-config/
 │
 ├── agents/                      # Agents spécialisés → ~/.claude/agents/
 ├── commands/                    # Slash-commands → ~/.claude/commands/
-├── defaults/                    # Valeurs par défaut restaurées sur nouvelle machine
-│   ├── caveman.enabled          # Présence = caveman activé par défaut
-│   └── caveman.level            # Niveau d'intensité par défaut
 ├── scripts/                     # Scripts utilitaires → ~/.claude/scripts/
 │   ├── repo-identity.sh         # Lib partagée : canonical_repo_name()
-│   ├── caveman-toggle.sh        # Toggle caveman mode
+│   ├── style-toggle.sh          # Bascule mode terse : ponytail ⇄ caveman ⇄ off
 │   ├── setup-rtk.sh             # Installe RTK
 │   ├── sync-upstream.sh         # Sync des fichiers partagés depuis le remote upstream
 │   ├── sync-graph-to-vault.sh   # Sync graphify → vault Obsidian
@@ -197,26 +194,17 @@ claude-config/
 ---
 
 <details>
-<summary><strong>Caveman mode</strong></summary>
+<summary><strong>Modes terses (ponytail / caveman)</strong></summary>
 
-Mode de réponse minimaliste persistant entre sessions. Contrôlé via `/caveman` ou directement :
+Deux plugins épinglés réduisent la consommation de tokens : **ponytail** (échelle de décision YAGNI — moins de code généré) et **caveman** (compression de la prose). Les deux ensemble sont redondants, donc un seul est actif à la fois — ponytail par défaut. Bascule en une commande :
 
 ```bash
-bash ~/.claude/scripts/caveman-toggle.sh [on|off|toggle|inject|status] [niveau]
+bash ~/.claude/scripts/style-toggle.sh [ponytail|caveman|off|status] [niveau]
 ```
 
-| Niveau         | Description                                                                       |
-| -------------- | --------------------------------------------------------------------------------- |
-| `lite`         | Supprime le remplissage et les formules de politesse, garde la grammaire complète |
-| `full`         | Réponses terse, fragments acceptés (défaut)                                       |
-| `ultra`        | Compression maximale, abréviations, flèches pour la causalité                     |
-| `wenyan-lite`  | Registre semi-classique, ton littéraire                                           |
-| `wenyan-full`  | Mode 文言文, terseness classique maximale                                         |
-| `wenyan-ultra` | Compression extrême, style lettre classique                                       |
+Niveaux ponytail : `lite`, `full` (défaut), `ultra`. Caveman ajoute `wenyan-lite`, `wenyan-full`, `wenyan-ultra`.
 
-L'état et le niveau sont persistés dans `~/.claude/caveman.enabled` et `~/.claude/caveman.level`. Sur une nouvelle machine, `install.sh` restaure ces valeurs depuis `defaults/`.
-
-Quand le [plugin caveman upstream](https://github.com/JuliusBrussee/caveman) est installé (épinglé via `install.sh`), il injecte ses propres instructions de compression et ajoute `/caveman-compress`, `/caveman-stats`, `/caveman-commit`, `/caveman-review`. Le bloc local est alors retiré pour éviter la duplication — `caveman-toggle.sh` reste en fallback quand le plugin est absent.
+L'état vit dans les fichiers-drapeaux des plugins eux-mêmes (`~/.claude/.ponytail-active` / `~/.claude/.caveman-active`) — les hooks et le badge statusline de chaque plugin s'activent sur la présence de son flag, donc les deux plugins restent installés et l'inactif est simplement dormant. `/ponytail` et `/caveman` restent utilisables pour des ajustements par session. Sur une nouvelle machine, `install.sh` active ponytail (`full`) si aucun flag n'existe. `scripts/statusline.sh` affiche le mode actif.
 
 </details>
 

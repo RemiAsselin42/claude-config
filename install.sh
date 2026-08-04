@@ -659,11 +659,6 @@ PINNED_PLUGINS=(
   "JuliusBrussee/caveman|caveman@caveman"
 )
 
-_caveman_plugin_installed() {
-  command -v claude >/dev/null 2>&1 || return 1
-  claude plugin list 2>/dev/null | grep -qi "caveman"
-}
-
 _install_pinned_plugins() {
   if ! command -v claude >/dev/null 2>&1; then
     echo "  ${YELLOW}⚠ claude CLI not found — install plugins manually in Claude Code: /plugin install <name>${RESET}"
@@ -948,26 +943,15 @@ else
   echo "  ${YELLOW}⚠ node not found — claude-bar half of the statusline disabled${RESET}"
 fi
 
-# --- Preserve/restore caveman mode (after plugins — upstream plugin takes precedence) ---
-# Copy defaults if not present on this machine (new install)
-if [[ ! -f "$CLAUDE_DIR/caveman.enabled" && -f "$REPO_DIR/defaults/caveman.enabled" ]]; then
-  cp "$REPO_DIR/defaults/caveman.enabled" "$CLAUDE_DIR/caveman.enabled"
-  _detail "  ${DIM}caveman.enabled restored from defaults${RESET}"
+# --- Default terse mode: ponytail (never together with caveman — both compress
+# output; scripts/style-toggle.sh switches between them via the plugins' own
+# flag files, which their hooks and statusline badges key on) ---
+if [[ ! -f "$CLAUDE_DIR/.ponytail-active" && ! -f "$CLAUDE_DIR/.caveman-active" ]]; then
+  printf 'full\n' > "$CLAUDE_DIR/.ponytail-active"
+  _detail "  ${DIM}ponytail enabled by default (full) — switch: style-toggle.sh caveman${RESET}"
 fi
-if [[ ! -f "$CLAUDE_DIR/caveman.level" && -f "$REPO_DIR/defaults/caveman.level" ]]; then
-  cp "$REPO_DIR/defaults/caveman.level" "$CLAUDE_DIR/caveman.level"
-  _detail "  ${DIM}caveman.level restored from defaults${RESET}"
-fi
-if _caveman_plugin_installed; then
-  # The upstream plugin injects its own compression instructions via hook —
-  # a local block in CLAUDE.md would duplicate them.
-  bash "$CLAUDE_DIR/scripts/caveman-toggle.sh" remove 2>/dev/null || true
-  _detail "  ${DIM}· Caveman: handled by upstream plugin (local block stripped)${RESET}"
-elif [[ -f "$CLAUDE_DIR/caveman.enabled" ]]; then
-  bash "$CLAUDE_DIR/scripts/caveman-toggle.sh" inject 2>/dev/null || true
-  _detail "  ${GREEN}✓ Caveman mode injected ($(cat "$CLAUDE_DIR/caveman.level" 2>/dev/null || echo full))${RESET}"
-fi
-
+# Legacy caveman-toggle machinery (pre plugin-flag era) — retire deployed copies.
+rm -f "$CLAUDE_DIR/scripts/caveman-toggle.sh" "$CLAUDE_DIR/caveman.enabled" "$CLAUDE_DIR/caveman.level"
 _ok_flush
 _detail "  ${GREEN}✓ Claude configuration updated${RESET}"
 

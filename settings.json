@@ -50,7 +50,7 @@
       "Bash(graphify *)",
       "Bash(mempalace *)",
       "Bash(rtk *)",
-      "Bash(bash *caveman-toggle*)",
+      "Bash(bash *style-toggle*)",
 
       "Bash(gh auth status)",
       "Bash(gh repo create *)",
