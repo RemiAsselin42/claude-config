@@ -28,12 +28,17 @@ mkdir -p "$dest"
 # artifacts behind: the rename above moves the FOLDER, never the files inside it,
 # which stay named after the previous repo. Every file matching these patterns is
 # generated below, so anything not named after the current repo is a leftover.
-find "$dest" -maxdepth 1 -type f \
-  \( -name '*.canvas' -o -name '* - GRAPH_REPORT.md' -o -name '* - FILE_TREE.md' \) \
-  ! -name "$repo_name.canvas" \
-  ! -name "$repo_name - GRAPH_REPORT.md" \
-  ! -name "$repo_name - FILE_TREE.md" \
-  -delete
+# Pure-bash glob, not find(1): when install.sh is launched from PowerShell
+# ("sh .\install.sh"), sh inherits a PATH where System32's find.exe shadows
+# GNU find — the cleanup then silently no-ops and prints
+# "Fichier introuvable - *.canvas" for every repo.
+for f in "$dest"/*.canvas "$dest"/*' - GRAPH_REPORT.md' "$dest"/*' - FILE_TREE.md'; do
+  [[ -f "$f" ]] || continue
+  case "${f##*/}" in
+    "$repo_name.canvas"|"$repo_name - GRAPH_REPORT.md"|"$repo_name - FILE_TREE.md") ;;
+    *) rm -f -- "$f" ;;
+  esac
+done
 
 # GRAPH_REPORT
 cp graphify-out/GRAPH_REPORT.md "$dest/$repo_name - GRAPH_REPORT.md"
@@ -147,7 +152,11 @@ PYEOF
       mv -- "$f" "$notes_dir/_$(basename "$f")" && dotfiles=$((dotfiles + 1))
     done
     if (( dotfiles > 0 )); then
-      find "$notes_dir" -name '*.md' -exec sed -i 's|\[\[\.|[[_.|g' {} +
+      # Glob loop, not find(1) — see the PATH-shadowing note above. The export
+      # writes notes flat into $notes_dir, so no recursion is needed.
+      for n in "$notes_dir"/*.md; do
+        [[ -f "$n" ]] && sed -i 's|\[\[\.|[[_.|g' "$n"
+      done
     fi
 
     # Canvas file links are resolved from the VAULT ROOT, not from the canvas's own
