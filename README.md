@@ -202,6 +202,8 @@ Two pinned plugins reduce token consumption: **ponytail** (YAGNI decision ladder
 bash ~/.claude/scripts/style-toggle.sh [ponytail|caveman|off|status] [level]
 ```
 
+Also available as a slash command inside Claude Code: `/style-toggle [same arguments]` (empty = status).
+
 Ponytail levels: `lite`, `full` (default), `ultra`. Caveman adds `wenyan-lite`, `wenyan-full`, `wenyan-ultra`.
 
 Persistent state is each plugin's user config (`defaultMode` in `%APPDATA%\<plugin>\config.json`, or `$XDG_CONFIG_HOME`/`~/.config`): their SessionStart hooks re-read it and rewrite the session flag (`~/.claude/.ponytail-active` / `.caveman-active`) on every session start — the builtin default is `full`, so the switch must write the config, not just the flag. `style-toggle.sh` writes both (config for persistence, flag for an immediate statusline update). Both plugins stay installed — the inactive one is simply dormant; `/ponytail` and `/caveman` remain available for per-session tweaks. On a new machine, `install.sh` enables ponytail (`full`) when neither plugin config exists. `scripts/statusline.sh` renders whichever mode is active.

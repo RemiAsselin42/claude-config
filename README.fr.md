@@ -202,6 +202,8 @@ Deux plugins épinglés réduisent la consommation de tokens : **ponytail** (éc
 bash ~/.claude/scripts/style-toggle.sh [ponytail|caveman|off|status] [niveau]
 ```
 
+Disponible aussi en slash command dans Claude Code : `/style-toggle [mêmes arguments]` (vide = status).
+
 Niveaux ponytail : `lite`, `full` (défaut), `ultra`. Caveman ajoute `wenyan-lite`, `wenyan-full`, `wenyan-ultra`.
 
 L'état persistant est la config utilisateur de chaque plugin (`defaultMode` dans `%APPDATA%\<plugin>\config.json`, ou `$XDG_CONFIG_HOME`/`~/.config`) : leurs hooks SessionStart la relisent et réécrivent le flag de session (`~/.claude/.ponytail-active` / `.caveman-active`) à chaque démarrage — le défaut intégré est `full`, donc la bascule doit écrire la config, pas seulement le flag. `style-toggle.sh` écrit les deux (config pour la persistance, flag pour la mise à jour immédiate de la statusline). Les deux plugins restent installés — l'inactif est simplement dormant ; `/ponytail` et `/caveman` restent utilisables par session. Sur une nouvelle machine, `install.sh` active ponytail (`full`) si aucune config plugin n'existe. `scripts/statusline.sh` affiche le mode actif.
