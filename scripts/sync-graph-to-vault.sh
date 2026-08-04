@@ -6,6 +6,10 @@ source "$SCRIPT_DIR/repo-identity.sh"
 VAULT_BASE="$SCRIPT_DIR/../vault/Projets"
 repo_name="$(canonical_repo_name "$PWD")"
 local_name="$(basename "$PWD")"
+# A session whose cwd is a dot-directory (e.g. ~/.claude once held a stray
+# graphify-out/) resolves to a hidden repo name and litters the vault with a
+# "Projets/.claude" folder. Never sync those.
+case "$repo_name" in ""|.*) exit 0 ;; esac
 dest="$VAULT_BASE/$repo_name"
 
 [[ -f graphify-out/GRAPH_REPORT.md ]] || exit 0
