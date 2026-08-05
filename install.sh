@@ -1113,6 +1113,21 @@ _diary_wing_for_repo() {
   printf 'wing_%s\n' "$(printf '%s' "$base" | tr '[:upper:]' '[:lower:]' | tr ' -' '__')"
 }
 
+# How a repo is named on the selection screen: its directory, plus the MemPalace
+# wing when the two differ. The label used to show canonical_repo_name
+# (`cleant → Cleant`), which is not the wing anything is filed under — the screen
+# announced one name while the mine used another.
+_repo_selection_label() {
+  local repo="$1" local_name wing
+  local_name="$(basename "$repo")"
+  wing="$(_wing_for_repo "$repo" "$(canonical_repo_name "$repo")")"
+  if [[ "$wing" == "$local_name" ]]; then
+    printf '%s\n' "$local_name"
+  else
+    printf "%s → wing '%s'\n" "$local_name" "$wing"
+  fi
+}
+
 _render_project_claude_md() {
   local repo="$1" repo_name="$2"
   sed -e "s|{{REPO_NAME}}|$repo_name|g" \
@@ -1306,10 +1321,7 @@ else
   echo "${BOLD}Repos found — choose which to index (graphify + mempalace + vault):${RESET}"
   echo ""
   for repo in "${REPOS_FOUND[@]}"; do
-    repo_name="$(canonical_repo_name "$repo")"
-    local_name="$(basename "$repo")"
-    repo_label="$repo_name"
-    [[ "$local_name" != "$repo_name" ]] && repo_label="$local_name → $repo_name"
+    repo_label="$(_repo_selection_label "$repo")"
     if [[ -f "$repo/.graphifyignore" ]]; then
       state=" ${YELLOW}[excluded]${RESET}"
     else
@@ -1320,10 +1332,7 @@ else
   echo ""
 
   for repo in "${REPOS_FOUND[@]}"; do
-    repo_name="$(canonical_repo_name "$repo")"
-    local_name="$(basename "$repo")"
-    repo_label="$repo_name"
-    [[ "$local_name" != "$repo_name" ]] && repo_label="$local_name → $repo_name"
+    repo_label="$(_repo_selection_label "$repo")"
     if [[ -f "$repo/.graphifyignore" ]]; then
       current="${DIM} (currently excluded)${RESET}"
       default_hint="${CYAN}[y/N]${RESET}"
