@@ -26,12 +26,13 @@ Data lives in `~/.mempalace/` — not versioned, rebuilt via `mempalace mine`.
 
 **Search — two rules, always:**
 
-1. **Always pass `--wing`, in its stored form.** An unscoped search returns other projects' memories and buries the relevant ones. `mempalace mine` stores the wing as `wing_` + the name with `-` replaced by `_`, and `search --wing` matches that stored name exactly — passing the raw `mempalace.yaml` value returns 0 results. Only drop `--wing` when deliberately looking across projects. `mempalace status` lists the real wing names.
+1. **Always pass `--wing`, and know which of the two you want.** An unscoped search returns other projects' memories and buries the relevant ones. Each repo ends up with two wings: `mempalace mine` files code and docs under exactly the `--wing` it was given (the `wing:` value in `mempalace.yaml`), while the session hooks file the diary under `wing_` + the *directory* name, lowercased, with `-` and spaces turned into `_`. `search --wing` matches the stored name exactly, so the wrong one returns 0 results. Only drop `--wing` when deliberately looking across projects. `mempalace status` lists the real wing names.
 2. **Write the query in English**, even when the conversation is in another language. Identifiers, error strings and commit prefixes in the indexed content are English, and English keeps results stable whichever embedding model this machine ended up with.
 
 ```bash
 wing=$(sed -n 's/^wing:[[:space:]]*//p' mempalace.yaml)   # fallback: basename $PWD
-mempalace search "install script dependencies" --wing "wing_${wing//-/_}"
+mempalace search "install script dependencies" --wing "$wing"          # mined code + docs
+mempalace search "what did we decide" --wing "wing_${PWD##*/}"         # session diary
 ```
 
 Or via MCP: `mempalace_search` — pass `wing` there too.

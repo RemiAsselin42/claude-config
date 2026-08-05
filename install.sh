@@ -1094,13 +1094,31 @@ CLAUDE_MD_BOUNDARIES=(
   'The vault is committed automatically after each'
 )
 
+# A repo ends up with two wings, and searching the wrong one finds nothing:
+#   - `mempalace mine --wing X` files code and docs under exactly X
+#   - the session hooks file the diary under `wing_` + the *directory* name,
+#     lowercased, separators turned into `_` (mempalace's own _safe_wing_slug)
+# mempalace.yaml wins for the first one once it exists — it is what the global
+# CLAUDE.md tells Claude to read, and _generate_mempalace_yaml never rewrites an
+# existing file, so mining under canonical_repo_name instead would file the repo
+# into a second wing nobody searches (`Cleant` vs `cleant`).
+_wing_for_repo() {
+  local w
+  w="$(sed -n 's/^wing:[[:space:]]*//p' "$1/mempalace.yaml" 2>/dev/null | head -1)"
+  printf '%s\n' "${w:-$2}"
+}
+
+_diary_wing_for_repo() {
+  local base="${1##*/}"
+  printf 'wing_%s\n' "$(printf '%s' "$base" | tr '[:upper:]' '[:lower:]' | tr ' -' '__')"
+}
+
 _render_project_claude_md() {
-  local repo_name="$1"
-  # {{WING}} is the name `mempalace mine` actually stores (`wing_` + the repo
-  # name with `-` turned into `_`); a raw repo name in `--wing` matches nothing.
+  local repo="$1" repo_name="$2"
   sed -e "s|{{REPO_NAME}}|$repo_name|g" \
       -e "s|{{VAULT_DIR}}|$VAULT_DIR|g" \
-      -e "s|{{WING}}|wing_${repo_name//-/_}|g" \
+      -e "s|{{WING}}|$(_wing_for_repo "$repo" "$repo_name")|g" \
+      -e "s|{{DIARY_WING}}|$(_diary_wing_for_repo "$repo")|g" \
       "$REPO_DIR/templates/CLAUDE.project.md"
 }
 
@@ -1115,7 +1133,7 @@ _refresh_project_claude_md() {
   local md="$repo/CLAUDE.md"
 
   if [[ ! -f "$md" ]]; then
-    _render_project_claude_md "$repo_name" > "$md"
+    _render_project_claude_md "$repo" "$repo_name" > "$md"
     echo "generated"
     return
   fi
@@ -1129,7 +1147,7 @@ _refresh_project_claude_md() {
 
   local tmp
   tmp="$(mktemp "$md.XXXXXX")" || { echo "kept"; return; }
-  _render_project_claude_md "$repo_name" > "$tmp"
+  _render_project_claude_md "$repo" "$repo_name" > "$tmp"
   tail -n +"$((line + 1))" "$md" >> "$tmp"
   if cmp -s "$tmp" "$md"; then
     rm -f "$tmp"
@@ -1279,7 +1297,7 @@ _setup_repo_graphify() {
   _detail "  ${GREEN}✓ vault sync hook${RESET}"
 
   _generate_mempalace_yaml "$repo"
-  _mine_repo_into_wing "$repo" "$repo_name"
+  _mine_repo_into_wing "$repo" "$(_wing_for_repo "$repo" "$repo_name")"
 }
 
 if [[ ${#REPOS_FOUND[@]} -eq 0 ]]; then
