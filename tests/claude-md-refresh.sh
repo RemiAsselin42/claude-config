@@ -18,8 +18,15 @@ VAULT_DIR="/tmp/vault"   # only ever substituted into the template text
 T="$(mktemp -d)"
 trap 'rm -rf "$T"' EXIT
 
-# Functions under test, taken straight out of install.sh (array + 4 functions).
-eval "$(awk '/^CLAUDE_MD_BOUNDARIES=\(/{f=1} f{print} f&&/^}/{n++; if(n==4) exit}' "$REPO_DIR/install.sh")"
+# Functions under test, taken straight out of install.sh. Pulled by name, not by
+# counting closing braces: the brace count silently truncated the last function
+# the first time a helper was added between two of these.
+eval "$(awk '/^CLAUDE_MD_BOUNDARIES=\(/{f=1} f{print} f&&/^\)/{exit}' "$REPO_DIR/install.sh")"
+for fn in _wing_for_repo _diary_wing_for_repo _render_project_claude_md _refresh_project_claude_md; do
+  body="$(awk -v n="$fn" '$0 == n"() {" {f=1} f{print} f&&/^}/{exit}' "$REPO_DIR/install.sh")"
+  [[ -n "$body" ]] || { echo "FAIL: $fn not found in install.sh"; exit 1; }
+  eval "$body"
+done
 
 pass=0
 fail=0
