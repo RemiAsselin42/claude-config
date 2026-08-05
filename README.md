@@ -59,7 +59,7 @@ Your private repo stays in sync with this one automatically — see [Minimal set
 13. Installs **`@allthingsclaude/bar`** (pinned version, global npm) — the statusline backend rendered by `scripts/statusline.sh` together with the active terse-mode badge; run `claude-bar login` once to authenticate
 14. Enables **ponytail** by default (terse-mode plugin) when no mode flag exists on this machine — `style-toggle.sh` switches between ponytail and caveman
 15. Updates `.gitignore` in target repos (graphify block + `CLAUDE.md` + `mempalace.yaml` + `context/`) using `templates/gitignore.append`
-16. Interactively selects sibling git repos to index. Per repo: graphify hooks + graph, LLM **community naming**, vault sync (report + file tree + canvas + one note per node), `mempalace.yaml` generation and mining into the repo's own wing
+16. Interactively selects sibling git repos to index. Per repo: graphify hooks + graph, LLM **community naming**, vault sync (report + file tree + canvas + one note per node), `mempalace.yaml` generation and mining into the repo's own wing, and a local `CLAUDE.md` **re-rendered** from `templates/CLAUDE.project.md` on every run — so a machine still holding an older generation catches up. Anything written below the template's last line is kept, and a `CLAUDE.md` install.sh never generated is left untouched (`tests/claude-md-refresh.sh` covers all four cases)
 17. Runs the same pipeline on the config repo itself (forced graph refresh, no `.gitignore` management)
 18. Installs a **shellcheck pre-commit gate** in the config repo — staged `*.sh` must pass `shellcheck -S warning`
 19. Commits the vault and reconciles with `origin` (fetch → merge → push, retried on races) via `scripts/vault-sync.sh`
@@ -135,13 +135,15 @@ claude-config/
 │   ├── sync-graph-to-vault.sh   # Sync Graphify → Obsidian vault
 │   ├── vault-sync.sh            # Commit + fetch/merge/push the vault (multi-machine safe)
 │   └── exclude-from-index.sh    # Remove a repo from graphify + mempalace
-└── templates/
-    ├── CLAUDE.project.md        # CLAUDE.md starter template for new repos
-    ├── gitignore.append         # .gitignore entries appended by install.sh
-    └── context/                 # Per-repo context templates (copied by /init-context)
-        ├── architecture.md
-        ├── patterns.md
-        └── constraints.md
+├── templates/
+│   ├── CLAUDE.project.md        # Per-repo CLAUDE.md, re-rendered on every install
+│   ├── gitignore.append         # .gitignore entries appended by install.sh
+│   └── context/                 # Per-repo context templates (copied by /init-context)
+│       ├── architecture.md
+│       ├── patterns.md
+│       └── constraints.md
+└── tests/
+    └── claude-md-refresh.sh     # Self-check for the per-repo CLAUDE.md refresh
 ```
 
 ---

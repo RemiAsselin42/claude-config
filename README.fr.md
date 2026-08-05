@@ -59,7 +59,7 @@ Le repo privé se synchronise automatiquement avec celui-ci — voir [Installati
 13. Installe **`@allthingsclaude/bar`** (version épinglée, npm global) — le backend de statusline rendu par `scripts/statusline.sh` avec le badge du mode terse actif ; exécuter `claude-bar login` une fois pour s'authentifier
 14. Active **ponytail** par défaut (plugin de mode terse) si aucun flag de mode n'existe sur la machine — `style-toggle.sh` bascule entre ponytail et caveman
 15. Met à jour `.gitignore` dans les repos cibles (bloc graphify + `CLAUDE.md` + `mempalace.yaml` + `context/`) via `templates/gitignore.append`
-16. Sélection interactive des repos git frères à indexer. Par repo : hooks + graphe graphify, **nommage LLM des communautés**, sync vault (rapport + arbre de fichiers + canvas + une note par nœud), génération de `mempalace.yaml` et mining dans le wing du repo
+16. Sélection interactive des repos git frères à indexer. Par repo : hooks + graphe graphify, **nommage LLM des communautés**, sync vault (rapport + arbre de fichiers + canvas + une note par nœud), génération de `mempalace.yaml`, mining dans le wing du repo, et un `CLAUDE.md` local **re-rendu** depuis `templates/CLAUDE.project.md` à chaque exécution — une machine restée sur une ancienne génération se met ainsi à jour toute seule. Ce qui est écrit sous la dernière ligne du template est conservé, et un `CLAUDE.md` qu'install.sh n'a jamais généré n'est pas touché (`tests/claude-md-refresh.sh` couvre les quatre cas)
 17. Applique le même pipeline au repo de config lui-même (graphe rafraîchi de force, pas de gestion du `.gitignore`)
 18. Installe un **gate pre-commit shellcheck** dans le repo de config — les `*.sh` stagés doivent passer `shellcheck -S warning`
 19. Commit le vault et le réconcilie avec `origin` (fetch → merge → push, réessayé en cas de course) via `scripts/vault-sync.sh`
@@ -135,13 +135,15 @@ claude-config/
 │   ├── sync-graph-to-vault.sh   # Sync graphify → vault Obsidian
 │   ├── vault-sync.sh            # Commit + fetch/merge/push du vault (multi-machine)
 │   └── exclude-from-index.sh    # Exclure un repo de graphify + mempalace
-└── templates/
-    ├── CLAUDE.project.md        # Template CLAUDE.md de départ pour les nouveaux repos
-    ├── gitignore.append         # Entrées .gitignore ajoutées par install.sh
-    └── context/                 # Templates de contexte par repo (copiés par /init-context)
-        ├── architecture.md
-        ├── patterns.md
-        └── constraints.md
+├── templates/
+│   ├── CLAUDE.project.md        # CLAUDE.md par repo, re-rendu à chaque install
+│   ├── gitignore.append         # Entrées .gitignore ajoutées par install.sh
+│   └── context/                 # Templates de contexte par repo (copiés par /init-context)
+│       ├── architecture.md
+│       ├── patterns.md
+│       └── constraints.md
+└── tests/
+    └── claude-md-refresh.sh     # Auto-test du re-rendu des CLAUDE.md par repo
 ```
 
 ---

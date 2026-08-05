@@ -1077,27 +1077,59 @@ _strip_graphify_md_section() {
   fi
 }
 
-# CLAUDE.md files generated before the vault moved into the config repo point at
-# ~/.claude/vault, which no longer exists — Claude follows a dead path looking
-# for the graph report. Repair the path in place instead of regenerating, so any
-# repo notes written below the template survive. Returns 0 only when it edited.
-# Untracked CLAUDE.md only: rewriting a versioned one would dirty the repo.
-_fix_stale_vault_path() {
-  local md="$1/CLAUDE.md"
-  [[ -f "$md" ]] || return 1
-  # Literal text to find inside the file, not a path to expand — hence the
-  # split, which also keeps shellcheck from reading it as a stray tilde (SC2088).
-  local tilde='~'
-  local stale="$tilde/.claude/vault"
-  grep -qF "$stale" "$md" 2>/dev/null || return 1
-  local tmp
-  tmp="$(mktemp "$md.XXXXXX")"
-  if sed "s|$stale|$VAULT_DIR|g" "$md" > "$tmp"; then
-    mv "$tmp" "$md"
-    return 0
+# Every generation of templates/CLAUDE.project.md has ended on one of these
+# lines. They are the boundary between what install.sh writes and what the user
+# writes: anything below is the user's and is carried over verbatim, and a
+# CLAUDE.md matching none of them was not generated here, so it is left alone.
+CLAUDE_MD_BOUNDARIES=(
+  'Add below only what is specific to this repo'
+  'The vault is committed automatically after each'
+)
+
+_render_project_claude_md() {
+  local repo_name="$1"
+  # {{WING}} is the name `mempalace mine` actually stores (`wing_` + the repo
+  # name with `-` turned into `_`); a raw repo name in `--wing` matches nothing.
+  sed -e "s|{{REPO_NAME}}|$repo_name|g" \
+      -e "s|{{VAULT_DIR}}|$VAULT_DIR|g" \
+      -e "s|{{WING}}|wing_${repo_name//-/_}|g" \
+      "$REPO_DIR/templates/CLAUDE.project.md"
+}
+
+# Bring an untracked CLAUDE.md up to the current template while keeping the
+# user's own notes. Replaces the previous repair-one-dead-path-in-place helper:
+# install.sh only ever wrote this file when it was absent, so a machine that had
+# run an older install kept its stale copy forever — wrong MemPalace wing, dead
+# vault paths, a claim about a graph that was never generated. Re-rendering
+# fixes all of those at once and stays idempotent. Echoes the resulting state.
+_refresh_project_claude_md() {
+  local repo="$1" repo_name="$2"
+  local md="$repo/CLAUDE.md"
+
+  if [[ ! -f "$md" ]]; then
+    _render_project_claude_md "$repo_name" > "$md"
+    echo "generated"
+    return
   fi
-  rm -f "$tmp"
-  return 1
+
+  local boundary line=""
+  for boundary in "${CLAUDE_MD_BOUNDARIES[@]}"; do
+    line="$(grep -nF -m1 "$boundary" "$md" 2>/dev/null | cut -d: -f1)"
+    [[ -n "$line" ]] && break
+  done
+  [[ -n "$line" ]] || { echo "kept (hand-written)"; return; }
+
+  local tmp
+  tmp="$(mktemp "$md.XXXXXX")" || { echo "kept"; return; }
+  _render_project_claude_md "$repo_name" > "$tmp"
+  tail -n +"$((line + 1))" "$md" >> "$tmp"
+  if cmp -s "$tmp" "$md"; then
+    rm -f "$tmp"
+    echo "up to date"
+  else
+    mv "$tmp" "$md"
+    echo "refreshed"
+  fi
 }
 
 # `graphify update` is AST-only, so communities come out of it as "Community 12"
@@ -1198,19 +1230,10 @@ _setup_repo_graphify() {
     [[ "$is_config" == "true" ]] || _setup_repo_gitignore "$repo" false
     _detail "  ${DIM}· CLAUDE.md: versioned — hooks installed${RESET}"
   else
-    # Generate CLAUDE.md from template only when absent — never overwrite a
-    # local (untracked) CLAUDE.md the user may have customized.
+    # Render or re-render the generated header; anything the user added below it
+    # is preserved, and a CLAUDE.md we never generated is left untouched.
     local claude_md_state
-    if [[ -f "$repo/CLAUDE.md" ]]; then
-      claude_md_state="kept"
-      _fix_stale_vault_path "$repo" && claude_md_state="repaired"
-      _detail "  ${DIM}CLAUDE.md already present — $claude_md_state.${RESET}"
-    else
-      claude_md_state="generated"
-      sed -e "s|{{REPO_NAME}}|$repo_name|g" -e "s|{{VAULT_DIR}}|$VAULT_DIR|g" \
-        "$REPO_DIR/templates/CLAUDE.project.md" > "$repo/CLAUDE.md"
-      _detail "  ${GREEN}✓ CLAUDE.md generated from template (local)${RESET}"
-    fi
+    claude_md_state="$(_refresh_project_claude_md "$repo" "$repo_name")"
     (
       cd "$repo"
       _graphify_hook_refresh
