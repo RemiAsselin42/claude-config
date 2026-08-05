@@ -501,17 +501,25 @@ _mine_repo_into_wing() {
   # (observed: exit 139, nothing filed). _setup_mempalace clears this flag when
   # the index is healthy; without it, every repo would crash in turn.
   [[ "${MEMPALACE_READY:-false}" == "true" ]] || return 0
-  # --background: mining 18 repos synchronously would add minutes to every run.
-  if mempalace mine "$repo" --wing "$wing" --background >/dev/null 2>&1; then
+  # --daemon --background queues the job and returns at once: mining 18 repos
+  # inline would add minutes to every run. `--background` on its own is refused
+  # by mempalace (`--background requires --daemon`, exit 2) — passing it alone
+  # with stderr silenced is why not one repo wing was ever created, and why the
+  # only populated wings were the unscoped ones the hooks write to. Fall back to
+  # an inline mine when the daemon cannot be reached, and say so when both fail
+  # instead of calling it "skipped".
+  if mempalace mine "$repo" --wing "$wing" --daemon --background >/dev/null 2>&1 \
+    || mempalace mine "$repo" --wing "$wing" >/dev/null 2>&1; then
     _detail "  ${DIM}· mempalace: mining → wing '$wing'${RESET}"
   else
-    echo "  ${DIM}· mempalace: file mining skipped${RESET}"
+    echo "  ${YELLOW}⚠ mempalace: file mining into wing '$wing' failed${RESET}"
   fi
   local transcripts
   transcripts="$(_transcript_dir_for "$repo" || true)"
   if [[ -n "$transcripts" ]]; then
-    mempalace mine "$transcripts" --mode convos --wing "$wing" --background >/dev/null 2>&1 \
-      || echo "  ${DIM}· mempalace: transcript mining skipped${RESET}"
+    mempalace mine "$transcripts" --mode convos --wing "$wing" --daemon --background >/dev/null 2>&1 \
+      || mempalace mine "$transcripts" --mode convos --wing "$wing" >/dev/null 2>&1 \
+      || echo "  ${YELLOW}⚠ mempalace: transcript mining into wing '$wing' failed${RESET}"
   fi
 }
 

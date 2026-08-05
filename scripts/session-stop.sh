@@ -30,7 +30,12 @@ graphify update . 2>/dev/null || true
 # standalone and cannot source repo-identity.sh.
 if command -v mempalace >/dev/null 2>&1 && [ -f mempalace.yaml ]; then
   wing="$(sed -n 's/^wing:[[:space:]]*//p' mempalace.yaml | head -1)"
-  [ -n "$wing" ] && mempalace mine . --wing "$wing" --background >/dev/null 2>&1 || true
+  # --background is rejected without --daemon (`--background requires --daemon`,
+  # exit 2): this call used to fail on every single response with its stderr
+  # silenced, which is why no repo wing was ever created. The daemon queue is
+  # also what keeps the mine off the lock below — an inline mine of a large repo
+  # runs for minutes and would make the next Stop wait for it.
+  [ -n "$wing" ] && mempalace mine . --wing "$wing" --daemon --background >/dev/null 2>&1 || true
 fi
 CLAUDE_CONFIG_DIR="$(cat "$HOME/.claude/claude-config.path" 2>/dev/null)"
 [[ -d "$CLAUDE_CONFIG_DIR" ]] || exit 0
