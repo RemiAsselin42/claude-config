@@ -48,7 +48,7 @@ Le repo privé se synchronise automatiquement avec celui-ci — voir [Installati
 2. Vérifie **Node.js**, installe **uv** si absent, puis installe/met à jour **Graphify**, **MemPalace**, **chromadb**, **RTK**, **jq**, **shellcheck** et **context-mode** (plus le serveur MCP Zilliz si `MILVUS_ADDRESS` est défini)
 3. Demande une seule confirmation si `~/.local/bin` doit être ajouté au PATH persistant (`-y` accepte automatiquement)
 4. Copie les **agents**, **commandes**, **scripts** et **templates** vers `~/.claude/` — `agents/` et `commands/` sont en miroir : les fichiers déployés retirés du repo sont purgés
-5. Enregistre l'emplacement du repo dans `~/.claude/claude-config.path` et génère **`session-stop.sh`** (hook Stop : `graphify update` + mining du repo dans son wing MemPalace + sync vault) ; les hooks résolvent le repo via ce pointeur plutôt que par chemin absolu en dur
+5. Enregistre l'emplacement du repo dans `~/.claude/claude-config.path` ; les hooks et `scripts/session-stop.sh` (hook Stop : `graphify update` + mining du repo dans son wing MemPalace + sync vault, exécuté détaché) résolvent le repo via ce pointeur plutôt que par chemin absolu en dur
 6. Initialise **MemPalace** : création du palace, choix du modèle d'embedding, vérification de l'index. Les repos ne sont _pas_ minés ici — chacun l'est dans son propre wing à l'étape 16
 7. Copie **CLAUDE.md** vers `~/.claude/CLAUDE.md` (substitution `${VAULT_DIR}`)
 8. Enregistre les **serveurs MCP** en scope user via `claude mcp add` — `mempalace` (`mempalace-mcp`), `context-mode` et `figma`. Claude Code ne lit les serveurs MCP que depuis `~/.claude.json` ou un `.mcp.json` de projet, jamais depuis `settings.json`. Figma s'authentifie en OAuth : lancer `/mcp` une fois dans Claude Code
@@ -237,7 +237,7 @@ Configurés dans `settings.json` :
 | ------------- | -------------------- | ------------------------------------------------------------------------------------------------------ |
 | `PreToolUse`  | Chaque appel d'outil | `sync-upstream.sh` — sync depuis upstream (debounce 8h, repos privés uniquement) + hook `context-mode` |
 | `PostToolUse` | Chaque appel d'outil | Hook `context-mode`                                                                                    |
-| `Stop`        | Fin de session       | Sauvegarde MemPalace + hook `context-mode` + `session-stop.sh` (graphify update + sync vault)          |
+| `Stop`        | Fin de session       | Sauvegarde MemPalace + hook `context-mode` + `session-stop.sh`, détaché (graphify update + sync vault) |
 | `PreCompact`  | Avant compaction     | Sauvegarde MemPalace + hook `context-mode`                                                             |
 
 Sous Windows, `context-mode` ne peut pas parcourir l'arbre de processus : plusieurs sessions Claude Code simultanées peuvent partager le même état. Définir `CLAUDE_SESSION_ID` avec une valeur distincte par session si tu en ouvres plusieurs.
