@@ -52,7 +52,7 @@ Le repo privé se synchronise automatiquement avec celui-ci — voir [Installati
 6. Initialise **MemPalace** : création du palace, choix du modèle d'embedding, vérification de l'index. Les repos ne sont _pas_ minés ici — chacun l'est dans son propre wing à l'étape 16
 7. Copie **CLAUDE.md** vers `~/.claude/CLAUDE.md` (substitution `${VAULT_DIR}`)
 8. Enregistre les **serveurs MCP** en scope user via `claude mcp add` — `mempalace` (`mempalace-mcp`), `context-mode` et `figma`. Claude Code ne lit les serveurs MCP que depuis `~/.claude.json` ou un `.mcp.json` de projet, jamais depuis `settings.json`. Figma s'authentifie en OAuth : lancer `/mcp` une fois dans Claude Code
-9. Copie **`settings.json`** — épingle le modèle/effort par défaut (`claude-fable-5[1m]` · `xhigh`) et pointe la statusline vers `scripts/statusline.sh` sur chaque machine
+9. Copie **`settings.json`** — épingle le modèle/effort par défaut (`opus[1m]` · `xhigh`) et pointe la statusline vers `scripts/statusline.sh` sur chaque machine
 10. Active **RTK** via `setup-rtk.sh`
 11. Exécute **CC Safe Setup** pour installer les hooks de sécurité de façon non-destructive
 12. Installe les **plugins épinglés** via le CLI `claude` (`ponytail`, `caveman` upstream)

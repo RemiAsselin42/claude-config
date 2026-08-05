@@ -57,9 +57,10 @@
       "Bash(gh pr create *)",
       "Bash(gh pr merge *)",
       "Bash(gh issue create *)"
-    ]
+    ],
+    "defaultMode": "auto"
   },
-  "model": "claude-fable-5[1m]",
+  "model": "opus[1m]",
   "effortLevel": "xhigh",
   "autoUpdatesChannel": "latest",
   "attribution": {
