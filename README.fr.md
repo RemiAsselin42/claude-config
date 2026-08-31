@@ -333,7 +333,7 @@ Via MCP (dans Claude Code) : `mempalace_search` et `mempalace_add_drawer`.
 <details>
 <summary><strong>Zilliz — Recherche sémantique (optionnel)</strong></summary>
 
-Quand `MILVUS_ADDRESS` est défini dans `env.local`, Claude utilise la recherche vectorielle sémantique **avant** grep pour les requêtes de type "où est géré X" sur les grands repos. Graphify assure la navigation structurelle ; Zilliz apporte la pertinence sémantique.
+Quand `MILVUS_ADDRESS` est défini dans `env.local`, les outils MCP Zilliz sont disponibles pour les requêtes sémantiques de type "où est géré X" sur les grands repos — ce sont leurs descriptions qui pilotent leur usage, le CLAUDE.md global ne contient plus de section Zilliz. Graphify assure la navigation structurelle ; Zilliz apporte la pertinence sémantique.
 
 Configuration dans `env.local` (voir `env.local.template`) :
 
