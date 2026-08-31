@@ -116,3 +116,4 @@ Interactive shell on Windows machines: **PowerShell 7** (`pwsh`) ~90% of the tim
 - **Interactive-only tools** (never invoke from Claude, they need a TTY): `lg`/lazygit (git TUI — use plain git instead), fzf keybindings, `z` (its `cd` dies with the spawned shell — use `zoxide query` to resolve, then use the path).
 - **Fuzzy-filter a list without a TTY**: `<list> | fzf --filter <term>` — ranked fuzzy matches on stdout. Useful when the user names a file/entry approximately and Grep/Glob's exact patterns miss it.
 - **winget in spawned sessions**: often off PATH — fall back to `$env:LOCALAPPDATA\Microsoft\WindowsApps\winget.exe`.
+- **Bash heredocs strip blank lines** (Claude Code bug, reported 2026-08-31, receipt 3c67e2d4): any multi-line file that needs empty lines — commit messages via `-F`, markdown, configs — must be written with the Write tool, never `cat <<EOF`.
