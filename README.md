@@ -8,7 +8,7 @@ Shared Claude Code configuration: specialized agents, slash-commands, scripts, p
 > `install.sh` performs persistent, potentially destructive operations:
 >
 > - **Writes** to `~/.claude/` (agents, commands, hooks, scripts, settings, CLAUDE.md)
-> - **Installs** global packages (`graphify`, `mempalace`, `rtk`, `@allthingsclaude/bar` — an authenticated statusline; requires a one-time `claude-bar login`)
+> - **Installs** global packages (`graphify`, `mempalace`, `rtk`)
 > - **Modifies PATH** — adds `~/.local/bin` to `~/.bashrc` / `~/.bash_profile` / `~/.profile` (with confirmation, or silently with `-y`)
 > - **Deletes files** (`graphify-out/`, mempalace wings, vault folders) via `exclude-from-index.sh`
 > - **Writes git hooks and config** in target repos (post-commit vault sync, `pre-commit` shellcheck gate in this repo, `merge.ours.driver` / `pull.rebase false`)
@@ -48,15 +48,15 @@ Your private repo stays in sync with this one automatically — see [Minimal set
 2. Checks **Node.js**, installs **uv** if missing, then installs/upgrades **Graphify**, **MemPalace**, **chromadb**, **RTK**, **jq**, **shellcheck** and **context-mode** (plus the Zilliz MCP server when `MILVUS_ADDRESS` is set)
 3. Asks once to add `~/.local/bin` to persistent PATH (`-y` skips)
 4. Copies **agents**, **commands**, **scripts**, **templates** to `~/.claude/` — `agents/` and `commands/` are mirrored: deployed files removed from the repo are pruned
-5. Records the repo location in `~/.claude/claude-config.path`; hooks and `scripts/session-stop.sh` (Stop hook: `graphify update` + mining the repo into its MemPalace wing + vault sync, run detached) resolve the repo through this pointer instead of hardcoded absolute paths
+5. Records the repo location in `~/.claude/claude-config.path`; hooks, `scripts/session-start.sh` (SessionStart hook: newest MemPalace diary entries for the repo + head of `TODO.md`, ~200 tokens) and `scripts/session-stop.sh` (Stop hook: `graphify update` + mining the repo into its MemPalace wing + vault sync, run detached) resolve the repo through this pointer instead of hardcoded absolute paths
 6. Initializes **MemPalace**: creates the palace, selects the embedding model, checks index health. Repos are _not_ mined here — each one is mined into its own wing during step 16
 7. Copies **CLAUDE.md** to `~/.claude/CLAUDE.md` (substitutes `${VAULT_DIR}`)
 8. Registers the **MCP servers** in user scope via `claude mcp add` — `mempalace` (`mempalace-mcp`), `context-mode` and `figma`. Claude Code reads MCP servers from `~/.claude.json` or a project `.mcp.json` only, never from `settings.json`. Figma authenticates over OAuth: run `/mcp` once inside Claude Code
 9. Copies **`settings.json`** — this pins the default model/effort (`opus[1m]` · `xhigh`) and points the statusline at `scripts/statusline.sh` on every machine
 10. Activates **RTK** via `setup-rtk.sh`
 11. Runs **CC Safe Setup** to install safety hooks non-destructively
-12. Installs **pinned plugins** via the `claude` CLI (`ponytail`, upstream `caveman`)
-13. Installs **`@allthingsclaude/bar`** (pinned version, global npm) — the statusline backend rendered by `scripts/statusline.sh` together with the active terse-mode badge; run `claude-bar login` once to authenticate
+12. Installs **pinned plugins** via the `claude` CLI (`ponytail`, upstream `caveman`, official `context7` + `frontend-design`, `hono-skill`)
+13. Checks the **statusline** prerequisite (`jq`) — `scripts/statusline.sh` renders model, context, 5h/7d rate limits and git from the payload Claude Code pipes in, plus the active terse-mode badge; no network, no login
 14. Enables **ponytail** by default (terse-mode plugin) when no mode flag exists on this machine — `style-toggle.sh` switches between ponytail and caveman
 15. Updates `.gitignore` in target repos (graphify block + `CLAUDE.md` + `mempalace.yaml` + `context/`) using `templates/gitignore.append`
 16. Interactively selects sibling git repos to index. Per repo: graphify hooks + graph, LLM **community naming**, vault sync (report + file tree + canvas + one note per node), `mempalace.yaml` generation and mining into the repo's own wing, and a local `CLAUDE.md` **re-rendered** from `templates/CLAUDE.project.md` on every run — so a machine still holding an older generation catches up. Anything written below the template's last line is kept, and a `CLAUDE.md` install.sh never generated is left untouched (`tests/claude-md-refresh.sh` covers all four cases)
@@ -125,10 +125,12 @@ claude-config/
 ├── mempalace.yaml               # This repo's own MemPalace wing + mining exclusions
 ├── .graphifyignore              # Keeps vault/ (generated) out of this repo's own graph
 │
-├── agents/                      # Specialized agents → ~/.claude/agents/
 ├── commands/                    # Slash-commands → ~/.claude/commands/
 ├── scripts/                     # Utility scripts → ~/.claude/scripts/
 │   ├── repo-identity.sh         # Shared lib: canonical_repo_name()
+│   ├── session-start.sh         # SessionStart hook: MemPalace diary + TODO.md head
+│   ├── session-stop.sh          # Stop hook: graphify update + wing mine + vault sync
+│   ├── statusline.sh            # Statusline: model, context, rate limits, mode, git
 │   ├── style-toggle.sh          # Switch terse mode: ponytail ⇄ caveman ⇄ off
 │   ├── setup-rtk.sh             # Install RTK
 │   ├── sync-upstream.sh         # Sync shared files from upstream remote
@@ -223,6 +225,9 @@ Persistent state is each plugin's user config (`defaultMode` in `%APPDATA%\<plug
 | ---------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `ponytail` | [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) | YAGNI decision ladder — less generated code (reuse → stdlib → existing dependency → minimum)   |
 | `caveman`  | [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman)     | Upstream compression plugin — replaces the local CLAUDE.md block, adds stats/compress commands |
+| `context7` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) | Remote MCP (2 tools) — current docs for any library, on demand                     |
+| `frontend-design` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) | Skill — opinionated visual direction, away from the generic "AI aesthetic"    |
+| `hono-skill` | [yusukebe/hono-skill](https://github.com/yusukebe/hono-skill)     | Skill — inline Hono API reference (routing, middleware, validators, JSX) + `npx hono request` |
 
 If the `claude` CLI is not in PATH, the step is skipped with a warning; install manually with `claude plugin marketplace add <repo> && claude plugin install <name>@<marketplace>`.
 
@@ -237,6 +242,7 @@ Configured in `settings.json`:
 
 | Hook          | Trigger           | Action                                                                                            |
 | ------------- | ----------------- | ------------------------------------------------------------------------------------------------- |
+| `SessionStart` | Session start / after compaction | `session-start.sh` — newest MemPalace diary entries for this repo + head of `TODO.md` |
 | `PreToolUse`  | Every tool call   | `sync-upstream.sh` — syncs from upstream (debounced 8h, private repos only) + `context-mode` hook |
 | `PostToolUse` | Every tool call   | `context-mode` hook                                                                               |
 | `Stop`        | End of session    | MemPalace save + `context-mode` hook + `session-stop.sh`, detached (graphify update + vault sync) |
