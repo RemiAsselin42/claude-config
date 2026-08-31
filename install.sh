@@ -915,15 +915,14 @@ fi
 _step "Installing pinned plugins..."
 _install_pinned_plugins
 
-# --- Statusline: claude-bar, vendored at scripts/claude-bar (fork of
-# @allthingsclaude/bar 0.1.6 with local fixes — no npm dependency). Already
-# deployed by the scripts/ copy above; statusline.sh resolves it first. ---
-_step "Checking statusline (claude-bar, vendored)..."
-if command -v node >/dev/null; then
-  _ok "claude-bar vendored"
-  _detail "    ${DIM}login once: node ~/.claude/scripts/claude-bar/src/index.js login${RESET}"
+# --- Statusline: scripts/statusline.sh renders model, context, 5h/7d rate
+# limits and git from the payload Claude Code pipes in — no network, no login.
+# Already deployed by the scripts/ copy above; only jq is required. ---
+_step "Checking statusline..."
+if command -v jq >/dev/null; then
+  _ok "statusline (jq present)"
 else
-  echo "  ${YELLOW}⚠ node not found — claude-bar half of the statusline disabled${RESET}"
+  echo "  ${YELLOW}⚠ jq not found — statusline shows the model name only${RESET}"
 fi
 
 # --- Default terse mode: ponytail (never together with caveman — both compress

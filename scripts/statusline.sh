@@ -1,18 +1,127 @@
 #!/usr/bin/env bash
-# Claude Code statusline: @allthingsclaude/bar with the active terse-mode line
-# (ponytail or caveman — style-toggle.sh keeps at most one on) inserted after
-# bar's model line, restyled to match bar (brand label │ dim content).
-# Wired by install.sh via settings.json → "statusLine".
-# Degrades to whichever half is present: no mode plugin active → bar only,
-# no claude-bar → raw badge only.
+# Claude Code statusline, rendered from the stdin payload alone — no network,
+# no OAuth token (this replaced a vendored fork of @allthingsclaude/bar, which
+# fetched the same numbers from a private endpoint with its own login).
+# Lines: Model · Cache (context window) · Usage (5h/7d rate limits, present on
+# subscription accounts) · active terse mode (ponytail/caveman badge) · Github.
+# Wired by install.sh via settings.json → "statusLine". Needs jq (install.sh
+# provides it); without it only a placeholder model line is printed.
+# Check: bash tests/statusline.sh
 
 input=$(cat)
-
 CFG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 
-# Mode badge: delegate to the active plugin's own statusline script — ponytail
-# first, caveman as fallback (style-toggle.sh keeps at most one flag on, so the
-# first non-empty badge wins). Multiple cached plugin versions can coexist —
+ESC=$(printf '\033')
+B="${ESC}[38;2;217;119;87m"     # brand
+BD="${ESC}[38;2;184;90;58m"     # brand dark    (≥ 75 %)
+BL="${ESC}[38;2;240;196;174m"   # brand light   (≥ 25 %)
+BLL="${ESC}[38;2;245;217;203m"  # brand lighter (< 25 %)
+T="${ESC}[38;2;100;96;90m"      # bar track
+D="${ESC}[38;2;120;115;108m"    # dim text
+R="${ESC}[0m"
+SEP="${D} │ ${R}"
+
+# Label column: 8 chars, the width of "Ponytail" — keep in sync with the badge
+# padding below so every line's separator lands in the same cell.
+label() { printf '%s%-8s%s%s' "$B" "$1" "$R" "$SEP"; }
+
+intensity() {
+  if   (( $1 >= 75 )); then printf '%s' "$BD"
+  elif (( $1 >= 50 )); then printf '%s' "$B"
+  elif (( $1 >= 25 )); then printf '%s' "$BL"
+  else                      printf '%s' "$BLL"
+  fi
+}
+
+bar() {
+  local pct=$1 w=10 f k
+  f=$(( (pct * w + 50) / 100 )); (( f > w )) && f=$w
+  printf '%s' "$(intensity "$pct")"
+  for ((k = 0; k < f; k++)); do printf '█'; done
+  printf '%s' "$T"
+  for ((k = f; k < w; k++)); do printf '░'; done
+  printf '%s' "$R"
+}
+
+fmt_tokens() {
+  local t=$1
+  if (( t >= 1000000 )); then
+    local m=$(( t / 1000000 )) r=$(( (t % 1000000) / 100000 ))
+    (( r > 0 )) && printf '%d.%dM' "$m" "$r" || printf '%dM' "$m"
+  elif (( t >= 1000 )); then printf '%dk' $(( t / 1000 ))
+  else printf '%d' "$t"
+  fi
+}
+
+# Time left until an epoch-seconds instant, as "3d 4h" / "2h 12m" / "5m".
+countdown() {
+  local s=$(( $1 - $(date +%s) )) h m
+  (( s <= 0 )) && { printf '0s'; return; }
+  h=$(( s / 3600 )); m=$(( (s % 3600) / 60 ))
+  if   (( h >= 24 )); then printf '%dd %dh' $(( h / 24 )) $(( h % 24 ))
+  elif (( h > 0 ));   then printf '%dh %dm' "$h" "$m"
+  elif (( m > 0 ));   then printf '%dm' "$m"
+  else printf '<1m'
+  fi
+}
+
+# ── Parse the payload (one jq pass) ──────────────────────────────────────────
+model="?"; effort=""; cws=200000; pct=0; used=0; p5=""; r5=""; p7=""; r7=""; cwd=""
+if command -v jq >/dev/null 2>&1; then
+  # Unit separator, not tab: read collapses runs of whitespace IFS characters,
+  # which would shift every field after an empty one (no effort, no cwd…).
+  IFS=$'\x1f' read -r model effort cws pct used p5 r5 p7 r7 cwd < <(printf '%s' "$input" | jq -r '
+    def pctOrEmpty: if . == null then "" else round end;
+    [ (.model.display_name // "?"),
+      (.effort.level // ""),
+      (.context_window.context_window_size // 200000),
+      (.context_window.used_percentage // 0 | floor),
+      ((.context_window.current_usage // {})
+        | (.input_tokens // 0) + (.cache_creation_input_tokens // 0) + (.cache_read_input_tokens // 0)),
+      (.rate_limits.five_hour.used_percentage | pctOrEmpty),
+      (.rate_limits.five_hour.resets_at // ""),
+      (.rate_limits.seven_day.used_percentage | pctOrEmpty),
+      (.rate_limits.seven_day.resets_at // ""),
+      (.workspace.current_dir // "")
+    ] | map(tostring) | join("")' 2>/dev/null | tr -d '\r')   # jq on Windows ends lines with CRLF
+  # Effort: the payload carries the live value; older Claude Code versions omit
+  # it, so fall back to the same override order Claude Code uses.
+  if [ -z "$effort" ]; then
+    for f in "$CFG/settings.local.json" "$CFG/settings.json"; do
+      [ -f "$f" ] || continue
+      effort=$(jq -r '.effortLevel // empty' "$f" 2>/dev/null | tr -d '\r')
+      [ -n "$effort" ] && break
+    done
+  fi
+fi
+[ -n "$model" ] || model="?"
+
+# ── Model ────────────────────────────────────────────────────────────────────
+line_model="$(label Model)${B}${model}${R}"
+[ -n "$effort" ] && line_model+="${D} · ${effort}${R}"
+
+# ── Cache (context window) ───────────────────────────────────────────────────
+line_cache=""
+if command -v jq >/dev/null 2>&1; then
+  line_cache="$(label Cache)${D}$(fmt_tokens "$used")/$(fmt_tokens "$cws")${R} [$(bar "$pct")] $(intensity "$pct")${pct}%${R}"
+fi
+
+# ── Usage (rate limits) — omitted when the payload has none ──────────────────
+seg() {
+  printf '%s%s ·%s [%s] %s%s%%%s %s· %s%s' \
+    "$D" "$1" "$R" "$(bar "$2")" "$(intensity "$2")" "$2" "$R" "$D" "$(countdown "$3")" "$R"
+}
+line_usage=""
+[ -n "$p5" ] && line_usage="$(seg Session "$p5" "${r5:-0}")"
+if [ -n "$p7" ]; then
+  [ -n "$line_usage" ] && line_usage+="${D} | ${R}"
+  line_usage+="$(seg Week "$p7" "${r7:-0}")"
+fi
+[ -n "$line_usage" ] && line_usage="$(label Usage)${line_usage}"
+
+# ── Mode badge: delegate to the active plugin's own statusline script ────────
+# ponytail first, caveman as fallback (style-toggle.sh keeps at most one on, so
+# the first non-empty badge wins). Several cached plugin versions can coexist —
 # pick the most recently modified script of each.
 badge=""
 for pattern in "ponytail/ponytail/*/hooks/ponytail-statusline.sh" \
@@ -27,64 +136,10 @@ for pattern in "ponytail/ponytail/*/hooks/ponytail-statusline.sh" \
   [ -n "$badge_script" ] && badge=$(bash "$badge_script" 2>/dev/null)
   [ -n "$badge" ] && break
 done
-
-# Resolve claude-bar into "$@": vendored copy first (scripts/claude-bar,
-# deployed by install.sh — no npm dependency), then PATH, then npm-prefix
-# fallbacks (the statusline shell is non-login, so nvm/asdf/Homebrew paths
-# may be missing).
-set --
-if [ -f "$CFG/scripts/claude-bar/src/index.js" ] && command -v node >/dev/null 2>&1; then
-  set -- node "$CFG/scripts/claude-bar/src/index.js"
-elif command -v claude-bar >/dev/null 2>&1; then
-  set -- claude-bar
-else
-  for c in "$APPDATA/npm/claude-bar" "$HOME/.npm-global/bin/claude-bar" \
-           /opt/homebrew/bin/claude-bar /usr/local/bin/claude-bar \
-           "$HOME/.asdf/shims/claude-bar" "$HOME"/.nvm/versions/node/*/bin/claude-bar; do
-    [ -x "$c" ] && set -- "$c" && break
-  done
-fi
-
-# Append effort level to model name ("Fable 5 · xhigh"). Per-session override
-# comes in the stdin payload (.effort.level); fallback walks the same override
-# order Claude Code uses (settings.local.json before settings.json). Only
-# claude-bar consumes the patched payload — skip the jq work without it.
-if [ $# -gt 0 ] && command -v jq >/dev/null 2>&1; then
-  effort=$(printf '%s' "$input" | jq -r '.effort.level // empty' 2>/dev/null)
-  if [ -z "$effort" ]; then
-    for f in "$CFG/settings.local.json" "$CFG/settings.json"; do
-      [ -f "$f" ] || continue
-      effort=$(jq -r '.effortLevel // empty' "$f" 2>/dev/null)
-      [ -n "$effort" ] && break
-    done
-  fi
-  if [ -n "$effort" ]; then
-    patched=$(printf '%s' "$input" | jq --arg e "$effort" \
-      '.model.display_name = ((.model.display_name // "?") + " · " + $e)' 2>/dev/null)
-    [ -n "$patched" ] && input="$patched"
-  fi
-fi
-
-# claude-bar does auth/usage lookups — cap it so a network stall can never
-# blank the whole statusline (the caveman half is a pure local read).
-bar=""
-if [ $# -gt 0 ]; then
-  if command -v timeout >/dev/null 2>&1; then
-    bar=$(printf '%s' "$input" | timeout 2 "$@" 2>/dev/null)
-  else
-    bar=$(printf '%s' "$input" | "$@" 2>/dev/null)
-  fi
-fi
-
-# Restyle the badge as a bar-like line: "<Plugin> │ On · <Level> [· savings]".
-# Handles both plugins' formats: "[PONYTAIL]", "[PONYTAIL:ULTRA]",
-# "[CAVEMAN:X] <savings>". Colors copied from bar's colors.js (BRAND / DIM
-# truecolor). ESC is built with printf — BSD sed has no \x1b escape. If a badge
-# format ever drifts, pass the plugin's output through verbatim instead of guessing.
-style_line=""
+# Restyle "[PONYTAIL]", "[PONYTAIL:ULTRA]", "[CAVEMAN:X] <savings>" as a
+# bar-like line: "Ponytail │ On · Full [· savings]". Unknown format → verbatim.
+line_mode=""
 if [ -n "$badge" ]; then
-  ESC=$(printf '\033')
-  B="${ESC}[38;2;217;119;87m"; D="${ESC}[38;2;120;115;108m"; R="${ESC}[0m"
   plain=$(printf '%s' "$badge" | sed "s/${ESC}\[[0-9;]*m//g")
   case "$plain" in
     "["[A-Z]*)
@@ -92,31 +147,37 @@ if [ -n "$badge" ]; then
       mode=$(printf '%s' "$plain" | sed -n 's/^\[[A-Z]*:\([A-Z0-9-]*\)\].*/\1/p' | tr '[:upper:]' '[:lower:]')
       [ -n "$mode" ] || mode=full
       savings=$(printf '%s' "$plain" | sed 's/^\[[^]]*\]//; s/^ *//')
-      # Pad the label to 8 chars — keep in sync with PAD in claude-bar's
-      # render.js so "Caveman" (7) aligns with "Ponytail" (8) and bar's labels.
-      style_line="${B}$(printf '%-8s' "${name^}")${R}${D} │ ${R}${D}On · ${mode^}${R}"
-      [ -n "$savings" ] && style_line="${style_line}${D} · ${savings}${R}"
+      line_mode="$(label "${name^}")${D}On · ${mode^}${R}"
+      [ -n "$savings" ] && line_mode+="${D} · ${savings}${R}"
       ;;
-    *) style_line="$badge" ;;
+    *) line_mode="$badge" ;;
   esac
 fi
 
-if [ -n "$bar" ] && [ -n "$style_line" ]; then
-  # Mode line goes after bar's usage lines (Model/Cache/Usage), just
-  # above the git line when bar ends with one ("Github" label).
-  last=$(printf '%s\n' "$bar" | tail -n 1)
-  plain_last=$(printf '%s' "$last" | sed "s/${ESC}\[[0-9;]*m//g")
-  case "$plain_last" in
-    "Github"*)
-      printf '%s\n' "$bar" | sed '$d'
-      printf '%s\n%s\n' "$style_line" "$last"
-      ;;
-    *)
-      printf '%s\n%s\n' "$bar" "$style_line"
-      ;;
-  esac
-elif [ -n "$bar" ]; then
-  printf '%s' "$bar"
-elif [ -n "$style_line" ]; then
-  printf '%s\n' "$style_line"
+# ── Github: branch + live diff vs HEAD, cached 5 s per cwd ───────────────────
+# Generated dirs are excluded: graphify background rebuilds keep them dirty
+# mid-session until the Stop hook commits them, which would drown the real diff.
+# ponytail: names hardcoded — this setup's only churn sources.
+line_git=""
+if [ -n "$cwd" ] && [ -d "$cwd" ]; then
+  cache="${TMPDIR:-/tmp}/statusline-git-$(printf '%s' "$cwd" | cksum | cut -d' ' -f1)"
+  if [ -f "$cache" ] && (( $(date +%s) - $(stat -c %Y "$cache" 2>/dev/null || echo 0) < 5 )); then
+    line_git=$(cat "$cache")
+  elif git -C "$cwd" rev-parse --git-dir >/dev/null 2>&1; then
+    branch=$(git -C "$cwd" branch --show-current 2>/dev/null)
+    [ -n "$branch" ] || branch=$(git -C "$cwd" rev-parse --short HEAD 2>/dev/null)
+    if [ -n "$branch" ]; then
+      line_git="$(label Github)${B}⎇ ${branch}${R}"
+      read -r added removed < <(git -C "$cwd" diff HEAD --numstat -- \
+        ':(top,exclude)graphify-out' ':(top,exclude)vault' 2>/dev/null \
+        | awk '{ a += $1; r += $2 } END { printf "%d %d", a, r }')
+      (( added + removed > 0 )) && line_git+="${D} · ${R}${BL}+${added}${R} ${BD}-${removed}${R}"
+    fi
+    printf '%s' "$line_git" > "$cache" 2>/dev/null || true
+  fi
 fi
+
+for l in "$line_model" "$line_cache" "$line_usage" "$line_mode" "$line_git"; do
+  [ -n "$l" ] && printf '%s\n' "$l"
+done
+exit 0
