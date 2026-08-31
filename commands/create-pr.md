@@ -1,7 +1,7 @@
 ---
 description: Create logical commits and open PR(s) against a protected main, then critically review Copilot feedback.
 argument-hint: '[scope of changes to include (files, feature, description), or empty to process all changes]'
-allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git fetch:*), Bash(git branch:*), Bash(git switch:*), Bash(git add:*), Bash(git restore:*), Bash(git commit:*), Bash(git push:*), Bash(git stash:*), Bash(gh pr create:*), Bash(gh pr view:*), Bash(gh api:*), Read, Grep, Glob, Edit
+allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git fetch:*), Bash(git branch:*), Bash(git switch:*), Bash(git add:*), Bash(git restore:*), Bash(git commit:*), Bash(git push:*), Bash(git stash:*), Bash(gh pr create:*), Bash(gh pr view:*), Bash(gh api:*), Bash(npm run:*), Read, Grep, Glob, Edit
 ---
 
 # Create Pull Requests on a Protected Main
@@ -26,6 +26,10 @@ Scope filter: $ARGUMENTS
 
 - If on `main` with local commits ahead of `origin/main`: stop and report — those commits must be moved to a branch first.
 - Never run `git push origin main` or commit on `main`.
+
+## 1b. Gates — before any commit
+
+Run whatever `package.json` defines among `build`, `typecheck`, `lint`, `test` — `rtk npm run <script>`, in that order. A red gate stops the process: fix it, or report it when the fix is out of scope — never open a PR on a red gate. No `package.json`: skip and say so in the deliverables.
 
 ## 2. Group changes into PR units
 
@@ -75,6 +79,7 @@ If Copilot review is not enabled or has not run yet, say so and stop after PR cr
 
 ## Deliverables
 
+0. **Gates:** which scripts ran, pass/fail.
 1. **PRs created:** number, branch, title, commits, files per PR.
 2. **Split rationale:** why these PR boundaries.
 3. **Copilot verdicts:** per PR, the classification table from `/copilot-check`, what was applied vs rejected, with justification.

@@ -107,6 +107,20 @@ For each modified file, identify:
 - ✅ Is external documentation up to date?
 - ⚠️ Do any READMEs need updating?
 
+**e. Silent failures** — every catch / fallback / default-on-error in the diff
+
+- 🔴 Empty catch, catch-log-and-continue, `?.` that silently skips an operation that can fail, retry that exhausts without telling anyone
+- 🔴 Broad catch: list the unrelated errors it would hide — narrow it, or let it propagate
+- 🟡 Fallback to a default, a mock or an alternate path without a log and without the user knowing
+- 🟡 Error message not actionable (what failed, on what, what to do next)
+
+**f. Type design** — every type added or reshaped in the diff
+
+- Can an invalid instance be built? Invariants belong in the constructor/parser, not in every caller
+- Illegal states unrepresentable: unions over boolean flags, narrowed/branded values over raw `string`/`number`
+- Mutable internals exposed? Anemic type that is a bag of fields every caller re-interprets?
+- Compile-time guarantee over runtime check wherever the type system can carry it
+
 ### 4. Risk identification
 
 Systematic analysis of potential risks:
