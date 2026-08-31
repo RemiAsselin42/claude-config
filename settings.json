@@ -115,11 +115,17 @@
     },
     "caveman": {
       "source": { "source": "github", "repo": "JuliusBrussee/caveman" }
+    },
+    "hono-skill": {
+      "source": { "source": "github", "repo": "yusukebe/hono-skill" }
     }
   },
   "enabledPlugins": {
     "ponytail@ponytail": true,
-    "caveman@caveman": true
+    "caveman@caveman": true,
+    "context7@claude-plugins-official": true,
+    "frontend-design@claude-plugins-official": true,
+    "hono-skill@hono-skill": true
   },
   "statusLine": {
     "type": "command",

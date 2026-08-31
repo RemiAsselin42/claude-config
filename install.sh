@@ -665,6 +665,9 @@ _prepare_dependencies() {
 PINNED_PLUGINS=(
   "DietrichGebert/ponytail|ponytail@ponytail"
   "JuliusBrussee/caveman|caveman@caveman"
+  "anthropics/claude-plugins-official|context7@claude-plugins-official"
+  "anthropics/claude-plugins-official|frontend-design@claude-plugins-official"
+  "yusukebe/hono-skill|hono-skill@hono-skill"
 )
 
 _install_pinned_plugins() {
