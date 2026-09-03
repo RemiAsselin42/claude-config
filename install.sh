@@ -615,6 +615,12 @@ _uv_tool_install() {
   # shellcheck disable=SC1003  # literal backslashes, not an escaped quote
   pat="${APPDATA:-}"'\uv\tools\'"$pkg"'\*'
   powershell.exe -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { \$_.ExecutablePath -like '$pat' } | ForEach-Object { Stop-Process -Id \$_.ProcessId -Force }" >/dev/null 2>&1 || true
+  # The failed attempt leaves dist-info dirs without RECORD; uv cannot uninstall
+  # those and warns "missing RECORD file" on every later run. Drop them — the
+  # reinstall lays the package down again from scratch.
+  local site d
+  site="$(cygpath -u "${APPDATA:-}")/uv/tools/$pkg/Lib/site-packages"
+  for d in "$site"/*.dist-info; do [[ -e "$d/RECORD" ]] || rm -rf "$d"; done
   _run_quiet uv tool install "$pkg" --upgrade --reinstall
 }
 
@@ -636,6 +642,11 @@ _prepare_dependencies() {
   _run_quiet graphify install --platform claude || true
   _ok "Graphify"
 
+  # The daemon runs from the tool venv and holds its .pyd files open; on Windows
+  # the upgrade then dies mid-uninstall with "Accès refusé", leaving packages
+  # without their dist-info. Stop it cleanly first — the next `mine --daemon`
+  # restarts it — rather than letting the retry force-kill it, maybe mid-write.
+  command -v mempalace >/dev/null && mempalace daemon stop >/dev/null 2>&1 || true
   _uv_tool_install mempalace
   command -v mempalace >/dev/null || { echo "${RED}MemPalace installed but not found in current PATH.${RESET}"; exit 1; }
   _ok "MemPalace"
