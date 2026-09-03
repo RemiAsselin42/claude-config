@@ -317,6 +317,27 @@ _mempalace_configured_model() {
   printf '%s\n' "${model:-minilm}"
 }
 
+# Hook writes go direct by default, and a direct write is refused while the
+# daemon owns the palace (local backends are single-writer): once
+# _mine_repo_into_wing has started the daemon, every diary checkpoint and
+# transcript ingest fails with "held by PID <daemon>" in hook_state/hook.log.
+# `prefer` routes hook writes through the daemon when it is up and keeps the
+# direct path when it is not. MCP write tools have no such route — they stay
+# read-only beside the daemon (see CLAUDE.md).
+_mempalace_set_write_routing() {
+  local policy="$1"
+  local tmp
+  [[ -f "$MEMPALACE_CONFIG" ]] || return 0
+  tmp="$(mktemp)"
+  if jq --arg p "$policy" '.write_routing.default = $p' "$MEMPALACE_CONFIG" > "$tmp"; then
+    mv "$tmp" "$MEMPALACE_CONFIG"
+    chmod 600 "$MEMPALACE_CONFIG" 2>/dev/null || true
+    return 0
+  fi
+  rm -f "$tmp"
+  return 1
+}
+
 # No CLI subcommand writes this key (`palace set-embedder` only records identity
 # metadata), so the config file is edited directly. Never export
 # MEMPALACE_EMBEDDING_MODEL instead: the env var outranks the file, and a stale
@@ -439,6 +460,8 @@ _setup_mempalace() {
       _ok "MemPalace ($current)"
       ;;
   esac
+
+  command -v jq >/dev/null && _mempalace_set_write_routing prefer
 
   # A declined re-index leaves the palace on its old model — and possibly still
   # diverged, which silently degrades every search to keyword matching. Re-check
