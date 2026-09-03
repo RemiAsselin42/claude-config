@@ -324,7 +324,7 @@ Embedding model and palace location are set in `env.local` (`MEMPALACE_EMBEDDING
 
 To rebuild on a new machine, just re-run `install.sh`.
 
-Via MCP (in Claude Code): `mempalace_search` and `mempalace_add_drawer`.
+Via MCP (in Claude Code): `mempalace_search`. The write tools (`mempalace_add_drawer`…) are refused while the daemon owns the palace — memories are written to files (`context/*.md`, the global `CLAUDE.md`) that the Stop hook mines.
 
 </details>
 

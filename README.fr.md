@@ -324,7 +324,7 @@ Le modèle d'embedding et l'emplacement du palace se règlent dans `env.local` (
 
 Pour reconstruire sur une nouvelle machine, il suffit de relancer `install.sh`.
 
-Via MCP (dans Claude Code) : `mempalace_search` et `mempalace_add_drawer`.
+Via MCP (dans Claude Code) : `mempalace_search`. Les outils d'écriture (`mempalace_add_drawer`…) sont refusés tant que le daemon détient le palace — les mémoires s'écrivent dans des fichiers (`context/*.md`, le `CLAUDE.md` global) que le hook Stop mine.
 
 </details>
 

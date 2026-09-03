@@ -19,10 +19,12 @@ MemPalace is the **single source of truth** for memory. The `~/.claude/memory/` 
 
 Data lives in `~/.mempalace/` — not versioned, rebuilt via `mempalace mine`.
 
-**Save (MCP tool — always use this):**
+**Save — write a file, never an MCP write tool:**
 
-- `mempalace_add_drawer` with `wing=<repo wing>` for project memories — the wing is the `wing:` value in the repo's `mempalace.yaml` (fallback: `basename $PWD`)
-- `mempalace_add_drawer` with `wing=global` for universal preferences (behavioral feedback)
+The daemon the Stop hook starts (`mempalace mine --daemon`) owns the palace for its lifetime, and local backends are single-writer: `mempalace_add_drawer` and every other MCP write tool answer `Peer MCP writer active` while it runs, with no override. The Stop hook mines files into the wing instead:
+
+- Project memory (decision, pattern, constraint) → `context/*.md` in the repo (see Per-Repo Context; mined with `--include-ignored context/`)
+- Universal preference (behavioral feedback) → a line in this file, via the config repo
 
 **Search — two rules, always:**
 
