@@ -531,8 +531,11 @@ _mine_repo_into_wing() {
   # only populated wings were the unscoped ones the hooks write to. Fall back to
   # an inline mine when the daemon cannot be reached, and say so when both fail
   # instead of calling it "skipped".
-  if mempalace mine "$repo" --wing "$wing" --daemon --background >/dev/null 2>&1 \
-    || mempalace mine "$repo" --wing "$wing" >/dev/null 2>&1; then
+  # --include-ignored context/: templates/gitignore.append ignores context/, so a
+  # default mine skips the decisions CLAUDE.md asks to read first. A manual
+  # `mempalace sync --apply` prunes those drawers as gitignored — re-mine after.
+  if mempalace mine "$repo" --wing "$wing" --daemon --background --include-ignored context/ >/dev/null 2>&1 \
+    || mempalace mine "$repo" --wing "$wing" --include-ignored context/ >/dev/null 2>&1; then
     _detail "  ${DIM}· mempalace: mining → wing '$wing'${RESET}"
   else
     echo "  ${YELLOW}⚠ mempalace: file mining into wing '$wing' failed${RESET}"
