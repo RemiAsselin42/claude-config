@@ -38,7 +38,9 @@ if command -v mempalace >/dev/null 2>&1 && [ -f mempalace.yaml ]; then
   # --include-ignored context/: templates/gitignore.append ignores context/, so a
   # default mine skips the decisions CLAUDE.md asks to read first. A manual
   # `mempalace sync --apply` prunes those drawers as gitignored — re-mine after.
-  [ -n "$wing" ] && mempalace mine . --wing "$wing" --daemon --background --include-ignored context/ >/dev/null 2>&1 || true
+  # "$PWD", never ".": the daemon resolves a relative source against its own cwd
+  # (wherever it was autostarted), so `mine .` mined another repo into this wing.
+  [ -n "$wing" ] && mempalace mine "$PWD" --wing "$wing" --daemon --background --include-ignored context/ >/dev/null 2>&1 || true
 fi
 CLAUDE_CONFIG_DIR="$(cat "$HOME/.claude/claude-config.path" 2>/dev/null)"
 [[ -d "$CLAUDE_CONFIG_DIR" ]] || exit 0
