@@ -55,7 +55,7 @@ Le repo privé se synchronise automatiquement avec celui-ci — voir [Installati
 9. Copie **`settings.json`** — épingle le modèle/effort par défaut (`opus[1m]` · `xhigh`) et pointe la statusline vers `scripts/statusline.sh` sur chaque machine
 10. Active **RTK** via `setup-rtk.sh`
 11. Exécute **CC Safe Setup** pour installer les hooks de sécurité de façon non-destructive
-12. Installe les **plugins épinglés** via le CLI `claude` (`ponytail`, `caveman` upstream, `context7` + `frontend-design` officiels, `hono-skill`)
+12. Installe les **plugins épinglés** via le CLI `claude` (`ponytail`, `caveman` upstream, `context7` + `frontend-design` officiels, `hono`)
 13. Vérifie le prérequis de la **statusline** (`jq`) — `scripts/statusline.sh` affiche modèle, contexte, limites 5h/7j et git à partir du payload que Claude Code lui envoie, plus le badge du mode terse actif ; sans réseau, sans login
 14. Active **ponytail** par défaut (plugin de mode terse) si aucun flag de mode n'existe sur la machine — `style-toggle.sh` bascule entre ponytail et caveman
 15. Met à jour `.gitignore` dans les repos cibles (bloc graphify + `CLAUDE.md` + `mempalace.yaml` + `context/`) via `templates/gitignore.append`
@@ -227,7 +227,7 @@ L'état persistant est la config utilisateur de chaque plugin (`defaultMode` dan
 | `caveman`  | [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman)     | Plugin de compression upstream — remplace le bloc local du CLAUDE.md, ajoute les commandes stats/compress  |
 | `context7` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) | MCP distant (2 outils) — doc à jour de n'importe quelle lib, à la demande                          |
 | `frontend-design` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) | Skill — direction visuelle opinionée, loin de l'« esthétique IA » générique              |
-| `hono-skill` | [yusukebe/hono-skill](https://github.com/yusukebe/hono-skill)     | Skill — référence API Hono inline (routing, middleware, validateurs, JSX) + `npx hono request`            |
+| `hono` | [honojs/skills](https://github.com/honojs/skills)     | Skill — référence API Hono inline (routing, middleware, validateurs, JSX) + `npx hono request`            |
 
 Si le CLI `claude` n'est pas dans le PATH, l'étape est sautée avec un avertissement ; installation manuelle : `claude plugin marketplace add <repo> && claude plugin install <nom>@<marketplace>`.
 

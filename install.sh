@@ -704,7 +704,8 @@ PINNED_PLUGINS=(
   "JuliusBrussee/caveman|caveman@caveman"
   "anthropics/claude-plugins-official|context7@claude-plugins-official"
   "anthropics/claude-plugins-official|frontend-design@claude-plugins-official"
-  "yusukebe/hono-skill|hono-skill@hono-skill"
+  # yusukebe/hono-skill moved to honojs/skills on 2026-08-31 and now holds only a README.
+  "honojs/skills|hono@hono"
 )
 
 _install_pinned_plugins() {
