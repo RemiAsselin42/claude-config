@@ -46,7 +46,9 @@ without doing anything in this state). Writing to a diverged palace segfaults â€
 repair before mining.
 
 **Rebuild index on a new machine:** re-run `install.sh` â€” it initializes the
-palace, picks the multilingual embedder, and mines each repo into its own wing.
+palace, picks the multilingual embedder, installs the GPU embedding provider
+(DirectML on Windows, CUDA on Linux with NVIDIA) with uncapped threads, and
+mines each repo into its own wing.
 
 ## Obsidian Vault
 

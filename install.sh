@@ -305,6 +305,33 @@ _ensure_chromadb() {
 MEMPALACE_MODEL="embeddinggemma"
 MEMPALACE_CONFIG="$HOME/.mempalace/config.json"
 MEMPALACE_PALACE="$HOME/.mempalace/palace"
+MEMPALACE_OVERRIDES="$HOME/.mempalace/uv-overrides.txt"
+
+# Accelerated embedding: mempalace's default device `auto` takes the first
+# provider compiled into the installed onnxruntime. DirectML (Windows) drives
+# any DX12 GPU — NVIDIA, AMD, Intel — with no CUDA toolkit; CUDA (Linux) needs
+# the NVIDIA driver, hence the nvidia-smi gate. Anything else stays on CPU.
+# Escape hatch on an odd machine: `"embedding_device": "cpu"` in config.json.
+_mempalace_accel_extra() {
+  if _is_windows; then printf '[dml]\n'
+  elif [[ "$(uname -s)" == Linux ]] && command -v nvidia-smi >/dev/null; then printf '[gpu]\n'
+  fi
+  return 0
+}
+
+# jq-edit config.json in place (jq args then filter); no-op before init.
+_mempalace_config_set() {
+  local tmp
+  [[ -f "$MEMPALACE_CONFIG" ]] || return 0
+  tmp="$(mktemp)"
+  if jq "$@" "$MEMPALACE_CONFIG" > "$tmp"; then
+    mv "$tmp" "$MEMPALACE_CONFIG"
+    chmod 600 "$MEMPALACE_CONFIG" 2>/dev/null || true
+    return 0
+  fi
+  rm -f "$tmp"
+  return 1
+}
 
 # The configured model is also the model the existing palace was built with:
 # chromadb refuses reads when the two diverge, so a palace that opens at all
@@ -325,17 +352,7 @@ _mempalace_configured_model() {
 # direct path when it is not. MCP write tools have no such route — they stay
 # read-only beside the daemon (see CLAUDE.md).
 _mempalace_set_write_routing() {
-  local policy="$1"
-  local tmp
-  [[ -f "$MEMPALACE_CONFIG" ]] || return 0
-  tmp="$(mktemp)"
-  if jq --arg p "$policy" '.write_routing.default = $p' "$MEMPALACE_CONFIG" > "$tmp"; then
-    mv "$tmp" "$MEMPALACE_CONFIG"
-    chmod 600 "$MEMPALACE_CONFIG" 2>/dev/null || true
-    return 0
-  fi
-  rm -f "$tmp"
-  return 1
+  _mempalace_config_set --arg p "$1" '.write_routing.default = $p'
 }
 
 # No CLI subcommand writes this key (`palace set-embedder` only records identity
@@ -462,6 +479,15 @@ _setup_mempalace() {
   esac
 
   command -v jq >/dev/null && _mempalace_set_write_routing prefer
+  # ORT's intra-op pool defaults to half the logical CPUs so a background mine
+  # leaves the machine usable; 0 lifts the cap to the physical core count. A
+  # GPU run barely uses it, a CPU-only machine indexes about twice as fast —
+  # at the price of pinned cores while a mine runs.
+  # Left alone on purpose: `embeddinggemma_batch_size` (docs per GPU run,
+  # default 32). Real drawers are token-dense (code, paths), so VRAM, not
+  # compute, bounds the batch: on a 4 GB laptop GPU shared with the desktop,
+  # 16 measured 2.4x faster than 64 (T550, 2026-09); a real card takes 64+.
+  command -v jq >/dev/null && _mempalace_config_set '.embedding_threads = 0'
 
   # A declined re-index leaves the palace on its old model — and possibly still
   # diverged, which silently degrades every search to keyword matching. Re-check
@@ -605,8 +631,9 @@ _setup_terminal_delegation() {
 # files. Kill the lockers and retry with --reinstall to recover the half-upgraded
 # venv the failed attempt leaves behind.
 _uv_tool_install() {
-  local pkg="$1"
-  _run_quiet uv tool install "$pkg" --upgrade && return 0
+  local pkg="$1" spec="$1${2:-}"
+  local -a args=("${@:3}")
+  _run_quiet uv tool install "$spec" ${args[@]+"${args[@]}"} --upgrade && return 0
   _is_windows || return 1
   echo "  ${DIM}· $pkg: venv locked by a running process — stopping it and retrying${RESET}"
   # Win32_Process, not Get-Process: enumerating Get-Process .Path aborts the
@@ -621,7 +648,7 @@ _uv_tool_install() {
   local site d
   site="$(cygpath -u "${APPDATA:-}")/uv/tools/$pkg/Lib/site-packages"
   for d in "$site"/*.dist-info; do [[ -e "$d/RECORD" ]] || rm -rf "$d"; done
-  _run_quiet uv tool install "$pkg" --upgrade --reinstall
+  _run_quiet uv tool install "$spec" ${args[@]+"${args[@]}"} --upgrade --reinstall
 }
 
 _prepare_dependencies() {
@@ -647,7 +674,19 @@ _prepare_dependencies() {
   # without their dist-info. Stop it cleanly first — the next `mine --daemon`
   # restarts it — rather than letting the retry force-kill it, maybe mid-write.
   command -v mempalace >/dev/null && mempalace daemon stop >/dev/null 2>&1 || true
-  _uv_tool_install mempalace
+  local accel
+  accel="$(_mempalace_accel_extra)"
+  if [[ -n "$accel" ]]; then
+    # chromadb hard-depends on the CPU-only `onnxruntime`, which unpacks the
+    # same `onnxruntime/` package as the accelerated build — both in one venv
+    # and whichever wrote last wins. The override drops the CPU build from the
+    # resolution; uv records it in the tool receipt so upgrades keep it.
+    mkdir -p "$(dirname "$MEMPALACE_OVERRIDES")"
+    printf "onnxruntime; python_version < '0'\n" > "$MEMPALACE_OVERRIDES"
+    _uv_tool_install mempalace "$accel" --overrides "$MEMPALACE_OVERRIDES"
+  else
+    _uv_tool_install mempalace
+  fi
   command -v mempalace >/dev/null || { echo "${RED}MemPalace installed but not found in current PATH.${RESET}"; exit 1; }
   _ok "MemPalace"
 
