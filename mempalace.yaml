@@ -1,5 +1,5 @@
 wing: claude-config
-exclude:
+exclude_patterns:
   - graphify-out/
   - vault/
   - .git/

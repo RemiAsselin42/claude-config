@@ -1104,14 +1104,22 @@ _generate_mempalace_yaml() {
   repo_name="$(canonical_repo_name "$repo")"
   local yaml_file="$repo/mempalace.yaml"
   if [[ -f "$yaml_file" ]]; then
-    _detail "  ${DIM}· mempalace.yaml: already present — kept.${RESET}"
+    # The miner reads `exclude_patterns` (miner.py, gitignore syntax); earlier
+    # runs of this template wrote `exclude`, a key mempalace never looks at, so
+    # every listed path was silently mined unless .gitignore also had it.
+    if grep -q -E '^exclude:[[:space:]]*$' "$yaml_file"; then
+      sed -i 's/^exclude:[[:space:]]*$/exclude_patterns:/' "$yaml_file"
+      _detail "  ${GREEN}✓ mempalace.yaml: exclude → exclude_patterns (key the miner actually reads)${RESET}"
+    else
+      _detail "  ${DIM}· mempalace.yaml: already present — kept.${RESET}"
+    fi
     return
   fi
   # vault/ only exists in the config repo (Obsidian notes, not code);
   # excluding a nonexistent dir is harmless elsewhere, so one list fits all.
   cat > "$yaml_file" << YAML
 wing: $repo_name
-exclude:
+exclude_patterns:
   - graphify-out/
   - vault/
   - .git/
