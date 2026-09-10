@@ -638,10 +638,17 @@ _uv_tool_install() {
   echo "  ${DIM}· $pkg: venv locked by a running process — stopping it and retrying${RESET}"
   # Win32_Process, not Get-Process: enumerating Get-Process .Path aborts the
   # pipeline on the first process whose MainModule is inaccessible (PS 5.1).
+  # Match the command line as well as ExecutablePath: uv's venv python.exe is a
+  # trampoline onto the base interpreter, so the daemon, the MCP server and
+  # every mine report C:\Python313\python.exe as their executable and only
+  # their command line names the venv. The query's own PowerShell carries the
+  # pattern in its command line too — skip it, or it kills itself mid-loop.
+  # A failed retry here is not free: uv drops the ~/.local/bin shims before it
+  # syncs, and a stale `pip install --user mempalace` then answers instead.
   local pat
   # shellcheck disable=SC1003  # literal backslashes, not an escaped quote
   pat="${APPDATA:-}"'\uv\tools\'"$pkg"'\*'
-  powershell.exe -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { \$_.ExecutablePath -like '$pat' } | ForEach-Object { Stop-Process -Id \$_.ProcessId -Force }" >/dev/null 2>&1 || true
+  powershell.exe -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { \$_.ProcessId -ne \$PID -and (\$_.ExecutablePath -like '$pat' -or \$_.CommandLine -like '*$pat') } | ForEach-Object { Stop-Process -Id \$_.ProcessId -Force }; Start-Sleep 2" >/dev/null 2>&1 || true
   # The failed attempt leaves dist-info dirs without RECORD; uv cannot uninstall
   # those and warns "missing RECORD file" on every later run. Drop them — the
   # reinstall lays the package down again from scratch.
@@ -688,6 +695,13 @@ _prepare_dependencies() {
     _uv_tool_install mempalace
   fi
   command -v mempalace >/dev/null || { echo "${RED}MemPalace installed but not found in current PATH.${RESET}"; exit 1; }
+  # A pip-era `mempalace` under the user site answers the moment the uv shims
+  # are missing (an aborted reinstall drops them), and then serves hooks and
+  # the MCP server with a version that predates the daemon — silently.
+  local shim
+  shim="$(command -v mempalace)"
+  [[ "$shim" == "$HOME/.local/bin/mempalace"* ]] \
+    || echo "  ${YELLOW}⚠ mempalace resolves to $shim, not the uv shim — remove that install (python -m pip uninstall mempalace).${RESET}"
   _ok "MemPalace"
 
   _ensure_chromadb
