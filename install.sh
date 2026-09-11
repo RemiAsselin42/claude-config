@@ -390,6 +390,20 @@ _mempalace_record_identity() {
     || echo "  ${DIM}· mempalace: embedder identity not recorded${RESET}"
 }
 
+# env.local's MEMPALACE_PALACE_PATH is sourced by this script only — never
+# exported, and neither the hooks nor the MCP server read env.local — so
+# mempalace kept building the default palace while this script probed the
+# configured one ('missing' and a re-init on every run, a diverged palace
+# reported as ready). config.json is what every mempalace process reads:
+# record the path there, in the native form Python expects.
+_mempalace_set_palace_path() {
+  [[ -n "${MEMPALACE_PALACE_PATH:-}" ]] || return 0
+  command -v jq >/dev/null || return 0
+  local p="$MEMPALACE_PALACE_PATH"
+  _is_windows && p="$(cygpath -w "$p" 2>/dev/null || printf '%s' "$p")"
+  _mempalace_config_set --arg p "$p" '.palace_path = $p'
+}
+
 # Independent of the model comparison: a palace can be both on the wrong model
 # and diverged, and the divergence is what breaks reads and segfaults writes.
 _mempalace_diverged() {
@@ -428,6 +442,7 @@ _setup_mempalace() {
   # all-MiniLM-L6-v2) is trained on English only.
   MEMPALACE_MODEL="${MEMPALACE_EMBEDDING_MODEL:-embeddinggemma}"
   MEMPALACE_PALACE="${MEMPALACE_PALACE_PATH:-$HOME/.mempalace/palace}"
+  _mempalace_set_palace_path
 
   if ! command -v jq >/dev/null; then
     echo "  ${YELLOW}⚠ jq missing — MemPalace embedding model left as configured.${RESET}"
@@ -454,6 +469,8 @@ _setup_mempalace() {
       # ~/.mempalace itself only indexes its own config.json into a junk wing.
       # Repos are mined into their own wings by _mine_repo_into_wing instead.
       printf 'n\n' | mempalace init --yes ${llm_flag[@]+"${llm_flag[@]}"} ~/.mempalace
+      # init wrote a fresh config.json — before anything touches the palace.
+      _mempalace_set_palace_path
       _mempalace_record_identity
       echo "  ${GREEN}✓ MemPalace initialized (embedder: $MEMPALACE_MODEL)${RESET}"
       ;;
