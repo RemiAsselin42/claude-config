@@ -641,7 +641,13 @@ _uv_tool_install() {
   local -a args=("${@:3}")
   _run_quiet uv tool install "$spec" ${args[@]+"${args[@]}"} --upgrade && return 0
   _is_windows || return 1
-  echo "  ${DIM}· $pkg: venv locked by a running process — stopping it and retrying${RESET}"
+  echo "  ${DIM}· $pkg: upgrade failed — the venv is probably held by a running process${RESET}"
+  # The failed attempt leaves dist-info dirs without RECORD; uv cannot uninstall
+  # those and warns "missing RECORD file" on every later run. Drop them — the
+  # reinstall (this run's or the next one's) lays the package down again.
+  local site d
+  site="$(cygpath -u "${APPDATA:-}")/uv/tools/$pkg/Lib/site-packages"
+  for d in "$site"/*.dist-info; do [[ -e "$d/RECORD" ]] || rm -rf "$d"; done
   # Win32_Process, not Get-Process: enumerating Get-Process .Path aborts the
   # pipeline on the first process whose MainModule is inaccessible (PS 5.1).
   # Match the command line as well as ExecutablePath: uv's venv python.exe is a
@@ -649,18 +655,28 @@ _uv_tool_install() {
   # every mine report C:\Python313\python.exe as their executable and only
   # their command line names the venv. The query's own PowerShell carries the
   # pattern in its command line too — skip it, or it kills itself mid-loop.
-  # A failed retry here is not free: uv drops the ~/.local/bin shims before it
-  # syncs, and a stale `pip install --user mempalace` then answers instead.
-  local pat
+  local pat holders filter
   # shellcheck disable=SC1003  # literal backslashes, not an escaped quote
   pat="${APPDATA:-}"'\uv\tools\'"$pkg"'\*'
-  powershell.exe -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { \$_.ProcessId -ne \$PID -and (\$_.ExecutablePath -like '$pat' -or \$_.CommandLine -like '*$pat') } | ForEach-Object { Stop-Process -Id \$_.ProcessId -Force }; Start-Sleep 2" >/dev/null 2>&1 || true
-  # The failed attempt leaves dist-info dirs without RECORD; uv cannot uninstall
-  # those and warns "missing RECORD file" on every later run. Drop them — the
-  # reinstall lays the package down again from scratch.
-  local site d
-  site="$(cygpath -u "${APPDATA:-}")/uv/tools/$pkg/Lib/site-packages"
-  for d in "$site"/*.dist-info; do [[ -e "$d/RECORD" ]] || rm -rf "$d"; done
+  filter="Get-CimInstance Win32_Process | Where-Object { \$_.ProcessId -ne \$PID -and (\$_.ExecutablePath -like '$pat' -or \$_.CommandLine -like '*$pat') }"
+  holders="$(powershell.exe -NoProfile -Command "$filter | ForEach-Object { '{0,7}  {1}' -f \$_.ProcessId, \$_.CommandLine }" 2>/dev/null | tr -d '\r')"
+  if [[ -n "$holders" ]]; then
+    # The daemon was stopped cleanly before the upgrade, so what still holds
+    # the venv is an open session's MCP server, a Stop-hook mine in flight or
+    # a daemon that hook restarted meanwhile. Windows has no clean stop for a
+    # console process, and a chroma writer killed mid-write is exactly the
+    # HNSW/SQLite divergence `repair rebuild-index` then has to fix — so never
+    # kill unasked, and default to no even under -y.
+    echo "  ${YELLOW}Processes holding the $pkg venv:${RESET}"
+    printf '%s\n' "$holders" | sed 's/^/    /'
+    if ! _ask "  Kill them and retry the upgrade ${CYAN}[y/N]${RESET}?" "n"; then
+      echo "  ${RED}$pkg upgrade aborted — close the Claude Code sessions (or let the mine finish) and re-run install.sh.${RESET}"
+      return 1
+    fi
+    powershell.exe -NoProfile -Command "$filter | ForEach-Object { Stop-Process -Id \$_.ProcessId -Force }; Start-Sleep 2" >/dev/null 2>&1 || true
+  fi
+  # A failed retry here is not free: uv drops the ~/.local/bin shims before it
+  # syncs, and a stale `pip install --user mempalace` then answers instead.
   _run_quiet uv tool install "$spec" ${args[@]+"${args[@]}"} --upgrade --reinstall
 }
 
