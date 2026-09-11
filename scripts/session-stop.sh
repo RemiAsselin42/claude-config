@@ -18,7 +18,9 @@ for ((i = 0; i < 120; i++)); do
   if mkdir "$lock" 2>/dev/null; then acquired=1; break; fi
   # A run killed mid-flight (machine off, session force-quit) would otherwise
   # leave the lock behind and disable the hook forever.
-  (( $(date +%s) - $(stat -c %Y "$lock" 2>/dev/null || echo 0) > 600 )) && rmdir "$lock" 2>/dev/null
+  # stat -c is GNU, -f %m is BSD/macOS — where the GNU form failing made every
+  # lock look 600 s stale, so concurrent Stops stole it from each other.
+  (( $(date +%s) - $(stat -c %Y "$lock" 2>/dev/null || stat -f %m "$lock" 2>/dev/null || echo 0) > 600 )) && rmdir "$lock" 2>/dev/null
   sleep 1
 done
 [[ -n "$acquired" ]] || exit 0

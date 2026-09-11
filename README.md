@@ -39,6 +39,7 @@ Your private repo stays in sync with this one automatically — see [Minimal set
 
 - [Node.js](https://nodejs.org)
 - `curl` (for auto-installing [uv](https://astral.sh/uv) if missing)
+- bash 4.4+ (Git Bash on Windows and any Linux qualify; on macOS `brew install bash` — the stock 3.2 cannot run the script)
 
 ---
 

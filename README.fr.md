@@ -39,6 +39,7 @@ Le repo privé se synchronise automatiquement avec celui-ci — voir [Installati
 
 - [Node.js](https://nodejs.org)
 - `curl` pour l'installation automatique de [uv](https://astral.sh/uv) si absent
+- bash 4.4+ (Git Bash sous Windows et tout Linux conviennent ; sur macOS `brew install bash`, le 3.2 livré ne peut pas exécuter le script)
 
 ---
 

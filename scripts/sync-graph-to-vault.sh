@@ -13,7 +13,8 @@ case "$repo_name" in ""|.*) exit 0 ;; esac
 dest="$VAULT_BASE/$repo_name"
 
 [[ -f graphify-out/GRAPH_REPORT.md ]] || exit 0
-if [[ "$local_name" != "$repo_name" && "${local_name,,}" != "${repo_name,,}" && -d "$VAULT_BASE/$local_name" ]]; then
+# tr, not ${var,,}: this runs from the hooks under the PATH bash, 3.2 on stock macOS.
+if [[ "$(printf '%s' "$local_name" | tr '[:upper:]' '[:lower:]')" != "$(printf '%s' "$repo_name" | tr '[:upper:]' '[:lower:]')" && -d "$VAULT_BASE/$local_name" ]]; then
   if [[ ! -d "$dest" ]]; then
     mv "$VAULT_BASE/$local_name" "$dest"
   else
@@ -155,7 +156,7 @@ PYEOF
       # Glob loop, not find(1) — see the PATH-shadowing note above. The export
       # writes notes flat into $notes_dir, so no recursion is needed.
       for n in "$notes_dir"/*.md; do
-        [[ -f "$n" ]] && sed -i 's|\[\[\.|[[_.|g' "$n"
+        [[ -f "$n" ]] && sed -i.bak 's|\[\[\.|[[_.|g' "$n" && rm -f "$n.bak"
       done
     fi
 
