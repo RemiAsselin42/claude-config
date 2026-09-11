@@ -711,8 +711,6 @@ _prepare_dependencies() {
 
   command -v node >/dev/null || { echo "${RED}Node.js is required (https://nodejs.org)${RESET}"; exit 1; }
   _ensure_uv
-  # After _ensure_uv: it is what asks for PATH-persistence consent.
-  _ensure_npm_bin_on_path
 
   _uv_tool_install graphifyy
   command -v graphify >/dev/null || { echo "${RED}Graphify installed but not found in current PATH.${RESET}"; exit 1; }
@@ -793,6 +791,11 @@ _prepare_dependencies() {
   else
     _detail "  ${DIM}· Zilliz: skipped (MILVUS_ADDRESS not set in env.local)${RESET}"
   fi
+  # After the npm -g installs: on a fresh machine the global bin dir does not
+  # exist before the first one and the helper bails when it is missing, so the
+  # MCP registration below never found context-mode on a first run. Still
+  # after _ensure_uv, which is what asks for PATH-persistence consent.
+  _ensure_npm_bin_on_path
   _ok_flush
 }
 
