@@ -9,6 +9,12 @@ set -euo pipefail
 # ("Waiting for the debugger to disconnect") and can leave zombie node
 # processes holding npm locks, deadlocking quiet installs.
 unset NODE_OPTIONS VSCODE_INSPECTOR_OPTIONS
+# settings.json exports HF_HUB_OFFLINE=1 so hook-driven mines never hit the
+# HF Hub. An install started from a Claude Code session inherits it, and so
+# does the daemon this script autostarts (`mine --daemon` copies os.environ):
+# neither `init` nor the first mine could then download the embedding model,
+# and every write would fail silently until a daemon starts from a plain shell.
+unset HF_HUB_OFFLINE
 
 AUTO_YES=false
 # Exported: child scripts (exclude-from-index.sh) gate their own detail lines on it.
