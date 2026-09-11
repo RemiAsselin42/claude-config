@@ -6,9 +6,12 @@ FORCE=false
 [[ "${1:-}" == "--force" ]] && FORCE=true
 
 STAMP="$HOME/.claude/.upstream-sync-stamp"
-REPO_DIR="$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null)"
+# The script's own repo, never the caller's cwd: install.sh runs this without
+# a cd, so from another checkout with an `upstream` remote it used to rm,
+# checkout and commit inside THAT repo.
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
 
-[[ -z "$REPO_DIR" ]] && exit 0
+[[ -n "$REPO_DIR" ]] && git -C "$REPO_DIR" rev-parse --git-dir &>/dev/null || exit 0
 git -C "$REPO_DIR" remote get-url upstream &>/dev/null || exit 0
 
 NOW=$(date +%s)
@@ -29,6 +32,13 @@ _UPSTREAM_PATHS=(
   install.sh settings.json CLAUDE.md .gitattributes
   mempalace.yaml env.local.template
 )
+
+# Never touch a dirty tree: `checkout upstream/main -- <path>` overwrites edits
+# without asking, and the commit below would sweep whatever is already staged.
+if ! git -C "$REPO_DIR" diff --cached --quiet || ! git -C "$REPO_DIR" diff --quiet -- "${_UPSTREAM_PATHS[@]}"; then
+  echo "sync-upstream: uncommitted changes in $REPO_DIR — commit or stash them, sync skipped." >&2
+  exit 0
+fi
 
 # Apply upstream deletions first: `checkout upstream/main -- <dir>` only adds or
 # overwrites files, it never removes what upstream deleted, so retired files

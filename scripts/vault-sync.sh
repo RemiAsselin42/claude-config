@@ -39,7 +39,9 @@ if [[ ${#paths[@]} -gt 0 ]]; then
   for p in "${paths[@]}"; do
     git -C "$REPO_DIR" add "$p" 2>/dev/null || git -C "$REPO_DIR" add -u "$p" 2>/dev/null || true
   done
-  git -C "$REPO_DIR" commit -q -m "graphify: sync vault + graph — $(date +%Y-%m-%d)" || true
+  # Pathspec'd: a bare commit would sweep whatever the user had staged in the
+  # config repo into this automatic commit — and push it.
+  git -C "$REPO_DIR" commit -q -m "graphify: sync vault + graph — $(date +%Y-%m-%d)" -- "${paths[@]}" || true
 fi
 
 # 2. No remote → local commit is all we can do.
