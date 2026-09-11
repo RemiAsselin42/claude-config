@@ -70,6 +70,19 @@ else:
     print(str(pathlib.Path.home() / '.mempalace' / 'palace'))
 " 2>/dev/null || echo "$HOME/.mempalace/palace")"
 
+  # The daemon owns the palace while it runs (single writer): opening chromadb
+  # beside it is the second-writer pattern that leaves HNSW and SQLite
+  # diverged. `stop` drains the active job for up to 10 s; wait until it is
+  # gone, delete, then bring it back so the queued mines resume.
+  local daemon_was_up="" _i
+  if command -v mempalace >/dev/null 2>&1 && mempalace daemon status >/dev/null 2>&1; then
+    mempalace daemon stop >/dev/null 2>&1 && daemon_was_up=1
+    for ((_i = 0; _i < 20; _i++)); do
+      mempalace daemon status >/dev/null 2>&1 || break
+      sleep 1
+    done
+  fi
+
   local result
   if ! result="$("${py_cmd[@]}" - "$palace_path" "$wing" 2>&1 << 'PYEOF'
 import sys, chromadb
@@ -92,8 +105,10 @@ print(total)
 PYEOF
 )"; then
     info "Mempalace: wing '$wing' not deleted — database inaccessible, cleanup skipped"
+    [[ -n "$daemon_was_up" ]] && mempalace daemon start >/dev/null 2>&1 || true
     return 0
   fi
+  [[ -n "$daemon_was_up" ]] && mempalace daemon start >/dev/null 2>&1 || true
 
   if [[ "$result" =~ ^[0-9]+$ ]]; then
     if [[ "$result" -gt 0 ]]; then
