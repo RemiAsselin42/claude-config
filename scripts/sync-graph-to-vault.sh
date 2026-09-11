@@ -180,3 +180,6 @@ PYEOF
   fi
   [[ -n "${clean_graph:-}" ]] && rm -f "$clean_graph"
 fi
+# Explicit: the `[[ -n … ]] && rm` above is otherwise the script's exit status
+# — 1 whenever no Python was found — and install.sh runs this bare under set -e.
+exit 0
