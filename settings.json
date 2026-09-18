@@ -21,13 +21,6 @@
       "Bash(git mv *)",
       "Bash(git reset HEAD *)",
       "Bash(git reset --soft *)",
-      "Bash(git -C * status)",
-      "Bash(git -C * log *)",
-      "Bash(git -C * diff *)",
-      "Bash(git -C * add *)",
-      "Bash(git -C * commit *)",
-      "Bash(git -C * push origin *)",
-      "Bash(git -C * pull *)",
 
       "Bash(mkdir *)",
       "Bash(mkdir -p *)",
