@@ -40,11 +40,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      # The script at this workflow's own commit (job_workflow_sha), not the caller's.
+      # The script at this workflow's own repository and commit (the job.workflow_* identity of a
+      # reusable workflow; github.job_workflow_sha is empty here), never the caller's branch.
       - uses: actions/checkout@v4
         with:
-          repository: RemiAsselin42/claude-config
-          ref: ${{ github.job_workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: .baseline-ratchet
           sparse-checkout: scripts/baseline-ratchet.js
           sparse-checkout-cone-mode: false

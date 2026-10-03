@@ -162,7 +162,7 @@ unité de travail, ne jamais merger. Pas de duplication avec l'outillage existan
   comportement (Gates 1-2 doivent rester verts, mêmes baselines), puis un 2ᵉ repo.
 - **Contrainte fixée au Lot A** : la CI charge la logique des gates depuis claude-config à une
   version **épinglée** (tag `@v1` ; le workflow réutilisable récupère ses scripts à son propre
-  `job_workflow_sha`), jamais depuis la branche de la PR testée. Tant que `scripts/check_*.py` et
+  `job.workflow_sha`), jamais depuis la branche de la PR testée. Tant que `scripts/check_*.py` et
   le script `lint:arch` de `package.json` vivent dans les repos, le hook `protect-gates` ne les
   protège pas : c'est ce lot qui les en sort.
 
