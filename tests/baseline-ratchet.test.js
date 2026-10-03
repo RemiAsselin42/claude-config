@@ -1,4 +1,4 @@
-// Self-check for scripts/baseline-ratchet.js on the real papers-helper baselines
+// Self-check for scripts/baseline-ratchet.js on real baselines taken from a pilot repository
 // (tests/fixtures/baselines): unchanged and shrinking baselines pass; a growing,
 // new or deleted one fails unless --override (the PR label) is given, and even
 // then the growth is reported. Run after touching the script or the workflow:
