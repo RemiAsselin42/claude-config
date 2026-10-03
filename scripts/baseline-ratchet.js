@@ -6,7 +6,7 @@
 // disappeared). Entries are the elements of the JSON array, compared as
 // canonical strings (object keys sorted), so reordering is not a change. A
 // baseline that is not an array counts as one opaque entry: any change to it
-// is growth.
+// is growth, and so is a change of shape (array <-> object).
 //
 //   node baseline-ratchet.js --base <ref> --head <ref> [--repo <dir>] [--override]
 //
@@ -57,8 +57,10 @@ function entries(ref, p) {
   let text;
   try { text = git("show", `${ref}:${p}`); } catch { return null; } // absent on this side
   const json = JSON.parse(text);
-  return new Set((Array.isArray(json) ? json : [json]).map(canon));
+  const isArray = Array.isArray(json);
+  return { isArray, set: new Set((isArray ? json : [json]).map(canon)) };
 }
+const shape = (e) => (e.isArray ? "array" : "object");
 
 const paths = [...new Set([...baselinesIn(base), ...baselinesIn(head)])].sort();
 const lines = ["## baseline-ratchet", ""];
@@ -66,12 +68,13 @@ let grew = false;
 for (const p of paths) {
   const a = entries(base, p);
   const b = entries(head, p);
-  if (!a) { grew = true; lines.push(`- GROWTH \`${p}\`: new baseline (${b.size} entries)`); continue; }
+  if (!a) { grew = true; lines.push(`- GROWTH \`${p}\`: new baseline (${b.set.size} entries)`); continue; }
   if (!b) { grew = true; lines.push(`- GROWTH \`${p}\`: baseline deleted`); continue; }
-  const added = [...b].filter((e) => !a.has(e));
-  const removed = [...a].filter((e) => !b.has(e));
+  if (a.isArray !== b.isArray) { grew = true; lines.push(`- GROWTH \`${p}\`: format changed (${shape(a)} -> ${shape(b)})`); continue; }
+  const added = [...b.set].filter((e) => !a.set.has(e));
+  const removed = [...a.set].filter((e) => !b.set.has(e));
   if (added.length) grew = true;
-  lines.push(`- ${added.length ? "GROWTH" : "ok"} \`${p}\`: +${added.length} / -${removed.length} (${a.size} -> ${b.size})`);
+  lines.push(`- ${added.length ? "GROWTH" : "ok"} \`${p}\`: +${added.length} / -${removed.length} (${a.set.size} -> ${b.set.size})`);
   for (const e of added) lines.push(`  - added: \`${e}\``);
 }
 if (!paths.length) lines.push("- no baseline file on either side");

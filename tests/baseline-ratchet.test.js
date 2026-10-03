@@ -124,6 +124,19 @@ test("a non-array baseline (a score floor) is one opaque entry: any value change
   assert.match(r2.out, /mutation-baseline.json`: \+0 \/ -0/);
 });
 
+test("a baseline that changes shape (object <-> array) is growth, never a shrink", () => {
+  const floor = git("rev-parse", "floor");
+  const emptied = commitOn(floor, "floor-emptied", () => write("backend/mutation-baseline.json", "[]"));
+  const r1 = ratchet(floor, emptied);
+  assert.equal(r1.code, 1, r1.err);
+  assert.match(r1.out, /GROWTH `backend\/mutation-baseline.json`: format changed \(object -> array\)/);
+  const objectified = commitOn(BASE, "layers-objectified", () => write("backend/import-layers-baseline.json", JSON.stringify({ edges: [] })));
+  const r2 = ratchet(BASE, objectified);
+  assert.equal(r2.code, 1, r2.err);
+  assert.match(r2.out, /GROWTH `backend\/import-layers-baseline.json`: format changed \(array -> object\)/);
+  assert.equal(ratchet(floor, emptied, "--override").code, 0);
+});
+
 test("an unknown ref is a usage error, never a pass", () => {
   const r = ratchet("no-such-ref", BASE);
   assert.equal(r.code, 2);
