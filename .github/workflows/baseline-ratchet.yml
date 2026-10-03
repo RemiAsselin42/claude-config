@@ -19,8 +19,8 @@
 #
 # Then make the check "baseline-ratchet / ratchet" required on main (README,
 # "Quality harness"). Override: a human sets the `baseline-update` label on the
-# PR. Limit: GitHub only sees the token, so a label set by Claude with Rémi's
-# token looks exactly like one Rémi set; hooks/protect-gates.js blocks the known
+# PR. Limit: GitHub only sees the token, so a label set by Claude with the owner's
+# token looks exactly like one the owner set; hooks/protect-gates.js blocks the known
 # ways to do it, and the comment below makes every use visible on the PR.
 name: baseline-ratchet
 on:

@@ -80,11 +80,11 @@ if (grew && override) {
   lines.push(
     "**Growth accepted because the PR carries the override label.** A baseline is debt that is",
     "being frozen: review the added entries above. GitHub only sees the token, so a label set",
-    "by Claude with Rémi's token is indistinguishable from one Rémi set himself; the hook",
+    "by Claude with the owner's token is indistinguishable from one the owner set; the hook",
     "protect-gates blocks the known ways to do it and this comment makes every use visible.",
   );
 } else if (grew) {
-  lines.push("**A baseline grew.** Fix the new violations, or have Rémi set the override label on the PR.");
+  lines.push("**A baseline grew.** Fix the new violations, or have a human set the override label on the PR.");
 } else {
   lines.push("No baseline grew.");
 }
