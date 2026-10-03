@@ -1,0 +1,49 @@
+[project]
+name = "example-backend"
+version = "0.1.0"
+description = "Example backend — fixture taken from a real project, anonymized"
+requires-python = ">=3.12,<3.15"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "sqlalchemy>=2.0.0",
+    "chromadb>=0.6.0",
+    "ollama>=0.4.0",
+    "python-multipart>=0.0.20",
+    "pypdf>=6.10.2",
+    "httpx>=0.28.0",
+    "python-docx>=1.1.0",
+    "odfpy>=1.4.0",
+    "striprtf>=0.0.26",
+    "ebooklib>=0.18",
+    "bibtexparser==2.0.0b9",
+    "openai>=1.0.0",
+    "anthropic>=0.40.0",
+    "networkx>=3.2",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "grimp>=3.14",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
