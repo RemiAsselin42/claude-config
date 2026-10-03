@@ -58,6 +58,7 @@
       "Bash(rtk git push*--force*)",
       "Bash(rtk git push* -f*)",
       "Bash(gh pr merge*)",
+      "Bash(rtk gh pr merge*)",
       "Bash(git rebase*)",
       "Bash(rtk git rebase*)",
       "Read(~/.claude.json)"
