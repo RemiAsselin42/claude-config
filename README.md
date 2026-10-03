@@ -155,8 +155,8 @@ claude-config/
     ├── statusline.sh            # Pins the statusline line format against a fixture payload
     ├── legacy-hooks.sh          # install.sh must remove the dropped cc-safe-setup hooks and notice a leftover
     ├── hooks.test.js            # Every guard in hooks/, fed Bash and PowerShell payloads (node --test "tests/*.test.js")
-    ├── baseline-ratchet.test.js # The ratchet on the real papers-helper baselines
-    └── fixtures/                # papers-helper's baselines and pyproject.toml, verbatim
+    ├── baseline-ratchet.test.js # The ratchet on real baselines from a pilot repository
+    └── fixtures/                # Real baselines and pyproject.toml from a pilot repository, anonymized
 ```
 
 ---
@@ -366,9 +366,9 @@ Each entry records the area, the symptom, the real cause, the workaround or fix,
 ---
 
 <details>
-<summary><strong>Quality harness — the doors Claude cannot open (Lot A)</strong></summary>
+<summary><strong>Quality harness — the doors Claude cannot open</strong></summary>
 
-`docs/harness-plan.md` sets the principles: whatever blocks is deterministic, LLM reviewers are consultative, the merge is the only human gesture, a baseline may only shrink. Lot A closes the exits in four layers:
+Principles: whatever blocks is deterministic, LLM reviewers are consultative, the merge is the only human gesture, a baseline may only shrink. The harness closes the exits in four layers:
 
 | Layer | Blocks | Notes |
 | --- | --- | --- |
@@ -397,7 +397,7 @@ jobs:
 
 `@v1` is a tag on this repo. The job checks out `scripts/baseline-ratchet.js` at the same commit, so the gate logic always comes from claude-config at a pinned version, never from the branch under test. A human accepts a growing baseline by setting the `baseline-update` label on the PR: the job then passes and posts the added entries as a PR comment. Limit: GitHub only sees the token, so a label set by Claude with your token is indistinguishable from one you set — hence the hook rule and the comment.
 
-**Make the checks required on `main`.** GitHub → repository → Settings → Branches → add a branch protection rule for `main` → tick *Require a pull request before merging*, *Require status checks to pass before merging* and *Require branches to be up to date before merging*, then add each check by name (a check is offered once it has run on at least one PR). Also tick *Do not allow bypassing the above settings*, otherwise an admin token — yours, hence Claude's — merges past the checks. For papers-helper the names are `Backend / Lint`, `Backend / Typecheck`, `Backend / Test`, `Frontend / Lint & Typecheck`, `Frontend / Test`, plus `baseline-ratchet / ratchet` once the caller workflow above is on `main`.
+**Make the checks required on `main`.** GitHub → repository → Settings → Branches → add a branch protection rule for `main` → tick *Require a pull request before merging*, *Require status checks to pass before merging* and *Require branches to be up to date before merging*, then add each check by name (a check is offered once it has run on at least one PR). Also tick *Do not allow bypassing the above settings*, otherwise an admin token — yours, hence Claude's — merges past the checks. Names are `<workflow name> / <job name>` as GitHub lists them: the repo's own gate jobs, plus `baseline-ratchet / ratchet` once the caller workflow above is on `main`.
 
 </details>
 
