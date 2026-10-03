@@ -44,8 +44,11 @@ fi
 
 # --- Check 1: git add of secret files ---
 if printf '%s' "$COMMAND" | grep -qE '(^|[;&|]\s*)(rtk\s+)?git\s+add'; then
+    # Quotes are not path terminators for the patterns below: git add ".env" slipped
+    # through. Match on the command with both quote characters (octal 042, 047) removed.
+    UNQUOTED=$(printf '%s' "$COMMAND" | tr -d '\042\047')
     # Direct .env file staging
-    if printf '%s' "$COMMAND" | grep -qiE 'git\s+add\s+.*\.env(\s|$|\.|/)'; then
+    if printf '%s' "$UNQUOTED" | grep -qiE 'git\s+add\s+.*\.env(\s|$|\.|/)'; then
         echo "BLOCKED: Attempted to stage .env file." >&2
         echo "" >&2
         echo "Command: $COMMAND" >&2
@@ -56,7 +59,7 @@ if printf '%s' "$COMMAND" | grep -qE '(^|[;&|]\s*)(rtk\s+)?git\s+add'; then
     fi
 
     # Credential/key files
-    if printf '%s' "$COMMAND" | grep -qiE 'git\s+add\s+.*(credentials|\.pem|\.key|\.p12|\.pfx|id_rsa|id_ed25519)'; then
+    if printf '%s' "$UNQUOTED" | grep -qiE 'git\s+add\s+.*(credentials|\.pem|\.key|\.p12|\.pfx|id_rsa|id_ed25519)'; then
         echo "BLOCKED: Attempted to stage credential/key file." >&2
         echo "" >&2
         echo "Command: $COMMAND" >&2
