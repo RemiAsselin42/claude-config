@@ -56,7 +56,7 @@ Le repo privé se synchronise automatiquement avec celui-ci — voir [Installati
 8. Enregistre les **serveurs MCP** en scope user via `claude mcp add` — `mempalace` (`mempalace-mcp`), `context-mode` et `figma`. Claude Code ne lit les serveurs MCP que depuis `~/.claude.json` ou un `.mcp.json` de projet, jamais depuis `settings.json`. Figma s'authentifie en OAuth : lancer `/mcp` une fois dans Claude Code
 9. Copie **`settings.json`** — épingle le modèle/effort par défaut (`opus[1m]` · `xhigh`) et pointe la statusline vers `scripts/statusline.sh` sur chaque machine
 10. Active **RTK** via `setup-rtk.sh`
-11. Exécute **CC Safe Setup** pour installer les hooks de sécurité de façon non-destructive
+11. Supprime les cinq hooks **cc-safe-setup** laissés par les installs précédentes (`comment-strip`, `syntax-check`, `context-monitor`, `cd-git-allow`, `api-error-alert`) et échoue s'il en reste un sur disque ou dans le `settings.json` déployé. Les hooks bloquants vivent désormais dans `hooks/` (voir **Harnais qualité** plus bas) et sont enregistrés par `settings.json` ; `comment-strip` était la vraie cause du « bug heredoc » (`docs/pitfall.md`)
 12. Installe les **plugins épinglés** via le CLI `claude` (`ponytail`, `caveman` upstream, `context7` + `frontend-design` officiels, `hono`)
 13. Vérifie le prérequis de la **statusline** (`jq`) — `scripts/statusline.sh` affiche modèle, contexte, limites 5h/7j et git à partir du payload que Claude Code lui envoie, plus le badge du mode terse actif ; sans réseau, sans login
 14. Active **ponytail** par défaut (plugin de mode terse) si aucun flag de mode n'existe sur la machine — `style-toggle.sh` bascule entre ponytail et caveman
@@ -124,8 +124,16 @@ claude-config/
 ├── mempalace.yaml               # Wing MemPalace de ce repo + exclusions de mining
 ├── .graphifyignore              # Exclut vault/ (généré) du graphe de ce repo
 │
+├── .github/workflows/
+│   └── baseline-ratchet.yml     # Workflow CI réutilisable : un baseline ne peut que rétrécir
 ├── commands/                    # Slash-commands → ~/.claude/commands/
+├── hooks/                       # Gardes PreToolUse → ~/.claude/hooks/ (outils Bash et PowerShell)
+│   ├── protect-gates.js         # Bloque les éditions par Claude des configs de gate, baselines, workflows, --no-verify, merge, labels
+│   ├── destructive-guard.sh     # rm -rf sur chemins larges, git reset --hard, git clean, checkout forcé (copié de cc-safe-setup)
+│   ├── branch-guard.sh          # Push sur main/master, force push (copié de cc-safe-setup)
+│   └── secret-guard.sh          # git add de .env / clés / credentials (copié de cc-safe-setup)
 ├── scripts/                     # Scripts utilitaires → ~/.claude/scripts/
+│   ├── baseline-ratchet.js      # Compare les baselines entre deux refs ; exécuté par le workflow ci-dessus
 │   ├── repo-identity.sh         # Lib partagée : canonical_repo_name()
 │   ├── session-start.sh         # Hook SessionStart : diary MemPalace + tête de TODO.md
 │   ├── session-stop.sh          # Hook Stop : graphify update + mine du wing + sync vault
@@ -144,7 +152,11 @@ claude-config/
 │   └── pitfall.md               # Journal append-only des pièges rencontrés par Claude Code dans ce repo
 └── tests/
     ├── claude-md-refresh.sh     # Auto-test du re-rendu des CLAUDE.md par repo
-    └── statusline.sh            # Fige le format des lignes de la statusline sur un payload fixture
+    ├── statusline.sh            # Fige le format des lignes de la statusline sur un payload fixture
+    ├── legacy-hooks.sh          # install.sh doit retirer les hooks cc-safe-setup abandonnés et voir un reliquat
+    ├── hooks.test.js            # Chaque garde de hooks/, nourrie de payloads Bash et PowerShell (node --test "tests/*.test.js")
+    ├── baseline-ratchet.test.js # Le ratchet sur les vrais baselines de papers-helper
+    └── fixtures/                # Baselines et pyproject.toml de papers-helper, tels quels
 ```
 
 ---
@@ -348,6 +360,44 @@ Il n'y a pas de templates : la commande crée `context/` si besoin et écrit les
 `docs/pitfall.md` est un journal append-only des problèmes non évidents rencontrés par Claude Code en travaillant sur ce repo : comportements invisibles depuis le code, pièges qui ont coûté une session, hypothèses qui se sont révélées fausses. Contrairement à `context/` (gitignored, régénéré par `/init-context`), il est versionné et grandit à la main, une entrée par problème.
 
 Chaque entrée note la zone, le symptôme, la vraie cause, le contournement ou le correctif, et un statut (`open` tant que le piège est encore dans le code, `fixed <sha>` une fois disparu). Claude le lit avant de toucher une zone qu'il mentionne et y ajoute une entrée dès qu'une session bute sur quelque chose qu'il aurait été plus rapide de savoir d'avance. Le hook Stop le mine dans le wing MemPalace du repo avec le reste de `docs/`.
+
+</details>
+
+---
+
+<details>
+<summary><strong>Harnais qualité — les portes que Claude ne peut pas ouvrir (Lot A)</strong></summary>
+
+`docs/harness-plan.md` fixe les principes : ce qui bloque est déterministe, les reviewers LLM sont consultatifs, le merge est le seul geste humain, un baseline ne peut que rétrécir. Le Lot A ferme les sorties en quatre couches :
+
+| Couche | Bloque | Notes |
+| --- | --- | --- |
+| Règles `deny` de `settings.json` | `gh pr merge`, `git rebase`, force push, `rtk proxy` | évaluées avant toute règle `allow`, quel que soit le mode de permission |
+| `hooks/destructive-guard.sh`, `branch-guard.sh`, `secret-guard.sh` | `rm -rf` sur chemins larges, `git reset --hard`, `git clean`, checkout forcé, push sur `main`, force push, `git add` de `.env` ou de clés | copiés de cc-safe-setup 30.0.7 (MIT), retouchés pour matcher aussi `rtk git …` et `cd … && git …` |
+| `hooks/protect-gates.js` | éditions des configs de gate (`.dependency-cruiser.*`, `eslint.config.*`, `ruff.toml`, `mypy.ini`, `.github/workflows/*`), des baselines (`*-baseline.json`, `.dependency-cruiser-known-violations.json`) et des sections `[tool.ruff\|mypy\|mutmut\|pytest]` de `pyproject.toml` (les dépendances restent libres) ; `git commit --no-verify`, `--update-baseline`, `lint:arch:baseline`, `gh pr merge`, `gh pr edit --add-label` et les endpoints REST derrière ; écritures shell ou PowerShell (`>`, `sed -i`, `tee`, `cp`, `mv`, `rm`, `Set-Content`, `Out-File`, `Add-Content`, `Copy-Item`, `Move-Item`, `Remove-Item`) vers ces fichiers ; le harnais lui-même (`~/.claude/settings.json`, `~/.claude/hooks/*`, `.claude/settings*.json`) | Node, sans dépendance ; `PreToolUse` sur `Bash\|PowerShell` et sur `Edit\|Write\|MultiEdit\|NotebookEdit` |
+| `.github/workflows/baseline-ratchet.yml` | un baseline qui grossit, apparaît ou disparaît dans une PR | CI — la couche qui tient vraiment ; les hooks sont des ralentisseurs |
+
+Chaque hook se déclenche pour l'outil Bash comme pour l'outil PowerShell ; `tests/hooks.test.js` envoie les deux payloads. Lancer Claude Code avec `PROTECT_GATES=off` dans l'environnement transforme protect-gates en avertissement visible pour cette session — sauf pour les chemins du harnais, qui restent bloqués. Le ratchet CI n'est jamais désactivé.
+
+**Brancher le ratchet dans un repo.** Un fichier, ajouté par un humain (protect-gates empêche Claude d'écrire des workflows) :
+
+```yaml
+# .github/workflows/baseline-ratchet.yml
+name: baseline-ratchet
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]   # poser le label doit relancer le check
+permissions:
+  contents: read
+  pull-requests: write   # pour le commentaire posté quand le label est utilisé
+jobs:
+  ratchet:
+    uses: RemiAsselin42/claude-config/.github/workflows/baseline-ratchet.yml@v1
+```
+
+`@v1` est un tag de ce repo. Le job récupère `scripts/baseline-ratchet.js` au même commit : la logique des gates vient toujours de claude-config à une version épinglée, jamais de la branche testée. Un humain accepte un baseline qui grossit en posant le label `baseline-update` sur la PR : le job passe alors et poste les entrées ajoutées en commentaire. Limite : GitHub ne voit que le jeton, un label posé par Claude avec ton jeton est indiscernable d'un label posé par toi — d'où la règle du hook et le commentaire.
+
+**Rendre les checks obligatoires sur `main`.** GitHub → repo → Settings → Branches → ajouter une règle de protection pour `main` → cocher *Require a pull request before merging*, *Require status checks to pass before merging* et *Require branches to be up to date before merging*, puis ajouter chaque check par son nom (un check est proposé dès qu'il a tourné sur au moins une PR). Cocher aussi *Do not allow bypassing the above settings*, sinon un jeton admin — le tien, donc celui de Claude — merge malgré les checks. Pour papers-helper, les noms sont `Backend / Lint`, `Backend / Typecheck`, `Backend / Test`, `Frontend / Lint & Typecheck`, `Frontend / Test`, plus `baseline-ratchet / ratchet` une fois le workflow appelant ci-dessus sur `main`.
 
 </details>
 

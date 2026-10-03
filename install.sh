@@ -758,7 +758,7 @@ _prepare_dependencies() {
     echo "  ${YELLOW}⚠ RTK: install/prepare failed, will attempt activation later.${RESET}"
   fi
 
-  # jq is required by the cc-safe-setup hooks for JSON parsing
+  # jq is required by the shell guards in hooks/*.sh and by the statusline
   if command -v jq >/dev/null; then
     _ok "jq"
   elif _is_windows; then
@@ -768,10 +768,10 @@ _prepare_dependencies() {
     if _run_quiet curl -fsSL -o "$TOOL_BIN_DIR/jq.exe" "https://github.com/jqlang/jq/releases/latest/download/jq-windows-amd64.exe"; then
       _ok "jq installed ($TOOL_BIN_DIR/jq.exe)"
     else
-      echo "  ${YELLOW}⚠ jq: download failed — cc-safe-setup hooks need it (winget install jqlang.jq / scoop install jq)${RESET}"
+      echo "  ${YELLOW}⚠ jq: download failed — the shell guard hooks need it (winget install jqlang.jq / scoop install jq)${RESET}"
     fi
   else
-    echo "  ${YELLOW}⚠ jq missing — cc-safe-setup hooks need it (brew install jq / apt install jq)${RESET}"
+    echo "  ${YELLOW}⚠ jq missing — the shell guard hooks need it (brew install jq / apt install jq)${RESET}"
   fi
 
   _ensure_shellcheck
@@ -1023,36 +1023,35 @@ else
   echo "  ${YELLOW}⚠ RTK: run manually: bash ~/.claude/scripts/setup-rtk.sh${RESET}"
 fi
 
-# --- Install CC Safe Setup (after settings.json copy — it appends hooks non-destructively) ---
-_step "Installing safety hooks (cc-safe-setup)..."
-if command -v npx >/dev/null; then
-  # cc-safe-setup has no --yes flag and its "Install all N hooks?" prompt
-  # hangs invisibly under _run_quiet — feed it a stream of "y" instead.
-  if _run_quiet bash -c 'yes | npx --yes cc-safe-setup'; then
-    _ok "CC Safe Setup (safety hooks active)"
-  else
-    echo "  ${YELLOW}⚠ CC Safe Setup failed — run manually: npx cc-safe-setup${RESET}"
-  fi
-else
-  echo "  ${YELLOW}⚠ npx not found — CC Safe Setup skipped${RESET}"
-fi
-
-# cc-safe-setup registers hooks as bare .sh paths. On Windows that goes through
-# the file association, which is `bash --login -i` — a fresh console window pops
-# up on every hook fire. Prefix with an explicit interpreter.
-# It also installs api-error-alert.sh, which reads a .stop_reason field Claude Code
-# never sends: it fires on every normal Stop and its notifier is Linux/macOS-only.
-# Drop it.
-if command -v jq >/dev/null && [[ -f "$CLAUDE_DIR/settings.json" ]]; then
-  if jq '(.hooks[]?[]?.hooks[]?.command) |= (if test("^[^ ]+[.]sh$") then "bash \"" + . + "\"" else . end)
-         | (.hooks[]?) |= map(select((.hooks | map(.command) | join(" ") | test("api-error-alert")) | not))' \
-       "$CLAUDE_DIR/settings.json" > "$CLAUDE_DIR/settings.json.tmp" 2>/dev/null; then
-    mv "$CLAUDE_DIR/settings.json.tmp" "$CLAUDE_DIR/settings.json"
-    _detail "  ${DIM}hook commands normalized (bash prefix)${RESET}"
-  else
-    rm -f "$CLAUDE_DIR/settings.json.tmp"
-  fi
-fi
+# --- Shell guards: hooks/ (copied above) replaces cc-safe-setup ---
+# Until 2026-10 every blocking hook came from `yes | npx --yes cc-safe-setup`:
+# unpinned, eight hooks, five of them unwanted. One of the five, comment-strip.sh,
+# deleted every blank line and every "#" line from each Bash command, heredoc
+# contents included — the "heredoc bug" of 2026-08-31 (docs/pitfall.md). The
+# three guards worth keeping are vendored in hooks/ and registered by the
+# settings.json copied above. The five others are removed here and the removal
+# is verified: a silent leftover is exactly how that bug lived for months.
+LEGACY_CC_SAFE_HOOKS=(comment-strip syntax-check context-monitor cd-git-allow api-error-alert)
+_remove_legacy_cc_safe_hooks() {
+  local h
+  for h in "${LEGACY_CC_SAFE_HOOKS[@]}"; do rm -f "$CLAUDE_DIR/hooks/$h.sh"; done
+}
+# Returns 1 and names what is left when any of the five is still on disk or
+# still registered in the deployed settings.json.
+_verify_legacy_cc_safe_hooks_removed() {
+  local h left=()
+  for h in "${LEGACY_CC_SAFE_HOOKS[@]}"; do
+    [[ -e "$CLAUDE_DIR/hooks/$h.sh" ]] && left+=("hooks/$h.sh")
+    grep -qF "$h" "$CLAUDE_DIR/settings.json" 2>/dev/null && left+=("settings.json:$h")
+  done
+  [[ ${#left[@]} -eq 0 ]] && return 0
+  echo "  ${RED}✗ legacy cc-safe-setup hooks still present: ${left[*]}${RESET}" >&2
+  return 1
+}
+_step "Removing legacy cc-safe-setup hooks..."
+_remove_legacy_cc_safe_hooks
+_verify_legacy_cc_safe_hooks_removed || exit 1
+_ok "shell guards (hooks/*.sh, protect-gates.js), cc-safe-setup leftovers removed"
 
 # --- Install pinned plugins (after settings.json copy — plugin state must survive it) ---
 _step "Installing pinned plugins..."
