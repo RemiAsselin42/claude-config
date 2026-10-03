@@ -1,0 +1,67 @@
+# baseline-ratchet — reusable workflow: a gate baseline may only shrink.
+#
+# Call it from a repo with one job. Pin a tag, never @main: the job checks out
+# scripts/baseline-ratchet.js at the exact commit of this file, so the gate
+# logic always comes from claude-config at a pinned version, never from the
+# branch under test.
+#
+#   name: baseline-ratchet
+#   on:
+#     pull_request:
+#       # labeled/unlabeled: setting the override label must re-run the check
+#       types: [opened, synchronize, reopened, labeled, unlabeled]
+#   permissions:
+#     contents: read
+#     pull-requests: write   # for the comment posted when the label is used
+#   jobs:
+#     ratchet:
+#       uses: RemiAsselin42/claude-config/.github/workflows/baseline-ratchet.yml@v1
+#
+# Then make the check "baseline-ratchet / ratchet" required on main (README,
+# "Quality harness"). Override: a human sets the `baseline-update` label on the
+# PR. Limit: GitHub only sees the token, so a label set by Claude with Rémi's
+# token looks exactly like one Rémi set; hooks/protect-gates.js blocks the known
+# ways to do it, and the comment below makes every use visible on the PR.
+name: baseline-ratchet
+on:
+  workflow_call:
+    inputs:
+      label:
+        description: PR label a human sets to accept a growing baseline
+        type: string
+        default: baseline-update
+jobs:
+  ratchet:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # The script at this workflow's own commit (job_workflow_sha), not the caller's.
+      - uses: actions/checkout@v4
+        with:
+          repository: RemiAsselin42/claude-config
+          ref: ${{ github.job_workflow_sha }}
+          path: .baseline-ratchet
+          sparse-checkout: scripts/baseline-ratchet.js
+          sparse-checkout-cone-mode: false
+      - id: ratchet
+        name: Compare baselines with the base branch
+        shell: bash
+        env:
+          OVERRIDE: ${{ contains(github.event.pull_request.labels.*.name, inputs.label) }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          flags=""
+          [ "$OVERRIDE" = "true" ] && flags="--override"
+          node .baseline-ratchet/scripts/baseline-ratchet.js --base "$BASE" --head "$HEAD" $flags | tee ratchet-report.md
+      - name: Make the override visible on the PR
+        if: steps.ratchet.outputs.grew == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: gh pr comment "$PR" --body-file ratchet-report.md
