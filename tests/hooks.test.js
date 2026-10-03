@@ -155,6 +155,15 @@ test("pyproject.toml: dependencies stay editable, the gates' [tool.*] sections a
   fs.writeFileSync(q, '[project]\nname = "x"\n');
   assert.equal(run("protect-gates.js", file("Write", { file_path: q, content: '[project]\nname = "y"\n' })).code, 0);
   assert.equal(run("protect-gates.js", file("Write", { file_path: q, content: '[project]\nname = "x"\n\n[tool.ruff]\nline-length = 999\n' })).code, 2);
+
+  // a [[tool.mypy.overrides]] array table is a gate section too (an override can disable mypy for a module)
+  const o = path.join(dir, "override", "pyproject.toml");
+  fs.mkdirSync(path.dirname(o));
+  fs.writeFileSync(o, '[project]\nname = "x"\n\n[tool.mypy]\nstrict = true\n\n[[tool.mypy.overrides]]\nmodule = "legacy.*"\nignore_errors = false\n');
+  assert.equal(run("protect-gates.js", file("Edit", { file_path: o, old_string: "ignore_errors = false", new_string: "ignore_errors = true" })).code, 2);
+  assert.equal(run("protect-gates.js", file("Edit", { file_path: o, old_string: 'module = "legacy.*"', new_string: 'module = "*"' })).code, 2);
+  assert.equal(run("protect-gates.js", file("Write", { file_path: o, content: fs.readFileSync(o, "utf8") + '\n[[tool.mypy.overrides]]\nmodule = "app.*"\nignore_errors = true\n' })).code, 2);
+  assert.equal(run("protect-gates.js", file("Edit", { file_path: o, old_string: 'name = "x"', new_string: 'name = "z"' })).code, 0);
 });
 
 test("PROTECT_GATES=off: a visible warning instead of a block; the harness itself stays protected", () => {
@@ -173,6 +182,12 @@ test("PROTECT_GATES=off: a visible warning instead of a block; the harness itsel
     shell("Bash", "sed -i 's/protect-gates//' /home/u/.claude/settings.json"),
     shell("PowerShell", "Set-Content C:\\Users\\u\\.claude\\settings.json '{}'"),
     shell("PowerShell", "Remove-Item C:\\Users\\u\\.claude\\hooks\\protect-gates.js"),
+    // relative spellings, as a shell command names them from the project root
+    shell("Bash", "echo '{}' > .claude/settings.local.json"),
+    shell("PowerShell", "Set-Content .claude\\settings.local.json '{}'"),
+    // a soft command rule in the same compound must not downgrade the harness write to a warning
+    shell("Bash", "echo '{}' > /home/u/.claude/settings.json; pnpm lint:arch:baseline"),
+    shell("Bash", "git commit -n -m x && sed -i 's/protect-gates//' /home/u/.claude/settings.json"),
   ];
   for (const c of self) {
     for (const env of [{}, { PROTECT_GATES: "off" }]) {
@@ -206,6 +221,9 @@ test("secret-guard: staging .env or key files blocked, also behind rtk or a cd; 
     assert.equal(guard("secret-guard.sh", tool, "git add .env"), 2, tool);
     assert.equal(guard("secret-guard.sh", tool, "rtk git add backend/.env.local"), 2, tool);
     assert.equal(guard("secret-guard.sh", tool, "cd repo && git add id_rsa"), 2, tool);
+    assert.equal(guard("secret-guard.sh", tool, 'git add ".env"'), 2, tool);
+    assert.equal(guard("secret-guard.sh", tool, "git add '.env.local'"), 2, tool);
+    assert.equal(guard("secret-guard.sh", tool, 'git add "config/credentials.json"'), 2, tool);
     assert.equal(guard("secret-guard.sh", tool, "git add src/ README.md"), 0, tool);
     assert.equal(guard("secret-guard.sh", tool, "rtk git add hooks/"), 0, tool);
   }

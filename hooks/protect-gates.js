@@ -37,7 +37,7 @@ const GATE_BASENAMES = [
 ];
 const GATE_PATHS = [/\/\.github\/workflows\/[^/]+$/];
 const SELF_PATHS = [/\/\.claude\/settings(\.local)?\.json$/, /\/\.claude\/hooks\//];
-const TOOL_SECTION = /^\[tool\.(ruff|mypy|mutmut|pytest)\b/;
+const TOOL_SECTION = /^\[\[?tool\.(ruff|mypy|mutmut|pytest)\b/; // [tool.x] and [[tool.x.y]] array tables alike
 
 const SHELL_RULES = [
   [/\bgit\b[^;&|]*\bcommit\b[^;&|]*\s(--no-verify|-n)(\s|$)/, "git commit --no-verify skips the pre-commit gates"],
@@ -55,19 +55,21 @@ const REDIRECT = />{1,2}\s*["']?([^\s"'<>|;&]+)/g;
 // "self" = the harness (never editable through Claude), "gate" = config or baseline.
 function classify(p) {
   const n = String(p).replace(/\\/g, "/");
-  if (SELF_PATHS.some((r) => r.test(n))) return "self";
+  if (SELF_PATHS.some((r) => r.test("/" + n))) return "self"; // "/" + n: a relative .claude/settings.json matches too
   const base = n.split("/").pop();
   if (GATE_BASENAMES.some((r) => r.test(base)) || GATE_PATHS.some((r) => r.test("/" + n))) return "gate";
   return null;
 }
 
 function shellDecision(cmd) {
-  for (const [re, why] of SHELL_RULES) if (re.test(cmd)) return { why };
   const tokens = cmd.split(/[\s"'`;|&<>()]+/).filter(Boolean);
   const targets = tokens.filter(classify);
   const writes = WRITE_CMD.test(cmd) || SED_INPLACE.test(cmd) || [...cmd.matchAll(REDIRECT)].some((m) => classify(m[1]));
-  if (!targets.length || !writes) return null; // reading a protected file is fine
-  return { why: `shell write to ${targets.join(", ")}`, hard: targets.some((t) => classify(t) === "self") };
+  // reading a protected file is fine; a write to the harness itself is hard and wins over any soft rule below
+  const write = targets.length && writes ? { why: `shell write to ${targets.join(", ")}`, hard: targets.some((t) => classify(t) === "self") } : null;
+  if (write && write.hard) return write;
+  for (const [re, why] of SHELL_RULES) if (re.test(cmd)) return { why };
+  return write;
 }
 
 function fileDecision(tool, input) {
