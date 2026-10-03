@@ -140,7 +140,8 @@ claude-config/
 │   ├── CLAUDE.project.md        # CLAUDE.md par repo, re-rendu à chaque install
 │   └── gitignore.append         # Entrées .gitignore ajoutées par install.sh
 ├── docs/
-│   └── harness-plan.md          # Harnais qualité déterministe : principes et lots A–E
+│   ├── harness-plan.md          # Harnais qualité déterministe : principes et lots A–E
+│   └── pitfall.md               # Journal append-only des pièges rencontrés par Claude Code dans ce repo
 └── tests/
     ├── claude-md-refresh.sh     # Auto-test du re-rendu des CLAUDE.md par repo
     └── statusline.sh            # Fige le format des lignes de la statusline sur un payload fixture
@@ -336,6 +337,17 @@ Exécuter `/init-context` dans n'importe quel repo pour générer des fichiers d
 - `context/constraints.md` — contraintes de performance, sécurité et compatibilité
 
 Il n'y a pas de templates : la commande crée `context/` si besoin et écrit les trois fichiers à partir du codebase lui-même. Claude les lit automatiquement en début de session si le dossier `context/` existe (via la règle Per-Repo Context dans `CLAUDE.md`).
+
+</details>
+
+---
+
+<details>
+<summary><strong>Journal des pièges</strong></summary>
+
+`docs/pitfall.md` est un journal append-only des problèmes non évidents rencontrés par Claude Code en travaillant sur ce repo : comportements invisibles depuis le code, pièges qui ont coûté une session, hypothèses qui se sont révélées fausses. Contrairement à `context/` (gitignored, régénéré par `/init-context`), il est versionné et grandit à la main, une entrée par problème.
+
+Chaque entrée note la zone, le symptôme, la vraie cause, le contournement ou le correctif, et un statut (`open` tant que le piège est encore dans le code, `fixed <sha>` une fois disparu). Claude le lit avant de toucher une zone qu'il mentionne et y ajoute une entrée dès qu'une session bute sur quelque chose qu'il aurait été plus rapide de savoir d'avance. Le hook Stop le mine dans le wing MemPalace du repo avec le reste de `docs/`.
 
 </details>
 
