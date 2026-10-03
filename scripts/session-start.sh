@@ -17,7 +17,7 @@ if command -v mempalace >/dev/null 2>&1 && command -v timeout >/dev/null 2>&1; t
   wing="wing_$(basename "$PWD" | tr '[:upper:]' '[:lower:]' | tr ' -' '__')"
   # wake-up lists one CHECKPOINT line per saved turn, newest first; keep the
   # newest line of each session and trim the prompt excerpt.
-  diary=$(timeout 5 mempalace wake-up --wing "$wing" 2>/dev/null \
+  diary=$(timeout 15 mempalace wake-up --wing "$wing" 2>/dev/null \
     | sed -n 's/^  - CHECKPOINT:\([0-9-]*\)|session:\([^|]*\)|msgs:[0-9]*|recent:\(.*\)$/\1\t\2\t\3/p' \
     | awk -F'\t' '!seen[$2]++ { printf "- %s — %.160s\n", $1, $3 }' | head -3)
   [ -n "$diary" ] && out+="## Last sessions here (MemPalace $wing)"$'\n'"$diary"$'\n'
