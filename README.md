@@ -1,13 +1,14 @@
 # claude-config
 
-Shared Claude Code configuration: specialized agents, slash-commands, scripts, persistent memory (MemPalace), and token optimization (RTK). Clone once, install everywhere, stay in sync.
+Shared Claude Code configuration: slash-commands, scripts and hooks, persistent memory (MemPalace), and token optimization (RTK). Clone once, install everywhere, stay in sync.
 
 > [!WARNING]
 > **These scripts modify your system environment.**
 >
 > `install.sh` performs persistent, potentially destructive operations:
 >
-> - **Writes** to `~/.claude/` (agents, commands, hooks, scripts, settings, CLAUDE.md)
+> - **Writes** to `~/.claude/` (commands, scripts, templates, settings, CLAUDE.md)
+> - **Prunes** `~/.claude/commands/` and `~/.claude/agents/`: anything there without a source file in the repo is deleted on every run — the repo ships no `agents/`, so every install empties `~/.claude/agents/`
 > - **Installs** global packages (`graphify`, `mempalace`, `rtk`)
 > - **Modifies PATH** — adds `~/.local/bin` to `~/.bashrc` / `~/.bash_profile` / `~/.profile` (with confirmation, or silently with `-y`)
 > - **Deletes files** (`graphify-out/`, mempalace wings, vault folders) via `exclude-from-index.sh`
@@ -20,7 +21,7 @@ Shared Claude Code configuration: specialized agents, slash-commands, scripts, p
 
 ## Public / Private model
 
-This repo is the **shared base**. It contains everything that is useful to anyone: agents, commands, scripts, settings templates. It does **not** contain personal data (no vault, no env secrets).
+This repo is the **shared base**. It contains everything that is useful to anyone: commands, scripts, settings templates. It does **not** contain personal data (no vault, no env secrets).
 
 For a personal setup with a versioned Obsidian vault and private overrides, fork or extend this repo privately:
 
@@ -48,7 +49,7 @@ Your private repo stays in sync with this one automatically — see [Minimal set
 1. Syncs from `upstream` remote **first** if present (private repos get latest shared config automatically); if the sync brings changes, the script re-executes itself so the rest of the run uses the updated version. Skipped, with a message, while the repo has uncommitted changes
 2. Checks **Node.js**, installs **uv** if missing, then installs/upgrades **Graphify**, **MemPalace**, **chromadb**, **RTK**, **jq**, **shellcheck** and **context-mode** (plus the Zilliz MCP server when `MILVUS_ADDRESS` is set)
 3. Asks once to add `~/.local/bin` to persistent PATH (`-y` skips)
-4. Copies **agents**, **commands**, **scripts**, **templates** to `~/.claude/` — `agents/` and `commands/` are mirrored: deployed files removed from the repo are pruned
+4. Copies **commands**, **scripts**, **templates** to `~/.claude/` — `commands/` and `agents/` are mirrored (deployed files with no source in the repo are pruned), `scripts/` and `templates/` are additive. The repo has no `agents/` since `3eb0605`, so this step empties `~/.claude/agents/` on every run
 5. Records the repo location in `~/.claude/claude-config.path`; hooks, `scripts/session-start.sh` (SessionStart hook: newest MemPalace diary entries for the repo + head of `TODO.md`, ~200 tokens) and `scripts/session-stop.sh` (Stop hook: `graphify update` + mining the repo into its MemPalace wing + vault sync, run detached) resolve the repo through this pointer instead of hardcoded absolute paths
 6. Initializes **MemPalace**: creates the palace, selects the embedding model, checks index health. Repos are _not_ mined here — each one is mined into its own wing during step 16
 7. Copies **CLAUDE.md** to `~/.claude/CLAUDE.md` (substitutes `${VAULT_DIR}`)
@@ -84,10 +85,7 @@ git remote add origin https://github.com/<you>/my-claude-config
 git push -u origin main
 ```
 
-From then on, `scripts/sync-upstream.sh` pulls shared files from `upstream` into your private repo without touching personal files (`vault/`, `env.local`, `.claude/`):
-
-**Automatic** — once per 8 hours via the `PreToolUse` hook (debounced by timestamp).  
-**Forced** — unconditionally at the start of every `install.sh`.
+From then on, `scripts/sync-upstream.sh` pulls shared files from `upstream` into your private repo without touching personal files (`vault/`, `env.local`, `.claude/`). It runs at the start of every `install.sh` and nowhere else: no hook calls it between installs, so the script's 8-hour debounce (`~/.claude/.upstream-sync-stamp`) only matters if you wire one up yourself.
 
 ### Obsidian vault
 
@@ -140,35 +138,13 @@ claude-config/
 │   └── exclude-from-index.sh    # Remove a repo from graphify + mempalace
 ├── templates/
 │   ├── CLAUDE.project.md        # Per-repo CLAUDE.md, re-rendered on every install
-│   ├── gitignore.append         # .gitignore entries appended by install.sh
-│   └── context/                 # Per-repo context templates (copied by /init-context)
-│       ├── architecture.md
-│       ├── patterns.md
-│       └── constraints.md
+│   └── gitignore.append         # .gitignore entries appended by install.sh
+├── docs/
+│   └── harness-plan.md          # Deterministic quality harness: principles and lots A–E
 └── tests/
-    └── claude-md-refresh.sh     # Self-check for the per-repo CLAUDE.md refresh
+    ├── claude-md-refresh.sh     # Self-check for the per-repo CLAUDE.md refresh
+    └── statusline.sh            # Pins the statusline line format against a fixture payload
 ```
-
----
-
-<details>
-<summary><strong>Agents</strong></summary>
-
-| Agent                         | Role                                        |
-| ----------------------------- | ------------------------------------------- |
-| `architect-reviewer`          | System design and architecture review       |
-| `backend-developer`           | Backend APIs and services                   |
-| `code-reviewer`               | Code quality and security review            |
-| `documentation-engineer`      | Technical documentation                     |
-| `frontend-developer`          | Frontend applications (React, Vue, Angular) |
-| `javascript-pro`              | Advanced JavaScript / Node.js               |
-| `payment-integration`         | Payment systems and PCI compliance          |
-| `react-performance-optimizer` | React performance and Core Web Vitals       |
-| `security-auditor`            | Security audits and compliance              |
-| `typescript-pro`              | Advanced TypeScript patterns                |
-| `ui-designer`                 | UI design systems and components            |
-
-</details>
 
 ---
 
@@ -244,9 +220,9 @@ Configured in `settings.json`:
 | Hook          | Trigger           | Action                                                                                            |
 | ------------- | ----------------- | ------------------------------------------------------------------------------------------------- |
 | `SessionStart` | Session start / after compaction | `session-start.sh` — newest MemPalace diary entries for this repo + head of `TODO.md` |
-| `PreToolUse`  | Every tool call   | `sync-upstream.sh` — syncs from upstream (debounced 8h, private repos only) + `context-mode` hook |
+| `PreToolUse`  | Every tool call   | `context-mode` hook; on `Bash` calls, `rtk hook claude` rewrites the command through RTK          |
 | `PostToolUse` | Every tool call   | `context-mode` hook                                                                               |
-| `Stop`        | End of session    | MemPalace save + `context-mode` hook + `session-stop.sh`, detached (graphify update + vault sync) |
+| `Stop`        | End of session    | MemPalace save + `session-stop.sh`, detached (graphify update + wing mine + vault sync)           |
 | `PreCompact`  | Before compaction | MemPalace save + `context-mode` hook                                                              |
 
 On Windows, `context-mode` cannot walk the process tree, so concurrent Claude Code sessions can share one session state. Set `CLAUDE_SESSION_ID` to a distinct value per session if you run several at once.
@@ -359,7 +335,7 @@ Run `/init-context` inside any repo to generate structured context files from th
 - `context/patterns.md` — recurring code patterns
 - `context/constraints.md` — performance, security, and compatibility constraints
 
-Templates are in `templates/context/`. Claude reads these files automatically at session start if the `context/` directory exists (via the Per-Repo Context rule in `CLAUDE.md`).
+There are no templates: the command creates `context/` if needed and writes the three files from the codebase itself. Claude reads them automatically at session start if the `context/` directory exists (via the Per-Repo Context rule in `CLAUDE.md`).
 
 </details>
 
