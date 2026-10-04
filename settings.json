@@ -65,7 +65,7 @@
     ],
     "defaultMode": "auto"
   },
-  "model": "opus[1m]",
+  "model": "fable",
   "effortLevel": "xhigh",
   "env": {
     "HF_HUB_OFFLINE": "1"
