@@ -221,6 +221,19 @@ def test_init_baseline_creates_but_never_overwrites(project: Path) -> None:
     assert _gate(project, "layers") == 1
 
 
+def test_a_draft_config_elsewhere_runs_against_the_project(project: Path, tmp_path: Path) -> None:
+    # /init-gates drafts layers in its scratchpad and probes them before any gate file exists
+    draft = tmp_path / "scratch" / "draft.json"
+    draft.parent.mkdir()
+    draft.write_text(json.dumps({"package": "app", "layers": LAYERS[::-1]}))  # upside down: every import goes up
+    (project / "arch-gates.json").unlink()
+    with _isolated(project, "app"):
+        code = ci.main(["layers", "--config", str(draft), "--project-dir", str(project)])
+    assert code == 1
+    assert not (project / "import-layers-baseline.json").exists()
+    assert not (draft.parent / "import-layers-baseline.json").exists()
+
+
 def test_module_in_no_layer_is_a_blind_spot(project: Path) -> None:
     _write(project, "app/newpkg/foo.py", "Y = 2\n")
     assert _gate(project, "layers") == 2

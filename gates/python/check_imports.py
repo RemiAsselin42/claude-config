@@ -34,6 +34,8 @@ Usage:
     python check_imports.py cycles [--config backend/arch-gates.json] [--update-baseline | --init-baseline]
     python check_imports.py layers [--config backend/arch-gates.json] [--update-baseline | --init-baseline]
 
+--project-dir runs a config kept elsewhere (a draft in /init-gates' scratchpad)
+against the project; by default the project is the config's directory.
 --update-baseline rewrites the baseline (hooks/protect-gates.js keeps it for the
 human); --init-baseline only creates an absent one, which /init-gates uses. The
 CI ratchet counts any new baseline as growth, so the owner's label still decides.
@@ -210,6 +212,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Import cycle and layer gates (see module docstring).")
     parser.add_argument("gate", choices=["cycles", "layers"])
     parser.add_argument("--config", default="arch-gates.json", type=Path)
+    parser.add_argument(
+        "--project-dir",
+        type=Path,
+        help="directory holding the package and the baselines; default: the config's directory (a draft config can live elsewhere)",
+    )
     freeze = parser.add_mutually_exclusive_group()
     freeze.add_argument("--update-baseline", dest="freeze", action="store_const", const="update", help="freeze the current violations")
     freeze.add_argument("--init-baseline", dest="freeze", action="store_const", const="init", help="create the baseline, refused if it exists")
@@ -217,7 +224,7 @@ def main(argv: list[str] | None = None) -> int:
 
     config_path = args.config.resolve()
     config = json.loads(config_path.read_text(encoding="utf-8"))
-    project_dir = config_path.parent
+    project_dir = args.project_dir.resolve() if args.project_dir else config_path.parent
     package = config["package"]
     package_dir = project_dir.joinpath(*package.split("."))
 
