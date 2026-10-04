@@ -58,6 +58,13 @@ test("template: a layered project is green, each kind of violation is red", { sk
   assert.match(stray.out, /not-in-a-layer/);
   assert.match(stray.out, /imports-a-module-in-no-layer/);
 
+  // review of PR #10: a module in no layer that imports nothing and nobody imports;
+  // a declaration file (vite-env.d.ts) carries no runtime code and stays out of it
+  const orphan = cruise(project({ ...CLEAN, "src/lonely/alone.ts": "export const alone = 1;\n" }));
+  assert.notEqual(orphan.code, 0);
+  assert.match(orphan.out, /not-in-a-layer-orphan/);
+  assert.equal(cruise(project({ ...CLEAN, "src/vite-env.d.ts": "/// <reference types=\"vite/client\" />\n" })).code, 0);
+
   // `import type` is erased at compile time: no runtime edge, no violation
   const typeOnly = cruise(project({ ...CLEAN, "src/types/paper.ts": "import type { card } from '../components/card';\nexport type Paper = { id: string; c?: typeof card };\nexport const KIND = 'paper';\n" }));
   assert.equal(typeOnly.code, 0, typeOnly.out);

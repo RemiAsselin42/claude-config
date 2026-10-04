@@ -46,6 +46,14 @@ module.exports = {
       to: {},
     },
     {
+      // the two rules around this one only see modules with an import edge
+      name: 'not-in-a-layer-orphan',
+      severity: 'error',
+      comment: 'Every module under src/ belongs to a layer, even one nothing imports: classify it in LAYERS.',
+      from: { orphan: true, path: SRC, pathNot: [classified, '\\.d\\.ts$'] }, // declaration files carry no runtime code
+      to: {},
+    },
+    {
       name: 'imports-a-module-in-no-layer',
       severity: 'error',
       comment: 'Every module under src/ belongs to a layer: classify it in LAYERS.',
