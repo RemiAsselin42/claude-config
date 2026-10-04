@@ -28,7 +28,15 @@ Read-only until every check below has passed: stopping must leave the owner exac
   - **Frontend**: a directory with `package.json`, `src/` and the tsconfig whose `include` covers `src` (check `references` when `tsconfig.json` has no `include`).
 - Only then: `rtk git fetch` and `git switch -c ci/arch-gates origin/main`.
 
-## 2. Read the real import graph
+## 2. Find the boundaries first — before reading the graph
+
+The gates exist to hold the boundaries the code must never cross. Fitting the current graph comes second: an order chosen because it gives zero violations can leave the one rule that matters unguarded (in a Figma plugin, sandbox code importing a React panel).
+
+- **Entry points and runtimes**, from the build and deploy configuration, never from folder names alone: `package.json` (`main`, `module`, `exports`, `bin`), bundler inputs (`vite.config.*`, `webpack.config.*`, `rollup.config.*`), extension or plugin manifests (`manifest.json`: main vs UI), `new Worker(...)`, framework conventions (Next.js `app/` server vs `'use client'`), `pyproject.toml` `[project.scripts]`, `Dockerfile`, `Procfile`, CLI entry modules. Each separate runtime (browser, server, sandbox, worker, CLI) is a boundary.
+- **Other boundaries the repo already shows**: domain logic vs I/O adapters, server-only code (secrets, database) vs client code, generated code.
+- Write each one as an **invariant**: `<A> must never import <B>` — one line, with the file that proves it (e.g. `manifest.json: "main": dist/code.js, "ui": dist/index.html`). No boundary found is a valid answer: say so, and the layers are then plain dependency order.
+
+## 3. Read the real import graph
 
 **Python** — group modules into areas (one area per top-level module or subpackage of the package) and count the edges between areas, from the runtime graph:
 
@@ -51,19 +59,37 @@ A namespace package (a directory of `.py` files without `__init__.py`) is invisi
 cd <frontend dir> && npx --yes -p dependency-cruiser@17.4.3 -p typescript@5.9.3 depcruise src --no-config --ts-config <tsconfig> --include-only "^src" --collapse "^src/[^/]+" --output-type text
 ```
 
-## 3. Propose the layers — then wait
+**Mixed areas.** The folder-level view hides folders that straddle a boundary. For every area that touches one, look one level deeper (`--collapse "^src/<area>/[^/]+"`, or per module on the Python side): an area whose files are imported from both sides of a boundary, or import both sides, is **mixed** — e.g. a `features/<x>/` holding both the logic the sandbox runs and the panel the UI renders. Split it by file before proposing anything.
 
-Order the areas from the lowest (imports nothing of the app: types, config, constants) to the highest (composition root: `main`, `App.tsx`). Put areas that import each other in the **same** layer. Aim for the order in which the fewest edges go up; every upward edge left is debt the baseline will freeze.
+## 4. Draft, probe, then propose — and wait
 
-Show the owner, per side:
+**Draft in the scratchpad, never in the repo** (gate files can be written once only):
 
-- the layers, lowest first, with the areas in each;
-- the upward edges that would be frozen (`a -> b (n imports)`), and the import cycles if any;
-- anything you could not classify and why.
+- Frontend: the template with `LAYERS` filled, saved as `<scratchpad>/draft.cjs`, run from the frontend dir with `depcruise src --config <scratchpad>/draft.cjs` (pinned versions as above).
+- Python: `<scratchpad>/arch-gates.json`, run with `check_imports.py layers --config <scratchpad>/arch-gates.json --project-dir <python dir>` (and `cycles` the same way).
 
-Then ask with **AskUserQuestion**: "Approve these layers?" with options *Approve*, *Change them* (the owner writes the change in "Other"), *Stop*. Iterate until *Approve* or *Stop*. Never create a gate file before *Approve*.
+**Rules the draft must follow**, in this order of priority:
 
-## 4. Create the declarations — once each, in final form
+1. **Every invariant of step 2 holds by construction**: what `A` must never import sits in a layer above `A`. A single stack enforces one direction only: when two runtimes must not import each other at all, put lower the one whose misuse breaks the program (the code that runs without a DOM, without secrets...) and list the other direction as a limitation.
+2. Areas that import each other go in the same layer — unless that breaks an invariant; then split them.
+3. Only then, among the orders that satisfy 1–2, the one with the fewest upward edges. Each upward edge left is debt the baseline freezes: list it.
+4. **Fail closed.** When a folder is split by file name (`detection|fix`), write the regexes so that a new file matching no name lands on the side where a wrong import turns **red**, never where it passes. Say which side that is.
+5. **Regexes are JavaScript strings**: a literal dot is `'\\.'` — `'\.'` is just `.` and matches any character. After the run, list the modules each layer actually matched (e.g. `--output-type json`) and compare with what you meant.
+6. Every module is classified: no `not-in-a-layer*` violation, no exit 2.
+
+**Probe before asking.** For each invariant, create one throwaway file that imports across it — through the tsconfig path alias when the repo has one — run the draft: it must be **red, naming the rule**. Delete the file, run again: green; `rtk git status` clean. A draft whose probe is green is wrong: fix it, do not ask.
+
+**Show the owner, as text before the question** (never collapsed into a tool output), per side:
+
+- the boundaries and invariants found, each with its evidence file;
+- the layers, lowest first: `# | regex (or modules) | runtime / role | what it holds`;
+- the upward edges and cycles the baseline will freeze (count, then each `a -> b`), or "none";
+- each probe and its result (`sandbox/__probe.ts -> features/x/Panel.tsx: red, layer-2`);
+- the limitations: what the stack cannot enforce, and where a new file with an unforeseen name lands.
+
+Then ask with **AskUserQuestion**: "Approve these layers?" with options *Approve*, *Change them* (the owner writes the change in "Other"), *Stop*. Iterate — redraft, re-probe, show the full table again — until *Approve* or *Stop*. Never create a gate file before *Approve*.
+
+## 5. Create the declarations — once each, in final form
 
 **Python** — `<python dir>/arch-gates.json`: the package and the approved layers, in the format the header of `check_imports.py` gives (`cat "$(cat ~/.claude/claude-config.path)/gates/python/check_imports.py"`). The root package entry covers only itself: list every top-level module and subpackage explicitly.
 
@@ -75,7 +101,7 @@ uv run --no-project --with grimp==3.14 python "$gates" cycles --config <python d
 uv run --no-project --with grimp==3.14 python "$gates" layers --config <python dir>/arch-gates.json --init-baseline
 ```
 
-Exit 2 on `layers` means a module in no layer: the proposal missed it. Stop, report, and start over from step 3 (the config already exists: the owner deletes it, or runs `/init-gates` on a fresh branch).
+Exit 2 on `layers` means a module in no layer: the proposal missed it. Stop, report, and start over from step 4 (the config already exists: the owner deletes it, or runs `/init-gates` on a fresh branch).
 
 **Frontend** — `<frontend dir>/.dependency-cruiser.cjs` from `~/.claude/templates/gates/dependency-cruiser.cjs`: fill `LAYERS` with the approved layers (one array of path regexes per layer, matched right after `src/`, e.g. `'utils/'`, `'(App|main)\\.tsx$'`) and set `tsConfig.fileName` to the tsconfig found in step 1. Change nothing else. Then the baseline:
 
@@ -85,13 +111,13 @@ cd <frontend dir> && npx --yes -p dependency-cruiser@17.4.3 -p typescript@5.9.3 
 
 **CI** — `.github/workflows/arch-gates.yml` from `~/.claude/templates/gates/arch-gates.yml`, keeping only the `with:` lines of the sides the repo has, with their real paths. Also `.github/workflows/baseline-ratchet.yml` from `~/.claude/templates/gates/baseline-ratchet.yml` if the repo has no ratchet caller yet.
 
-## 5. Prove it — green, red on the fragile case, green
+## 6. Prove it — green, red on the fragile case, green
 
-Run the gates exactly as CI does (commands in step 4, without `--init-baseline`; frontend with `--ignore-known`): all green. Then, per side, create one throwaway file that adds a **new** upward import (frontend: through the tsconfig path alias if the repo has one — that is the edge a missing `tsConfig` would silently drop), run the gate, show it red with the violation named, delete the file, run it again: green. `rtk git status` must show no leftover.
+Run the gates exactly as CI does (commands in step 5, without `--init-baseline`; frontend with `--ignore-known`): all green. Then replay the step 4 probes against the created files — one per invariant, plus, when no invariant crosses it, one **new** upward import through the tsconfig path alias (the edge a missing `tsConfig` would silently drop): each red with the rule named, then deleted, then green again. `rtk git status` must show no leftover.
 
-## 6. Branch, commit, PR — then hand over
+## 7. Branch, commit, PR — then hand over
 
-- Commit only the files of step 4 on `ci/arch-gates` (Conventional Commits, `ci(gates): …`), `rtk git push -u origin ci/arch-gates`, `gh pr create` with: the approved layers, the frozen debt (entries per baseline), the red/green proof.
+- Commit only the files of step 5 on `ci/arch-gates` (Conventional Commits, `ci(gates): …`), `rtk git push -u origin ci/arch-gates`, `gh pr create` with: the invariants and their evidence, the approved layer table, the limitations, the frozen debt (entries per baseline), each probe red then green.
 - Tell the owner what only they can do:
   1. the PR's `ratchet / ratchet` check is red **by design**: every baseline is new, so it counts as growth. Setting the `baseline-update` label is how they accept the frozen debt;
   2. once the checks have run, make `arch / python` and/or `arch / frontend` (and `ratchet / ratchet`) required on `main` — offer to do it with their OK;
