@@ -17,8 +17,12 @@
 //     merge, gh pr edit --add-label, the REST endpoints behind them), or that
 //     write one of the files above from the shell (>, sed -i, tee, cp, mv, rm,
 //     Set-Content, Out-File, Add-Content, Copy-Item, Move-Item, Remove-Item);
+//   - git merge and any push that lands on main/master (explicit refspec, HEAD,
+//     --all/--mirror, or a bare push from main), unless the latest message the
+//     human typed is /create-commit (see typedCreateCommit);
 //   - the harness itself: ~/.claude/settings.json, ~/.claude/hooks/*, any
-//     .claude/settings*.json. These stay blocked even with PROTECT_GATES=off.
+//     .claude/settings*.json, and the session transcripts that carry the
+//     /create-commit marker. These stay blocked even with PROTECT_GATES=off.
 //
 // PROTECT_GATES=off (set by the human owner for one session) lets everything else through
 // and shows a visible warning each time a call would have been blocked.
@@ -26,6 +30,7 @@
 // workflow baseline-ratchet is what actually holds.
 "use strict";
 const fs = require("node:fs");
+const { spawnSync } = require("node:child_process");
 
 const GATE_BASENAMES = [
   /^\.dependency-cruiser/, // .dependency-cruiser.cjs|.js|.json and the known-violations baseline
@@ -36,7 +41,7 @@ const GATE_BASENAMES = [
   /^pyproject\.toml$/, // content-aware for Edit/Write (see pyprojectDecision), whole-file for shell writes
 ];
 const GATE_PATHS = [/\/\.github\/workflows\/[^/]+$/];
-const SELF_PATHS = [/\/\.claude\/settings(\.local)?\.json$/, /\/\.claude\/hooks\//];
+const SELF_PATHS = [/\/\.claude\/settings(\.local)?\.json$/, /\/\.claude\/hooks\//, /\/\.claude\/projects\/.*\.jsonl$/];
 const TOOL_SECTION = /^\[\[?tool\.(ruff|mypy|mutmut|pytest)\b/; // [tool.x] and [[tool.x.y]] array tables alike
 
 const SHELL_RULES = [
@@ -70,6 +75,45 @@ function shellDecision(cmd) {
   if (write && write.hard) return write;
   for (const [re, why] of SHELL_RULES) if (re.test(cmd)) return { why };
   return write;
+}
+
+// Merging and pushing to main are the human's gesture: allowed only inside a
+// /create-commit they typed. Feature-branch pushes (what /create-pr does) stay free.
+const PROTECTED_BRANCH = /^(main|master)$/;
+function humanOnlyGit(cmd, cwd) {
+  if (/\bgit\s+(-C\s+\S+\s+)?merge(\s|$)/.test(cmd)) return "git merge";
+  for (const m of cmd.matchAll(/\bgit\s+(?:-C\s+\S+\s+)?push\b([^;&|]*)/g)) {
+    const args = m[1].split(/\s+/).map((a) => a.replace(/^["']|["']$/g, "")).filter(Boolean);
+    if (args.some((a) => /^--(all|mirror)$/.test(a))) return "git push --all/--mirror reaches main";
+    const refs = args.filter((a) => !a.startsWith("-")).slice(1); // first positional is the remote
+    for (const ref of refs.length ? refs : ["HEAD"]) {
+      let dest = ref.split(":").pop().replace(/^\+/, "").replace(/^refs\/heads\//, "");
+      // ponytail: reads the branch of the tool's cwd; a "cd elsewhere && git push" is not followed
+      if (dest === "HEAD") dest = /\bgit\s+(switch|checkout)\s+(main|master)\b/.test(cmd) ? "main" : currentBranch(cwd);
+      if (PROTECTED_BRANCH.test(dest)) return `git push to ${dest}`;
+    }
+  }
+  return null;
+}
+function currentBranch(cwd) {
+  const r = spawnSync("git", ["branch", "--show-current"], { cwd: cwd || process.cwd(), encoding: "utf8" });
+  return r.status === 0 ? r.stdout.trim() : "";
+}
+// The latest turn the human typed (origin.kind "human"; tool results, and so the
+// answers to Claude's own questions, carry no origin) invoked /create-commit.
+// create-commit.md sets disable-model-invocation, so Claude cannot start it itself.
+function typedCreateCommit(transcriptPath) {
+  let lines;
+  try { lines = fs.readFileSync(transcriptPath, "utf8").trimEnd().split("\n"); } catch { return false; }
+  for (let i = lines.length - 1; i >= 0; i--) {
+    let e;
+    try { e = JSON.parse(lines[i]); } catch { continue; }
+    if (e.type !== "user" || e.origin?.kind !== "human") continue;
+    const c = e.message?.content;
+    const text = typeof c === "string" ? c : Array.isArray(c) ? c.map((x) => x.text || "").join("") : "";
+    return text.includes("<command-name>/create-commit</command-name>");
+  }
+  return false;
 }
 
 function fileDecision(tool, input) {
@@ -115,7 +159,12 @@ function main() {
   const tool = input.tool_name || "";
   const ti = input.tool_input || {};
   let d = null;
-  if (/^(Bash|PowerShell)$/.test(tool)) d = shellDecision(String(ti.command || ""));
+  if (/^(Bash|PowerShell)$/.test(tool)) {
+    const cmd = String(ti.command || "");
+    d = shellDecision(cmd);
+    const git = !d && humanOnlyGit(cmd, input.cwd);
+    if (git && !typedCreateCommit(input.transcript_path)) d = { why: `${git}: merging and pushing to main are the human's gesture, through a /create-commit they type` };
+  }
   else if (/^(Edit|Write|MultiEdit|NotebookEdit)$/.test(tool)) d = fileDecision(tool, ti);
   if (!d) return 0;
   const off = /^(off|0|false)$/i.test(process.env.PROTECT_GATES || "");
