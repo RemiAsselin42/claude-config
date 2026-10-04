@@ -28,7 +28,7 @@ git -C "$REPO_DIR" fetch upstream --quiet 2>/dev/null || exit 0
 # (that regression is exactly how the multi-machine vault bug was first introduced).
 # Each path individually so a missing path doesn't abort the entire checkout.
 _UPSTREAM_PATHS=(
-  agents/ commands/ scripts/ templates/ defaults/ hooks/
+  agents/ commands/ scripts/ templates/ defaults/ hooks/ gates/
   install.sh settings.json CLAUDE.md .gitattributes
   mempalace.yaml env.local.template
 )

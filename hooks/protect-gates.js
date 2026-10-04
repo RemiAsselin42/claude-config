@@ -8,7 +8,7 @@
 //
 // Blocked:
 //   - edits to gate configs (.dependency-cruiser.*, eslint.config.*, ruff.toml,
-//     mypy.ini, .github/workflows/*), to baselines (*-baseline.json,
+//     mypy.ini, arch-gates.json, .github/workflows/*), to baselines (*-baseline.json,
 //     .dependency-cruiser-known-violations.json) and, in pyproject.toml, to the
 //     [tool.ruff*] [tool.mypy*] [tool.mutmut*] [tool.pytest*] sections only —
 //     [project] and [dependency-groups] stay editable;
@@ -39,6 +39,7 @@ const GATE_BASENAMES = [
   /^eslint\.config\./,
   /^\.?ruff\.toml$/,
   /^mypy\.ini$/,
+  /^arch-gates\.json$/, // layer declarations read by gates/python/check_imports.py
   /-baseline\.json$/,
   /^pyproject\.toml$/, // content-aware for Edit/Write (see pyprojectDecision), whole-file for shell writes
 ];

@@ -53,6 +53,7 @@ const BLOCKED_SHELL = [
   "Move-Item ruff.toml ruff.bak",
   "Remove-Item backend\\import-cycles-baseline.json",
   "echo x >> pyproject.toml",
+  "sed -i 's/web/config/' backend/arch-gates.json",
 ];
 const ALLOWED_SHELL = [
   "git commit -m 'fix: nothing to verify here'",
@@ -98,6 +99,7 @@ test("protect-gates blocks edits to gate configs, baselines and workflows (both 
     file("Write", { file_path: "/repo/.ruff.toml", content: "" }),
     file("MultiEdit", { file_path: "/repo/mypy.ini", edits: [] }),
     file("NotebookEdit", { notebook_path: "/repo/x-baseline.json", new_source: "" }),
+    file("Edit", { file_path: "C:\\repo\\backend\\arch-gates.json", old_string: "\"app.routes\"", new_string: "\"app.routes\", \"app.config\"" }),
   ];
   for (const c of cases) {
     const r = run("protect-gates.js", c);
