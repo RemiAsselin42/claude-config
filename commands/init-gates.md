@@ -19,11 +19,14 @@ The gate logic lives in claude-config (`gates/python/check_imports.py`, `.github
 
 ## 1. Preconditions — stop and report if one fails
 
-- `rtk git status`: the tree is clean. Then `rtk git fetch` and `git switch -c ci/arch-gates origin/main`.
+Read-only until every check below has passed: stopping must leave the owner exactly where they were.
+
+- `rtk git status`: the tree is clean.
 - None of these exist yet: `arch-gates.json`, `import-cycles-baseline.json`, `import-layers-baseline.json`, `.dependency-cruiser.cjs`, `.dependency-cruiser-known-violations.json`, `.github/workflows/arch-gates.yml`. An existing one means the repo already has gates: report it, change nothing.
 - Detect the sides (or take them from the arguments):
   - **Python**: a directory with `pyproject.toml` and a package directory under it (the one the app imports from, e.g. `app/`).
   - **Frontend**: a directory with `package.json`, `src/` and the tsconfig whose `include` covers `src` (check `references` when `tsconfig.json` has no `include`).
+- Only then: `rtk git fetch` and `git switch -c ci/arch-gates origin/main`.
 
 ## 2. Read the real import graph
 
