@@ -66,6 +66,8 @@ Le repo privé se synchronise automatiquement avec celui-ci — voir [Installati
 18. Installe un **gate pre-commit shellcheck** dans le repo de config — les `*.sh` stagés doivent passer `shellcheck -S warning`
 19. Commit le vault et le réconcilie avec `origin` (fetch → merge → push, réessayé en cas de course) via `scripts/vault-sync.sh`
 
+`install.sh --only claude` n'exécute que les étapes 4 et 7–14 ; `install.sh --only repos` que les étapes 15–19. Les étapes 1–3, 5 et 6 (sync, dépendances, pointeur du repo, santé MemPalace) tournent quel que soit le scope — les deux moitiés en dépendent.
+
 ---
 
 ## Installation minimale
@@ -101,6 +103,8 @@ Rien de ce qui suit n'est obligatoire — les valeurs par défaut suffisent.
 | ----------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | CLI         | `install.sh -y`                                      | Non-interactif : conserve l'état d'indexation de chaque repo, accepte le changement de PATH    |
 | CLI         | `install.sh -v`                                      | Sorties détaillées de l'installeur                                                             |
+| CLI         | `install.sh --only claude`                           | Côté Claude seulement : fichiers `~/.claude`, settings, MCP, plugins ; saute les repos         |
+| CLI         | `install.sh --only repos`                            | Côté repos seulement : graphe, communautés, vault, wings MemPalace ; saute les fichiers Claude |
 | Prompt      | PATH                                                 | Demandé une fois, pour ajouter `~/.local/bin` à `~/.bashrc` / `~/.bash_profile` / `~/.profile` |
 | Prompt      | Sélection des repos                                  | Quels repos git frères indexer (graphify + MemPalace + vault)                                  |
 | `env.local` | `MEMPALACE_EMBEDDING_MODEL`                          | `embeddinggemma` (défaut, multilingue) ou `minilm` (anglais seulement, plus rapide)            |
@@ -154,6 +158,7 @@ claude-config/
     ├── claude-md-refresh.sh     # Auto-test du re-rendu des CLAUDE.md par repo
     ├── statusline.sh            # Fige le format des lignes de la statusline sur un payload fixture
     ├── legacy-hooks.sh          # install.sh doit retirer les hooks cc-safe-setup abandonnés et voir un reliquat
+    ├── install-scope.sh         # install.sh --only : l'usage nomme les deux moitiés, les valeurs invalides sont refusées, le garde répond juste
     ├── hooks.test.js            # Chaque garde de hooks/, nourrie de payloads Bash et PowerShell (node --test "tests/*.test.js")
     ├── baseline-ratchet.test.js # Le ratchet sur de vrais baselines d'un repo pilote
     └── fixtures/                # Vrais baselines et pyproject.toml d'un repo pilote, anonymisés

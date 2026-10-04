@@ -66,6 +66,8 @@ Your private repo stays in sync with this one automatically — see [Minimal set
 18. Installs a **shellcheck pre-commit gate** in the config repo — staged `*.sh` must pass `shellcheck -S warning`
 19. Commits the vault and reconciles with `origin` (fetch → merge → push, retried on races) via `scripts/vault-sync.sh`
 
+`install.sh --only claude` runs steps 4 and 7–14 only; `install.sh --only repos` runs steps 15–19 only. Steps 1–3, 5 and 6 (sync, dependencies, repo pointer, MemPalace health) run under either scope — both halves need them.
+
 ---
 
 ## Minimal setup
@@ -101,6 +103,8 @@ Nothing below is required — defaults work.
 | ----------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------- |
 | CLI         | `install.sh -y`                                      | Non-interactive: keeps each repo's current indexing state, auto-accepts the PATH change |
 | CLI         | `install.sh -v`                                      | Verbose installer output                                                                |
+| CLI         | `install.sh --only claude`                           | Claude side only: `~/.claude` files, settings, MCP servers, plugins; skips the repos    |
+| CLI         | `install.sh --only repos`                            | Repos side only: graph, community names, vault, MemPalace wings; skips the Claude files |
 | Prompt      | PATH                                                 | Asked once, to add `~/.local/bin` to `~/.bashrc` / `~/.bash_profile` / `~/.profile`     |
 | Prompt      | Repo selection                                       | Which sibling git repos to index (graphify + MemPalace + vault)                         |
 | `env.local` | `MEMPALACE_EMBEDDING_MODEL`                          | `embeddinggemma` (default, multilingual) or `minilm` (English-only, faster)             |
@@ -154,6 +158,7 @@ claude-config/
     ├── claude-md-refresh.sh     # Self-check for the per-repo CLAUDE.md refresh
     ├── statusline.sh            # Pins the statusline line format against a fixture payload
     ├── legacy-hooks.sh          # install.sh must remove the dropped cc-safe-setup hooks and notice a leftover
+    ├── install-scope.sh         # install.sh --only: usage names both halves, bad values are refused, the guard answers right
     ├── hooks.test.js            # Every guard in hooks/, fed Bash and PowerShell payloads (node --test "tests/*.test.js")
     ├── baseline-ratchet.test.js # The ratchet on real baselines from a pilot repository
     └── fixtures/                # Real baselines and pyproject.toml from a pilot repository, anonymized
