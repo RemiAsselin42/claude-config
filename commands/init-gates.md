@@ -77,7 +77,7 @@ cd <frontend dir> && npx --yes -p dependency-cruiser@17.4.3 -p typescript@5.9.3 
 5. **Regexes are JavaScript strings**: a literal dot is `'\\.'` — `'\.'` is just `.` and matches any character. After the run, list the modules each layer actually matched (e.g. `--output-type json`) and compare with what you meant.
 6. Every module is classified: no `not-in-a-layer*` violation, no exit 2.
 
-**Probe before asking.** For each invariant, create one throwaway file that imports across it — through the tsconfig path alias when the repo has one — run the draft: it must be **red, naming the rule**. Delete the file, run again: green; `rtk git status` clean. A draft whose probe is green is wrong: fix it, do not ask.
+**Probe before asking.** Run the draft once without any probe and record its violations: that is the debt the baseline will freeze (no baseline exists yet, so a draft with debt is never green here). For each invariant, create one throwaway file that imports across it — through the tsconfig path alias when the repo has one — and run the draft: the output must be the recorded violations **plus the probe's, naming the expected rule**. Delete the file, run again: exactly the recorded violations; `rtk git status` clean. A probe that adds no violation means the draft is wrong: fix it, do not ask.
 
 **Show the owner, as text before the question** (never collapsed into a tool output), per side:
 
