@@ -62,7 +62,8 @@ const REDIRECT = />{1,2}\s*["']?([^\s"'<>|;&]+)/g;
 
 // "self" = the harness (never editable through Claude), "gate" = config or baseline.
 function classify(p) {
-  const n = String(p).replace(/\\/g, "/");
+  // lowercased: Windows paths are case-insensitive, so ARCH-GATES.JSON is the same file
+  const n = String(p).replace(/\\/g, "/").toLowerCase();
   if (SELF_PATHS.some((r) => r.test("/" + n))) return "self"; // "/" + n: a relative .claude/settings.json matches too
   const base = n.split("/").pop();
   if (GATE_BASENAMES.some((r) => r.test(base)) || GATE_PATHS.some((r) => r.test("/" + n))) return "gate";

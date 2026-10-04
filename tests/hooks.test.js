@@ -100,6 +100,10 @@ test("protect-gates blocks edits to gate configs, baselines and workflows (both 
     file("MultiEdit", { file_path: "/repo/mypy.ini", edits: [] }),
     file("NotebookEdit", { notebook_path: "/repo/x-baseline.json", new_source: "" }),
     file("Edit", { file_path: "C:\\repo\\backend\\arch-gates.json", old_string: "\"app.routes\"", new_string: "\"app.routes\", \"app.config\"" }),
+    // Windows paths are case-insensitive: another spelling reaches the same file
+    file("Write", { file_path: "C:\\repo\\backend\\ARCH-GATES.JSON", content: "" }),
+    file("Write", { file_path: "C:\\repo\\backend\\Import-Cycles-Baseline.json", content: "" }),
+    file("Write", { file_path: "C:\\repo\\.GitHub\\Workflows\\backend.yml", content: "" }),
   ];
   for (const c of cases) {
     const r = run("protect-gates.js", c);
@@ -180,6 +184,7 @@ test("PROTECT_GATES=off: a visible warning instead of a block; the harness itsel
     file("Edit", { file_path: "C:\\Users\\u\\.claude\\settings.json", old_string: "a", new_string: "b" }),
     file("Write", { file_path: "/home/u/.claude/hooks/protect-gates.js", content: "" }),
     file("Write", { file_path: "/repo/.claude/settings.local.json", content: "{}" }),
+    file("Edit", { file_path: "C:\\Users\\u\\.Claude\\Settings.json", old_string: "a", new_string: "b" }),
     shell("Bash", "echo '{}' > /home/u/.claude/settings.json"),
     shell("Bash", "sed -i 's/protect-gates//' /home/u/.claude/settings.json"),
     shell("PowerShell", "Set-Content C:\\Users\\u\\.claude\\settings.json '{}'"),
