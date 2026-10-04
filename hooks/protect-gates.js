@@ -21,9 +21,10 @@
 //     --all/--mirror, or a bare push from main), unless the latest message the
 //     human typed is /create-commit (see typedCommand);
 //   - one exemption: while the latest message the human typed is /init-gates,
-//     Claude may create a gate config, baseline or workflow that does not exist
-//     yet (Write to an absent file, or a redirect to one); changing or deleting
-//     an existing one stays blocked;
+//     Claude may create one of the files that command creates (INIT_GATES_FILES)
+//     when it does not exist yet (Write to an absent file, or a redirect to one,
+//     resolved after any "cd"); changing or deleting an existing one, or creating
+//     any other gate file, stays blocked;
 //   - the harness itself: ~/.claude/settings.json, ~/.claude/hooks/*, any
 //     .claude/settings*.json, and the session transcripts that carry the
 //     /create-commit marker. These stay blocked even with PROTECT_GATES=off.
@@ -74,11 +75,28 @@ function classify(p) {
   return null;
 }
 
+// The only files /init-gates creates; any other absent gate file (a new workflow, ruff.toml...) stays blocked.
+const INIT_GATES_FILES = /(^|\/)(arch-gates\.json|import-(cycles|layers)-baseline\.json|\.dependency-cruiser\.cjs|\.dependency-cruiser-known-violations\.json|\.github\/workflows\/(arch-gates|baseline-ratchet)\.yml)$/;
+const creatable = (p) => INIT_GATES_FILES.test(String(p).replace(/\\/g, "/").toLowerCase());
+
+// Gate files a command redirects into, each with the directory its segment runs in
+// (a preceding "cd" moves it; null once a "cd" cannot be resolved).
+function redirectTargets(cmd, cwd) {
+  let dir = cwd || process.cwd();
+  const out = [];
+  for (const seg of cmd.split(/&&|\|\||[;|\n]/)) {
+    const cd = seg.trim().match(/^(?:cd|Set-Location|sl|pushd)(?:\s+("[^"]*"|'[^']*'|\S+))?/i);
+    if (cd) { dir = dir && cd[1] ? resolveDir(dir, cd[1].replace(/^["']|["']$/g, "")) : null; continue; }
+    for (const m of seg.matchAll(REDIRECT)) if (classify(m[1])) out.push({ target: m[1], dir });
+  }
+  return out;
+}
+
 function shellDecision(cmd, cwd) {
   const tokens = cmd.split(/[\s"'`;|&<>()]+/).filter(Boolean);
   const targets = tokens.filter(classify);
   const commandWrites = WRITE_CMD.test(cmd) || SED_INPLACE.test(cmd);
-  const redirects = [...cmd.matchAll(REDIRECT)].map((m) => m[1]).filter(classify);
+  const redirects = redirectTargets(cmd, cwd);
   const writes = commandWrites || redirects.length > 0;
   // reading a protected file is fine; a write to the harness itself is hard and wins over any soft rule below
   const write = targets.length && writes
@@ -86,7 +104,7 @@ function shellDecision(cmd, cwd) {
         why: `shell write to ${targets.join(", ")}`,
         hard: targets.some((t) => classify(t) === "self"),
         // only a redirect names its target for sure; it creates when every gate file it writes is absent
-        create: !commandWrites && redirects.every((t) => classify(t) === "gate" && resolveDir(cwd || process.cwd(), t) === null),
+        create: !commandWrites && redirects.every(({ target, dir }) => dir !== null && creatable(target) && resolveDir(dir, target) === null),
       }
     : null;
   if (write && write.hard) return write;
@@ -174,7 +192,7 @@ function fileDecision(tool, input) {
   if (kind === "self") return { why: `${p} is part of the harness itself`, hard: true };
   if (kind !== "gate") return null;
   if (/pyproject\.toml$/.test(p.replace(/\\/g, "/"))) return pyprojectDecision(tool, input, p);
-  return { why: `${p} is a gate config or baseline`, create: tool === "Write" && !fs.existsSync(p) };
+  return { why: `${p} is a gate config or baseline`, create: tool === "Write" && creatable(p) && !fs.existsSync(p) };
 }
 
 // Only the [tool.*] sections of the gates are frozen; compare them before/after.
