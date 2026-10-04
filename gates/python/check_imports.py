@@ -31,8 +31,12 @@ other one fails. Exit codes:
     2  a blind spot: a .py file grimp did not analyse, or a module in no layer
 
 Usage:
-    python check_imports.py cycles [--config backend/arch-gates.json] [--update-baseline]
-    python check_imports.py layers [--config backend/arch-gates.json] [--update-baseline]
+    python check_imports.py cycles [--config backend/arch-gates.json] [--update-baseline | --init-baseline]
+    python check_imports.py layers [--config backend/arch-gates.json] [--update-baseline | --init-baseline]
+
+--update-baseline rewrites the baseline (hooks/protect-gates.js keeps it for the
+human); --init-baseline only creates an absent one, which /init-gates uses. The
+CI ratchet counts any new baseline as growth, so the owner's label still decides.
 """
 
 from __future__ import annotations
@@ -178,9 +182,13 @@ def load_baseline(path: Path) -> set[tuple[str, ...]]:
     return {tuple(item) for item in json.loads(path.read_text(encoding="utf-8"))}
 
 
-def ratchet(current: Iterable[tuple[str, ...]], path: Path, update: bool, label: str) -> int:
+def ratchet(current: Iterable[tuple[str, ...]], path: Path, freeze: str | None, label: str) -> int:
+    """freeze: None runs the gate, "update" rewrites the baseline, "init" only creates an absent one."""
     current = set(current)
-    if update:
+    if freeze == "init" and path.exists():
+        print(f"ERROR: {path.name} already exists; --init-baseline never overwrites a baseline.", file=sys.stderr)
+        return 2
+    if freeze:
         path.write_text(json.dumps([list(v) for v in sorted(current)], indent=2) + "\n", encoding="utf-8")
         print(f"{path.name}: {len(current)} {label}(s) frozen.")
         return 0
@@ -202,7 +210,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Import cycle and layer gates (see module docstring).")
     parser.add_argument("gate", choices=["cycles", "layers"])
     parser.add_argument("--config", default="arch-gates.json", type=Path)
-    parser.add_argument("--update-baseline", action="store_true", help="freeze the current violations")
+    freeze = parser.add_mutually_exclusive_group()
+    freeze.add_argument("--update-baseline", dest="freeze", action="store_const", const="update", help="freeze the current violations")
+    freeze.add_argument("--init-baseline", dest="freeze", action="store_const", const="init", help="create the baseline, refused if it exists")
     args = parser.parse_args(argv)
 
     config_path = args.config.resolve()
@@ -222,7 +232,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.gate == "cycles":
-        return ratchet(find_cycles(graph), project_dir / CYCLES_BASELINE, args.update_baseline, "cycle")
+        return ratchet(find_cycles(graph), project_dir / CYCLES_BASELINE, args.freeze, "cycle")
 
     rank = layer_ranker(config["layers"], package)
     unclassified = sorted(m for m in graph.modules if rank(m) is None)
@@ -231,7 +241,7 @@ def main(argv: list[str] | None = None) -> int:
         for module in unclassified:
             print(f"  - {module}", file=sys.stderr)
         return 2
-    return ratchet(find_upward_edges(graph, rank), project_dir / LAYERS_BASELINE, args.update_baseline, "upward import")
+    return ratchet(find_upward_edges(graph, rank), project_dir / LAYERS_BASELINE, args.freeze, "upward import")
 
 
 if __name__ == "__main__":

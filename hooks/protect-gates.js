@@ -19,7 +19,11 @@
 //     Set-Content, Out-File, Add-Content, Copy-Item, Move-Item, Remove-Item);
 //   - git merge and any push that lands on main/master (explicit refspec, HEAD,
 //     --all/--mirror, or a bare push from main), unless the latest message the
-//     human typed is /create-commit (see typedCreateCommit);
+//     human typed is /create-commit (see typedCommand);
+//   - one exemption: while the latest message the human typed is /init-gates,
+//     Claude may create a gate config, baseline or workflow that does not exist
+//     yet (Write to an absent file, or a redirect to one); changing or deleting
+//     an existing one stays blocked;
 //   - the harness itself: ~/.claude/settings.json, ~/.claude/hooks/*, any
 //     .claude/settings*.json, and the session transcripts that carry the
 //     /create-commit marker. These stay blocked even with PROTECT_GATES=off.
@@ -70,12 +74,21 @@ function classify(p) {
   return null;
 }
 
-function shellDecision(cmd) {
+function shellDecision(cmd, cwd) {
   const tokens = cmd.split(/[\s"'`;|&<>()]+/).filter(Boolean);
   const targets = tokens.filter(classify);
-  const writes = WRITE_CMD.test(cmd) || SED_INPLACE.test(cmd) || [...cmd.matchAll(REDIRECT)].some((m) => classify(m[1]));
+  const commandWrites = WRITE_CMD.test(cmd) || SED_INPLACE.test(cmd);
+  const redirects = [...cmd.matchAll(REDIRECT)].map((m) => m[1]).filter(classify);
+  const writes = commandWrites || redirects.length > 0;
   // reading a protected file is fine; a write to the harness itself is hard and wins over any soft rule below
-  const write = targets.length && writes ? { why: `shell write to ${targets.join(", ")}`, hard: targets.some((t) => classify(t) === "self") } : null;
+  const write = targets.length && writes
+    ? {
+        why: `shell write to ${targets.join(", ")}`,
+        hard: targets.some((t) => classify(t) === "self"),
+        // only a redirect names its target for sure; it creates when every gate file it writes is absent
+        create: !commandWrites && redirects.every((t) => classify(t) === "gate" && resolveDir(cwd || process.cwd(), t) === null),
+      }
+    : null;
   if (write && write.hard) return write;
   for (const [re, why] of SHELL_RULES) if (re.test(cmd)) return { why };
   return write;
@@ -138,9 +151,9 @@ function currentBranch(cwd) {
   return r.status === 0 ? r.stdout.trim() : "";
 }
 // The latest turn the human typed (origin.kind "human"; tool results, and so the
-// answers to Claude's own questions, carry no origin) invoked /create-commit.
-// create-commit.md sets disable-model-invocation, so Claude cannot start it itself.
-function typedCreateCommit(transcriptPath) {
+// answers to Claude's own questions, carry no origin) invoked /<name>.
+// create-commit.md and init-gates.md set disable-model-invocation, so Claude cannot start them itself.
+function typedCommand(transcriptPath, name) {
   let lines;
   try { lines = fs.readFileSync(transcriptPath, "utf8").trimEnd().split("\n"); } catch { return false; }
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -149,7 +162,7 @@ function typedCreateCommit(transcriptPath) {
     if (e.type !== "user" || e.origin?.kind !== "human") continue;
     const c = e.message?.content;
     const text = typeof c === "string" ? c : Array.isArray(c) ? c.map((x) => x.text || "").join("") : "";
-    return text.includes("<command-name>/create-commit</command-name>");
+    return text.includes(`<command-name>/${name}</command-name>`);
   }
   return false;
 }
@@ -161,7 +174,7 @@ function fileDecision(tool, input) {
   if (kind === "self") return { why: `${p} is part of the harness itself`, hard: true };
   if (kind !== "gate") return null;
   if (/pyproject\.toml$/.test(p.replace(/\\/g, "/"))) return pyprojectDecision(tool, input, p);
-  return { why: `${p} is a gate config or baseline` };
+  return { why: `${p} is a gate config or baseline`, create: tool === "Write" && !fs.existsSync(p) };
 }
 
 // Only the [tool.*] sections of the gates are frozen; compare them before/after.
@@ -199,11 +212,13 @@ function main() {
   let d = null;
   if (/^(Bash|PowerShell)$/.test(tool)) {
     const cmd = String(ti.command || "");
-    d = shellDecision(cmd);
+    d = shellDecision(cmd, input.cwd);
     const git = !d && humanOnlyGit(cmd, input.cwd);
-    if (git && !typedCreateCommit(input.transcript_path)) d = { why: `${git}: merging and pushing to main are the human's gesture, through a /create-commit they type` };
+    if (git && !typedCommand(input.transcript_path, "create-commit")) d = { why: `${git}: merging and pushing to main are the human's gesture, through a /create-commit they type` };
   }
   else if (/^(Edit|Write|MultiEdit|NotebookEdit)$/.test(tool)) d = fileDecision(tool, ti);
+  // /init-gates may create the gate files a repo does not have yet; changing an existing one stays blocked
+  if (d && d.create && !d.hard && typedCommand(input.transcript_path, "init-gates")) return 0;
   if (!d) return 0;
   const off = /^(off|0|false)$/i.test(process.env.PROTECT_GATES || "");
   if (off && !d.hard) {

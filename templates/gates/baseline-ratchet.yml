@@ -1,0 +1,13 @@
+# A gate baseline may only shrink. The comparison runs from claude-config at the
+# pinned tag. A human accepts a growing baseline with the `baseline-update` label.
+# Created by /init-gates.
+name: baseline-ratchet
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  ratchet:
+    uses: RemiAsselin42/claude-config/.github/workflows/baseline-ratchet.yml@v1
