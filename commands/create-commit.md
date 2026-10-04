@@ -1,7 +1,9 @@
 ---
 description: Create git commit.
 argument-hint: '[commit context or suggested message, or empty to analyze automatically]'
-allowed-tools: Bash(git add:*), Bash(git status:*), Bash(git commit:*), Bash(git diff:*), Bash(git log:*), Bash(git restore:*)
+allowed-tools: Bash(git add:*), Bash(git status:*), Bash(git commit:*), Bash(git diff:*), Bash(git log:*), Bash(git restore:*), Bash(git push:*), Bash(git merge:*)
+# Only a human may start this command: hooks/protect-gates.js lets git merge and pushes to main through only when the latest typed message is /create-commit.
+disable-model-invocation: true
 ---
 
 # Create Logical and Descriptive Commits
@@ -148,6 +150,13 @@ After each commit:
 ### 9. Iteration
 
 Repeat steps 4 to 8 until `rtk git status` is clean.
+
+### 10. Merge and push (only when the arguments ask for it)
+
+This command is the only place where Claude may `git merge` or push to `main`/`master`: `hooks/protect-gates.js` allows it only while the latest message the user typed is `/create-commit`. Never do it on your own initiative.
+
+- Merge: `rtk git merge <branch>` as the arguments say; stop and report on a conflict.
+- Push the current branch with a bare `rtk git push` — `branch-guard` refuses `git push origin main` even here.
 
 ## Deliverables
 
