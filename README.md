@@ -384,6 +384,8 @@ Principles: whatever blocks is deterministic, LLM reviewers are consultative, th
 
 Every hook fires for the Bash tool and for the PowerShell tool alike; `tests/hooks.test.js` feeds both payloads. Starting Claude Code with `PROTECT_GATES=off` in the environment turns protect-gates into a visible warning for that session — except for the harness paths, which stay blocked. The CI ratchet is never off.
 
+**Known limit, accepted.** The hooks match command spellings, so they stop accidents, not a deliberate bypass: a write from an interpreter (`node -e "fs.appendFileSync(…)"`) reaches a baseline or forges the `/create-commit` marker in a transcript. GitHub branch protection is what holds, and `main` is protected with admins exempted by choice — so the owner's token, which Claude also uses, can bypass it. Turning on "Do not allow bypassing the above settings" closes that, at the cost of a PR for every change to `main`, the owner's included.
+
 **Wire the ratchet into a repo.** One file, added by a human (protect-gates blocks Claude from writing workflows):
 
 ```yaml

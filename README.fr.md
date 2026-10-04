@@ -384,6 +384,8 @@ Principes : ce qui bloque est déterministe, les reviewers LLM sont consultatifs
 
 Chaque hook se déclenche pour l'outil Bash comme pour l'outil PowerShell ; `tests/hooks.test.js` envoie les deux payloads. Lancer Claude Code avec `PROTECT_GATES=off` dans l'environnement transforme protect-gates en avertissement visible pour cette session — sauf pour les chemins du harnais, qui restent bloqués. Le ratchet CI n'est jamais désactivé.
 
+**Limite connue, assumée.** Les hooks reconnaissent des écritures de commandes : ils arrêtent les accidents, pas un contournement délibéré. Une écriture depuis un interpréteur (`node -e "fs.appendFileSync(…)"`) atteint une baseline ou forge le marqueur `/create-commit` dans un transcript. Ce qui tient, c'est la protection de branche GitHub, et `main` est protégée avec les admins exemptés, par choix : le token du propriétaire, que Claude utilise aussi, peut donc passer outre. Activer « Do not allow bypassing the above settings » ferme ce trou, au prix d'une PR pour tout changement sur `main`, y compris ceux du propriétaire.
+
 **Brancher le ratchet dans un repo.** Un fichier, ajouté par un humain (protect-gates empêche Claude d'écrire des workflows) :
 
 ```yaml

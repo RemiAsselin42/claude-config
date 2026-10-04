@@ -31,6 +31,8 @@
 "use strict";
 const fs = require("node:fs");
 const { spawnSync } = require("node:child_process");
+const os = require("node:os");
+const path = require("node:path");
 
 const GATE_BASENAMES = [
   /^\.dependency-cruiser/, // .dependency-cruiser.cjs|.js|.json and the known-violations baseline
@@ -80,23 +82,57 @@ function shellDecision(cmd) {
 // Merging and pushing to main are the human's gesture: allowed only inside a
 // /create-commit they typed. Feature-branch pushes (what /create-pr does) stay free.
 const PROTECTED_BRANCH = /^(main|master)$/;
+const GIT_GLOBAL_WITH_VALUE = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env"]);
+const PUSH_OPT_WITH_VALUE = new Set(["-o", "--push-option", "--repo", "--receive-pack", "--exec"]);
+// Walks the command segment by segment so a "cd" or "git -C" moves the directory whose
+// branch a bare push is checked against, and a "git switch main" earlier in the chain counts.
+// ponytail: quoted ";" or "&&" split a segment; a fancier shell parse if that ever matters.
 function humanOnlyGit(cmd, cwd) {
-  if (/\bgit\s+(-C\s+\S+\s+)?merge(\s|$)/.test(cmd)) return "git merge";
-  for (const m of cmd.matchAll(/\bgit\s+(?:-C\s+\S+\s+)?push\b([^;&|]*)/g)) {
-    const args = m[1].split(/\s+/).map((a) => a.replace(/^["']|["']$/g, "")).filter(Boolean);
-    if (args.some((a) => /^--(all|mirror)$/.test(a))) return "git push --all/--mirror reaches main";
-    const refs = args.filter((a) => !a.startsWith("-")).slice(1); // first positional is the remote
+  let dir = cwd || process.cwd();
+  const switchedTo = new Map(); // dir -> main|master after "git switch main" in this command
+  for (const seg of cmd.split(/&&|\|\||[;|\n]/)) {
+    const t = (seg.match(/"[^"]*"|'[^']*'|\S+/g) || []).map((a) => a.replace(/^["']|["']$/g, ""));
+    if (/^(cd|Set-Location|sl|pushd)$/i.test(t[0] || "")) { dir = t[1] ? resolveDir(dir, t[1]) : null; continue; }
+    let i = t.findIndex((a) => /(^|[\\/])git(\.exe)?$/i.test(a));
+    if (i < 0) continue;
+    let repo = dir;
+    for (i++; i < t.length && t[i].startsWith("-"); i++) {
+      if (!GIT_GLOBAL_WITH_VALUE.has(t[i])) continue; // --no-pager, --git-dir=x, -c=… forms carry no separate value
+      if (t[i] === "-C") repo = repo && t[i + 1] ? resolveDir(repo, t[i + 1]) : null;
+      i++;
+    }
+    const [sub, ...args] = t.slice(i);
+    if (sub === "merge") return "git merge";
+    if ((sub === "switch" || sub === "checkout") && PROTECTED_BRANCH.test(args[args.length - 1] || "")) switchedTo.set(repo, args[args.length - 1]);
+    if (sub !== "push") continue;
+    const positional = [];
+    let tags = false;
+    for (let k = 0; k < args.length; k++) {
+      const a = args[k];
+      if (/^--(all|mirror)$/.test(a)) return "git push --all/--mirror reaches main";
+      if (a === "--tags") tags = true;
+      else if (PUSH_OPT_WITH_VALUE.has(a)) k++;
+      else if (!a.startsWith("-")) positional.push(a);
+    }
+    const refs = positional.slice(1); // first positional is the remote
+    if (!refs.length && tags) continue; // --tags alone pushes refs/tags/* only
     for (const ref of refs.length ? refs : ["HEAD"]) {
       let dest = ref.split(":").pop().replace(/^\+/, "").replace(/^refs\/heads\//, "");
-      // ponytail: reads the branch of the tool's cwd; a "cd elsewhere && git push" is not followed
-      if (dest === "HEAD") dest = /\bgit\s+(switch|checkout)\s+(main|master)\b/.test(cmd) ? "main" : currentBranch(cwd);
+      if (dest === "HEAD") dest = repo === null ? "main" : switchedTo.get(repo) || currentBranch(repo); // an unresolvable directory is not trusted
       if (PROTECTED_BRANCH.test(dest)) return `git push to ${dest}`;
     }
   }
   return null;
 }
+// A directory from the command line, as Git Bash or PowerShell spell it; null when it does not exist.
+function resolveDir(from, p) {
+  if (/^~([\\/]|$)/.test(p)) p = os.homedir() + p.slice(1);
+  if (process.platform === "win32") p = p.replace(/^\/([a-z])(\/|$)/i, "$1:/"); // MSYS /c/Users -> c:/Users
+  const d = path.resolve(from, p);
+  return fs.existsSync(d) ? d : null;
+}
 function currentBranch(cwd) {
-  const r = spawnSync("git", ["branch", "--show-current"], { cwd: cwd || process.cwd(), encoding: "utf8" });
+  const r = spawnSync("git", ["branch", "--show-current"], { cwd, encoding: "utf8" });
   return r.status === 0 ? r.stdout.trim() : "";
 }
 // The latest turn the human typed (origin.kind "human"; tool results, and so the

@@ -240,11 +240,31 @@ test("git merge and pushes to main pass only inside a /create-commit the human t
   for (const c of humanOnly) assert.equal(gate(c).code, 0, c);
   // no transcript at all: blocked
   assert.equal(run("protect-gates.js", { ...shell("Bash", "git merge feat"), cwd: dir }).code, 2);
-  // bare push from a feature branch is free
+  // review of PR #7: git global options, push options with a value, tag-only pushes
   said([turn("human", "x")]);
+  for (const c of [
+    "git -c advice.detachedHead=false merge feat",
+    "git -c a=b push origin main",
+    `git -C "${dir}" --no-pager push`,
+    "git push -o ci.skip origin",
+    "git push --push-option ci.skip origin",
+    "git push --tags origin main",
+  ]) assert.equal(gate(c).code, 2, c);
+  assert.equal(gate("git push --tags origin").code, 0);
+  assert.equal(gate("git push --tags").code, 0);
+
+  // bare push from a feature branch is free
   git("switch", "-q", "-c", "feat");
   assert.equal(gate("git push").code, 0);
   assert.equal(gate("git switch main && git push").code, 2);
+  // the branch is read in the repository the push targets, not in the tool's cwd
+  const other = fs.mkdtempSync(path.join(os.tmpdir(), "protect-gates-other-"));
+  spawnSync("git", ["-C", other, "init", "-q", "-b", "main"]);
+  const fromFeat = (command) => run("protect-gates.js", { ...shell("Bash", command), cwd: dir, transcript_path: transcript }).code;
+  assert.equal(fromFeat(`git -C "${other}" push`), 2);
+  assert.equal(fromFeat(`cd "${other}" && git push`), 2);
+  assert.equal(fromFeat(`cd "${other}" && cd "${dir}" && git push`), 0);
+  assert.equal(fromFeat('cd "$SOMEWHERE" && git push'), 2); // a directory that cannot be resolved is not trusted
 
   // the transcripts that carry the marker are part of the harness
   for (const c of [
