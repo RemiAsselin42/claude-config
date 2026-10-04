@@ -300,6 +300,8 @@ test("inside a /init-gates the human typed, a gate file that does not exist yet 
     file("Write", { file_path: at("backend", "arch-gates.json"), content: "{}" }),
     file("Write", { file_path: at(".github", "workflows", "arch-gates.yml"), content: "" }),
     shell("Bash", depcruiseBaseline), // reads the existing config, creates the baseline
+    shell("Bash", "cd frontend && npx --yes depcruise src --output-type baseline > .dependency-cruiser-known-violations.json"),
+    file("Write", { file_path: at(".github", "workflows", "baseline-ratchet.yml"), content: "" }),
   ];
   const changes = [
     file("Write", { file_path: at("frontend", ".dependency-cruiser.cjs"), content: "" }),
@@ -309,6 +311,13 @@ test("inside a /init-gates the human typed, a gate file that does not exist yet 
     shell("Bash", "rm frontend/import-cycles-baseline.json"),
     shell("Bash", "cp x.json frontend/new-baseline.json && rm frontend/import-cycles-baseline.json"),
     shell("Bash", "uv run python check_imports.py cycles --update-baseline"),
+    // review of PR #10: only the files /init-gates creates, nothing else that is absent
+    file("Write", { file_path: at(".github", "workflows", "deploy.yml"), content: "" }),
+    file("Write", { file_path: at("ruff.toml"), content: "" }),
+    file("Write", { file_path: at("frontend", "eslint.config.js"), content: "" }),
+    // review of PR #10: a redirect is resolved in the directory its segment runs in
+    shell("Bash", "cd frontend && echo '[]' > import-cycles-baseline.json"),
+    shell("Bash", "cd \"$SOMEWHERE\" && echo '[]' > .dependency-cruiser-known-violations.json"),
   ];
 
   // red: no /init-gates, or another command typed
