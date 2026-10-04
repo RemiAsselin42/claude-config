@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Usage: install.sh [-y|--yes] [-v|--verbose]
+# Usage: install.sh [-y|--yes] [-v|--verbose] [--only claude|repos]
 #   -y, --yes      Accept defaults for each repo.
 #   -v, --verbose  Show verbose output from installers.
+#   --only claude  Only the Claude side: ~/.claude files, settings, MCP, plugins.
+#   --only repos   Only the repos side: graph, labels, vault, MemPalace wings.
+#                  Without --only both run. Dependencies and the palace always do.
 set -euo pipefail
 
 # bash 4.4+: ${var,,}, mapfile and empty arrays under `set -u` are all used
@@ -24,6 +27,9 @@ unset NODE_OPTIONS VSCODE_INSPECTOR_OPTIONS
 unset HF_HUB_OFFLINE
 
 AUTO_YES=false
+# all | claude | repos. The upstream sync, the dependencies, the repo pointer
+# and the palace health check run under every scope: both halves need them.
+SCOPE=all
 # Exported: child scripts (exclude-from-index.sh) gate their own detail lines on it.
 export VERBOSE="${VERBOSE:-false}"
 ORIG_ARGS=("$@")
@@ -35,18 +41,38 @@ while [[ $# -gt 0 ]]; do
     -v|--verbose)
       VERBOSE=true
       ;;
+    --only)
+      [[ $# -ge 2 ]] || { echo "--only needs a value: claude or repos" >&2; exit 1; }
+      SCOPE="$2"
+      shift
+      ;;
+    --only=*)
+      SCOPE="${1#--only=}"
+      ;;
     -h|--help)
-      sed -n '2,4p' "$0"
+      sed -n '2,7p' "$0"
       exit 0
       ;;
     *)
       echo "Unknown option: $1" >&2
-      sed -n '2,4p' "$0" >&2
+      sed -n '2,7p' "$0" >&2
       exit 1
       ;;
   esac
   shift
 done
+# Refused here, before the upstream sync: everything from there on has side effects.
+case "$SCOPE" in
+  all|claude|repos) ;;
+  *)
+    echo "Unknown scope '$SCOPE': --only takes claude or repos" >&2
+    exit 1
+    ;;
+esac
+# True when the chosen scope includes the half named by $1 (claude | repos).
+_in_scope() {
+  [[ "$SCOPE" == all || "$SCOPE" == "$1" ]]
+}
 
 GREEN=$'\033[1;32m'
 YELLOW=$'\033[1;33m'
@@ -930,6 +956,34 @@ source "$REPO_DIR/env.local"
 
 # --- Check prerequisites ---
 _prepare_dependencies
+
+# --- Shared by both scopes ---
+# Record the config repo location: hooks, generated scripts and the per-repo
+# post-commit vault sync resolve the repo through this pointer instead of a
+# hardcoded absolute path, so they survive repo moves and machine changes. The
+# repos half installs hooks that read it, hence written under every scope.
+mkdir -p "$CLAUDE_DIR"
+printf '%s\n' "$REPO_DIR" > "$CLAUDE_DIR/claude-config.path"
+_detail "  ${GREEN}✓ claude-config.path recorded ($REPO_DIR)${RESET}"
+
+# MemPalace: init, embedder, index health. The hooks read the palace (claude
+# side) and _mine_repo_into_wing is gated on the MEMPALACE_READY this sets
+# (repos side). Repos are NOT mined here: each one is mined into its own wing by
+# _mine_repo_into_wing, from _setup_repo_graphify. A single global mine of
+# ~/.claude/projects/ is what produced the unscoped `projects`/`sessions` wings
+# that made `search --wing <repo>` return nothing.
+_step "Setting up MemPalace..."
+_setup_mempalace
+# The claude block ends with the flush that collapses this section's
+# confirmations into one line; when it is skipped, flush here or they are lost.
+_in_scope claude || _ok_flush
+
+# ===== Scope: claude — ~/.claude files, settings, MCP servers, plugins =========
+# The body is deliberately left unindented: tests/legacy-hooks.sh pulls
+# LEGACY_CC_SAFE_HOOKS and its two functions out of this file by name and needs
+# `name() {` and the closing `}` at column 0 (see context/patterns.md).
+if _in_scope claude; then
+
 _setup_terminal_delegation
 
 # --- Clean broken symlinks in ~/.claude ---
@@ -972,20 +1026,6 @@ for dir in agents commands; do
   done
 done
 _detail "  ${GREEN}✓ Claude files copied${RESET}"
-
-# --- Record the config repo location for hooks ---
-# Hooks and generated scripts resolve the repo through this pointer instead of
-# hardcoding an absolute path, so they survive repo moves and machine changes.
-printf '%s\n' "$REPO_DIR" > "$CLAUDE_DIR/claude-config.path"
-_detail "  ${GREEN}✓ claude-config.path recorded ($REPO_DIR)${RESET}"
-
-# --- MemPalace: init, embedder, index health ---
-# Repos are NOT mined here: each one is mined into its own wing by
-# _mine_repo_into_wing, from _setup_repo_graphify. A single global mine of
-# ~/.claude/projects/ is what produced the unscoped `projects`/`sessions` wings
-# that made `search --wing <repo>` return nothing.
-_step "Setting up MemPalace..."
-_setup_mempalace
 
 # --- Copy global CLAUDE.md (with vault path substitution) ---
 _step "Copying global CLAUDE.md..."
@@ -1081,28 +1121,11 @@ rm -f "$CLAUDE_DIR/scripts/caveman-toggle.sh" "$CLAUDE_DIR/caveman.enabled" "$CL
 _ok_flush
 _detail "  ${GREEN}✓ Claude configuration updated${RESET}"
 
-# --- Obsidian Vault ---
-_detail "${BOLD}${CYAN}Obsidian Vault${RESET} ${DIM}$VAULT_DIR${RESET}"
+fi  # scope: claude
 
-# --- Setup Graphify in all git repos ---
-echo ""
-if [[ "$VERBOSE" == "true" ]]; then
-  echo "${BOLD}${CYAN}Scanning for git repos...${RESET}"
-else
-  echo "${BOLD}${CYAN}Git repos${RESET}"
-fi
-
-REPOS_FOUND=()
-PARENT_DIR="$(dirname "$REPO_DIR")"
-
-# Single-level scan: only git repos directly under $PARENT_DIR are detected.
-# Nested subfolders (monorepos, workspaces) are not traversed.
-for dir in "$PARENT_DIR"/*/; do
-  [[ -d "$dir/.git" ]] || continue
-  repo_path="${dir%/}"
-  [[ "$repo_path" == "$REPO_DIR" ]] && continue
-  REPOS_FOUND+=("$repo_path")
-done
+# --- Repos side: helpers. Defined under every scope (a definition costs nothing
+# and tests/claude-md-refresh.sh extracts some of them by name), run only from
+# the repos block further down. ---
 
 # Returns 0 if CLAUDE.md is git-tracked in the repo
 _is_claude_md_tracked() {
@@ -1465,6 +1488,33 @@ _setup_repo_graphify() {
   _mine_repo_into_wing "$repo" "$(_wing_for_repo "$repo" "$repo_name")"
 }
 
+# ===== Scope: repos — sibling repos, then the config repo's own graph and vault =
+# Unindented for the same reason as the claude block.
+if _in_scope repos; then
+
+# --- Obsidian Vault ---
+_detail "${BOLD}${CYAN}Obsidian Vault${RESET} ${DIM}$VAULT_DIR${RESET}"
+
+# --- Setup Graphify in all git repos ---
+echo ""
+if [[ "$VERBOSE" == "true" ]]; then
+  echo "${BOLD}${CYAN}Scanning for git repos...${RESET}"
+else
+  echo "${BOLD}${CYAN}Git repos${RESET}"
+fi
+
+REPOS_FOUND=()
+PARENT_DIR="$(dirname "$REPO_DIR")"
+
+# Single-level scan: only git repos directly under $PARENT_DIR are detected.
+# Nested subfolders (monorepos, workspaces) are not traversed.
+for dir in "$PARENT_DIR"/*/; do
+  [[ -d "$dir/.git" ]] || continue
+  repo_path="${dir%/}"
+  [[ "$repo_path" == "$REPO_DIR" ]] && continue
+  REPOS_FOUND+=("$repo_path")
+done
+
 if [[ ${#REPOS_FOUND[@]} -eq 0 ]]; then
   echo "${DIM}No git repos found (excluding claude-config).${RESET}"
 else
@@ -1556,6 +1606,8 @@ if bash "$REPO_DIR/scripts/vault-sync.sh"; then
 else
   echo "${YELLOW}⚠ Vault sync incomplete — see message above.${RESET}"
 fi
+
+fi  # scope: repos
 
 echo ""
 echo "${GREEN}Installation complete.${RESET}"
