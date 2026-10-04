@@ -210,6 +210,17 @@ def test_new_upward_import_is_red_then_tolerated_once_baselined(project: Path) -
     assert _gate(project, "layers") == 1
 
 
+def test_init_baseline_creates_but_never_overwrites(project: Path) -> None:
+    _write(project, "app/config.py", "from app.routes import papers\n")
+    baseline = project / "import-layers-baseline.json"
+    assert _gate(project, "layers", "--init-baseline") == 0
+    assert json.loads(baseline.read_text()) == [["app.config", "app.routes.papers"]]
+    baseline.write_text("[]\n")  # an existing baseline, even an emptier one
+    assert _gate(project, "layers", "--init-baseline") == 2
+    assert baseline.read_text() == "[]\n"
+    assert _gate(project, "layers") == 1
+
+
 def test_module_in_no_layer_is_a_blind_spot(project: Path) -> None:
     _write(project, "app/newpkg/foo.py", "Y = 2\n")
     assert _gate(project, "layers") == 2

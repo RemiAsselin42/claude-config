@@ -284,6 +284,46 @@ test("git merge and pushes to main pass only inside a /create-commit the human t
   }
 });
 
+test("inside a /init-gates the human typed, a gate file that does not exist yet may be created, never changed", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "protect-gates-init-"));
+  fs.mkdirSync(path.join(dir, "frontend"));
+  fs.writeFileSync(path.join(dir, "frontend", ".dependency-cruiser.cjs"), "module.exports = {};\n");
+  fs.writeFileSync(path.join(dir, "frontend", "import-cycles-baseline.json"), "[]\n");
+  const transcript = path.join(dir, "t.jsonl");
+  const said = (content) => fs.writeFileSync(transcript, JSON.stringify({ type: "user", origin: { kind: "human" }, message: { content } }) + "\n");
+  const typed = (name) => `<command-message>${name}</command-message>\n<command-name>/${name}</command-name>`;
+  const gate = (payload) => run("protect-gates.js", { ...payload, cwd: dir, transcript_path: transcript }).code;
+  const at = (...p) => path.join(dir, ...p);
+  const depcruiseBaseline = "npx --yes -p dependency-cruiser@17.4.3 depcruise src --config .dependency-cruiser.cjs --output-type baseline > frontend/.dependency-cruiser-known-violations.json";
+
+  const creations = [
+    file("Write", { file_path: at("backend", "arch-gates.json"), content: "{}" }),
+    file("Write", { file_path: at(".github", "workflows", "arch-gates.yml"), content: "" }),
+    shell("Bash", depcruiseBaseline), // reads the existing config, creates the baseline
+  ];
+  const changes = [
+    file("Write", { file_path: at("frontend", ".dependency-cruiser.cjs"), content: "" }),
+    file("Edit", { file_path: at("frontend", ".dependency-cruiser.cjs"), old_string: "{}", new_string: "{ forbidden: [] }" }),
+    file("Write", { file_path: at("frontend", "import-cycles-baseline.json"), content: "[]" }),
+    shell("Bash", "echo '[]' > frontend/import-cycles-baseline.json"),
+    shell("Bash", "rm frontend/import-cycles-baseline.json"),
+    shell("Bash", "cp x.json frontend/new-baseline.json && rm frontend/import-cycles-baseline.json"),
+    shell("Bash", "uv run python check_imports.py cycles --update-baseline"),
+  ];
+
+  // red: no /init-gates, or another command typed
+  for (const t of [typed("create-commit"), "init the gates please"]) {
+    said(t);
+    for (const c of creations) assert.equal(gate(c), 2, `${t}: ${JSON.stringify(c.tool_input)}`);
+  }
+  // green for creations only
+  said(typed("init-gates"));
+  for (const c of creations) assert.equal(gate(c), 0, JSON.stringify(c.tool_input));
+  for (const c of changes) assert.equal(gate(c), 2, JSON.stringify(c.tool_input));
+  // the harness itself is never a creation
+  assert.equal(gate(file("Write", { file_path: at(".claude", "settings.local.json"), content: "{}" })), 2);
+});
+
 // ------------------------------------------------- vendored cc-safe-setup guards
 const skip = hasBashAndJq ? false : "bash + jq not available";
 const guard = (hook, tool, command) => run(hook, shell(tool, command)).code;

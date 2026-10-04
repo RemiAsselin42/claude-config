@@ -153,7 +153,8 @@ claude-config/
 │   └── exclude-from-index.sh    # Remove a repo from graphify + mempalace
 ├── templates/
 │   ├── CLAUDE.project.md        # Per-repo CLAUDE.md, re-rendered on every install
-│   └── gitignore.append         # .gitignore entries appended by install.sh
+│   ├── gitignore.append         # .gitignore entries appended by install.sh
+│   └── gates/                   # What /init-gates creates in a repo: dependency-cruiser config, CI callers
 ├── docs/
 │   ├── harness-plan.md          # Deterministic quality harness: principles and lots A–E
 │   └── pitfall.md               # Append-only log of traps Claude Code hit in this repo
@@ -164,6 +165,7 @@ claude-config/
     ├── install-scope.sh         # install.sh --only: usage names both halves, bad values are refused, the guard answers right
     ├── hooks.test.js            # Every guard in hooks/, fed Bash and PowerShell payloads (node --test "tests/*.test.js")
     ├── baseline-ratchet.test.js # The ratchet on real baselines from a pilot repository
+    ├── gates-template.test.js   # The dependency-cruiser template on a toy project: layers, cycle, module in no layer, path alias
     ├── python/test_check_imports.py # The Python gates on toy graphs, temp trees and end to end (uv run --no-project --with grimp==3.14 --with pytest pytest tests/python)
     └── fixtures/                # Real baselines and pyproject.toml from a pilot repository, anonymized
 ```
@@ -182,6 +184,7 @@ claude-config/
 | `/explain-changes`      | Explain recent changes                                                                |
 | `/find-dead-code`       | Find dead code in the project                                                         |
 | `/init-context`         | Generate `context/architecture.md`, `patterns.md`, `constraints.md` from the codebase |
+| `/init-gates`           | Install the architecture gates in a repo: propose layers, wait for approval, create configs, baselines and CI callers, open a PR (human-only) |
 | `/review-changes`       | Analyze changes since last commit                                                     |
 | `/review-codebase`      | Evaluate a freshly cloned repository                                                  |
 | `/review-comments`      | Analyze code comment quality                                                          |
@@ -409,7 +412,9 @@ jobs:
 
 `@v1` is a tag on this repo. The job checks out `scripts/baseline-ratchet.js` at the same commit, so the gate logic always comes from claude-config at a pinned version, never from the branch under test. A human accepts a growing baseline by setting the `baseline-update` label on the PR: the job then passes and posts the added entries as a PR comment. Limit: GitHub only sees the token, so a label set by Claude with your token is indistinguishable from one you set — hence the hook rule and the comment.
 
-**Wire the architecture gates into a repo.** The logic (the Python script, the grimp and dependency-cruiser versions, the flags) comes from this repo at the pinned tag; the repo keeps only its declarations, all protected by protect-gates and the ratchet:
+**Wire the architecture gates into a repo.** Type `/init-gates` in it: Claude reads the import graph, proposes the layers, waits for your approval, then creates everything below on a `ci/arch-gates` branch and opens a PR. While `/init-gates` is the latest message you typed, protect-gates lets Claude *create* a gate file that does not exist yet — never change or delete one — and the Python baselines come from `--init-baseline`, which refuses to overwrite. The PR's ratchet is red by design (every baseline is new): your `baseline-update` label is how you accept the frozen debt.
+
+By hand, the logic (the Python script, the grimp and dependency-cruiser versions, the flags) comes from this repo at the pinned tag; the repo keeps only its declarations, all protected by protect-gates and the ratchet:
 
 - `backend/arch-gates.json` — the root package and its layers, lowest first. An entry covers the module and its submodules, except the root package, which covers only itself: a new subpackage fails the gate (exit 2) until it is classified.
 
@@ -421,7 +426,7 @@ jobs:
   ```
 
 - `backend/import-cycles-baseline.json`, `backend/import-layers-baseline.json` — the frozen debt, next to `arch-gates.json`.
-- `frontend/.dependency-cruiser.cjs` with `no-circular` and one `layer-*` rule per boundary, `tsPreCompilationDeps: false`; `frontend/.dependency-cruiser-known-violations.json` as the baseline.
+- `frontend/.dependency-cruiser.cjs` from `templates/gates/dependency-cruiser.cjs`: only its `LAYERS` array and `tsConfig` change per repo; the rules (`no-circular`, one `layer-*` per layer, a module in no layer) derive from it. `frontend/.dependency-cruiser-known-violations.json` is the baseline.
 
 ```yaml
 # .github/workflows/arch-gates.yml
