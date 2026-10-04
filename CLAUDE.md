@@ -1,5 +1,16 @@
 # Claude Code — Global Configuration
 
+## Engineering Rules
+
+These rules outrank speed. The hooks and the CI enforce part of them; follow them where nothing checks.
+
+- **Never make a check pass by changing the check.** Do not edit a test, a baseline, a lint/type/gate config or a CI workflow to get green, and do not weaken an assertion, skip or xfail a test, or add `noqa` / `eslint-disable` / `type: ignore`. If a test or a gate looks wrong, stop and say why: the owner decides.
+- **Tests come from the spec, not from your code.** Assert observable behavior; mock only what crosses a process or network boundary. A test that passes whatever the implementation does is not a test.
+- **Prove red, then green.** Before calling a fix or a gate done, show the check failing on the fragile case, then passing after the change. No demonstration, no "done".
+- **Blocking is deterministic, judging is advisory.** `/review-*` and other LLM reviews run after the gates, with their reports as input, and never replace them.
+- **One unit of work, then stop.** Finish it, prove it, report, and wait for the go-ahead before the next one. Touch nothing outside it.
+- **Never merge.** Merging a PR is the owner's gesture; pushing to or merging into `main` only happens inside a `/create-commit` the owner typed.
+
 ## Graphify (Knowledge Graph)
 
 If `graphify-out/graph.json` exists in the current repo:
