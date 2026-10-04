@@ -5,6 +5,12 @@
 #   --only claude  Only the Claude side: ~/.claude files, settings, MCP, plugins.
 #   --only repos   Only the repos side: graph, labels, vault, MemPalace wings.
 #                  Without --only both run. Dependencies and the palace always do.
+
+# `sh install.sh` on Git Bash is bash in POSIX mode, where $(...) inherits
+# set -e: a helper failing inside a substitution kills the run without a word
+# (2026-10-04: the repo selection died on the first repo with no mempalace.yaml).
+# Re-exec as plain bash; also covers a real /bin/sh such as dash.
+if [ -z "${BASH_VERSION:-}" ] || shopt -qo posix; then exec bash "$0" "$@"; fi
 set -euo pipefail
 
 # bash 4.4+: ${var,,}, mapfile and empty arrays under `set -u` are all used
