@@ -97,6 +97,19 @@ PATH_PERSIST_DECIDED=false
 PATH_PERSIST_APPROVED=false
 
 # --- Sync from upstream FIRST so the rest of the script runs the latest version ---
+# Exit status of scripts/sync-upstream.sh -> one line. 3 = skipped (dirty synced
+# path, upstream unreachable; the script printed the reason). Saying "synced" on a
+# skip once hid a fork three merges behind, which then deployed a stale
+# settings.json over the owner's /model choice. Pulled out by name by
+# tests/sync-upstream.sh: keep the definition at column 0, closing brace included.
+_report_upstream_sync() {
+  case "$1" in
+    0) echo "  ${GREEN}✓ upstream synced (no changes)${RESET}" ;;
+    3) echo "  ${YELLOW}⚠ upstream sync skipped — the files deployed below come from this checkout, possibly behind upstream${RESET}" ;;
+    *) echo "  ${YELLOW}⚠ upstream sync failed (exit $1) — deploying this checkout as it is${RESET}" ;;
+  esac
+}
+
 # If the sync brings changes, re-exec the updated install.sh and abandon this run.
 # CLAUDE_CONFIG_SYNCED guards against re-exec loops.
 if [[ "${CLAUDE_CONFIG_SYNCED:-}" != "1" ]]; then
@@ -120,16 +133,7 @@ if [[ "${CLAUDE_CONFIG_SYNCED:-}" != "1" ]]; then
       export CLAUDE_CONFIG_SYNCED=1
       exec bash "$REPO_DIR/install.sh" ${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}
     fi
-    # 3 = skipped (dirty synced path, upstream unreachable; reason printed above). Saying
-    # "synced" here once hid a fork three merges behind, which then deployed a stale
-    # settings.json over the owner's /model choice.
-    if [[ "$_sync_rc" -eq 3 ]]; then
-      echo "  ${YELLOW}⚠ upstream sync skipped — the files deployed below come from this checkout, possibly behind upstream${RESET}"
-    elif [[ "$_sync_rc" -ne 0 ]]; then
-      echo "  ${YELLOW}⚠ upstream sync failed (exit $_sync_rc) — deploying this checkout as it is${RESET}"
-    else
-      echo "  ${GREEN}✓ upstream synced (no changes)${RESET}"
-    fi
+    _report_upstream_sync "$_sync_rc"
     unset _head_before _head_after _sync_rc
   fi
 fi

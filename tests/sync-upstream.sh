@@ -76,5 +76,27 @@ else
   ko "unreachable upstream: exit $rc, stderr: $(cat "$T/err")"
 fi
 
+# 5. install.sh's status -> message mapping, taken straight out of install.sh by name
+# (the same way tests/install-scope.sh takes _in_scope): a regression that mapped
+# exit 3 back to the green line would leave the four cases above green.
+body="$(awk '$0 == "_report_upstream_sync() {" {f=1} f{print} f&&/^}/{exit}' "$REPO_DIR/install.sh")"
+if [[ -z "$body" ]]; then
+  ko "_report_upstream_sync not found in install.sh"
+else
+  # shellcheck disable=SC2034  # the colour variables the eval'd function expands
+  GREEN="" YELLOW="" RESET=""
+  eval "$body"
+  for spec in "0:✓ upstream synced" "3:⚠ upstream sync skipped" "7:⚠ upstream sync failed (exit 7)"; do
+    rc="${spec%%:*}"
+    want="${spec#*:}"
+    line="$(_report_upstream_sync "$rc")"
+    if [[ "$line" == *"$want"* ]]; then
+      ok "install.sh maps exit $rc to '$want'"
+    else
+      ko "install.sh maps exit $rc to: $line"
+    fi
+  done
+fi
+
 echo "$pass passed, $fail failed"
 [[ $fail -eq 0 ]]
