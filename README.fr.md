@@ -463,6 +463,8 @@ uv run --no-project --with grimp==3.14 python "$gates" layers --config backend/a
 
 **Rendre les checks obligatoires sur `main`.** GitHub → repo → Settings → Branches → ajouter une règle de protection pour `main` → cocher *Require a pull request before merging*, *Require status checks to pass before merging* et *Require branches to be up to date before merging*, puis ajouter chaque check par son nom (un check est proposé dès qu'il a tourné sur au moins une PR). Cocher aussi *Do not allow bypassing the above settings*, sinon un jeton admin — le tien, donc celui de Claude — merge malgré les checks. Les noms sont `<nom du workflow> / <nom du job>` tels que GitHub les liste : les jobs de gate du repo, plus `ratchet / ratchet`, `arch-python / python` et `arch-frontend / frontend` (`<job appelant> / <job appelé>`) une fois les workflows appelants ci-dessus sur `main`.
 
+**Migrer un appelant `@v2`.** Passer l'appelant aux jobs `@v3` ci-dessus sur une branche et laisser sa PR tourner une fois, pour que les nouveaux noms de checks existent. Puis, dans la protection de branche de `main` : ajouter `arch-python / python` et/ou `arch-frontend / frontend`, et retirer `arch / python` et `arch / frontend` — un nom requis qui ne tourne plus reste « Expected » et bloque toutes les PR. Ne pas toucher aux autres checks requis (`ratchet / ratchet`, les jobs propres au repo). À faire avant de merger cette PR.
+
 </details>
 
 ---
