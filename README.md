@@ -138,7 +138,8 @@ claude-config/
 │   ├── baseline-ratchet.yml     # Reusable CI workflow: a gate baseline may only shrink
 │   └── ci.yml                   # This repo's own CI: shellcheck + every test under tests/, on ubuntu and macos
 ├── gates/python/
-│   └── check_imports.py         # Python cycles + layers gate (grimp), run by arch-gates-python.yml at the pinned tag
+│   ├── check_imports.py         # Python cycles + layers gate (grimp), run by arch-gates-python.yml at the pinned tag
+│   └── check_mutation.py        # Mutation gate: the mutants the tests do not kill (mutmut) may only shrink, run by mutation-gate.yml
 ├── agents/                      # Subagents → ~/.claude/agents/ (mirrored), pinned to another model, spawned by /feature
 │   ├── plan-reviewer.md         # Reviews the plan against the spec before any code, read-only
 │   ├── spec-tester.md           # Writes the acceptance tests from the spec, before the code exists
@@ -178,6 +179,7 @@ claude-config/
     ├── baseline-ratchet.test.js # The ratchet on real baselines from a pilot repository
     ├── gates-template.test.js   # The dependency-cruiser template on a toy project: layers, cycle, module in no layer, path alias
     ├── python/test_check_imports.py # The Python gates on toy graphs, temp trees and end to end (uv run --no-project --with grimp==3.14 --with pytest pytest tests/python)
+    ├── python/test_check_mutation.py # The mutation gate on written .meta files, and on a real mutmut run of a toy package (Linux and macOS: mutmut refuses native Windows)
     └── fixtures/                # Real baselines and pyproject.toml from a pilot repository, anonymized
 ```
 
@@ -477,6 +479,8 @@ uv run --no-project --with grimp==3.14 python "$gates" layers --config backend/a
 **Make the checks required on `main`.** GitHub → repository → Settings → Branches → add a branch protection rule for `main` → tick *Require a pull request before merging*, *Require status checks to pass before merging* and *Require branches to be up to date before merging*, then add each check by name (a check is offered once it has run on at least one PR). Also tick *Do not allow bypassing the above settings*, otherwise an admin token — yours, hence Claude's — merges past the checks. Names are `<workflow name> / <job name>` as GitHub lists them: the repo's own gate jobs, plus `ratchet / ratchet`, `arch-python / python` and `arch-frontend / frontend` (`<caller job> / <called job>`) once the caller workflows above are on `main`.
 
 **Migrating a `@v2` caller.** Switch the caller to the `@v3` jobs above on a branch and let its PR run once, so the new check names exist. Then, in the branch protection of `main`: add `arch-python / python` and/or `arch-frontend / frontend`, and remove `arch / python` and `arch / frontend` — a required name that no longer runs stays "Expected" and blocks every PR. Leave the other required checks (`ratchet / ratchet`, the repo's own jobs) untouched. Do it before merging that PR.
+
+**Mutation gate (Python).** `mutmut` rewrites the files `[tool.mutmut]` names in `pyproject.toml` one mutant at a time and runs the selected tests against each one; a mutant the tests still pass on, or that no selected test reaches, is a hole in the tests. `gates/python/check_mutation.py` reads mutmut's `mutants/*.meta` and compares those not-killed mutants, by name, with `backend/mutation-baseline.json`: a new one fails (exit 1), a baselined one is tolerated, and the file may only shrink (ratchet). mutmut refuses native Windows, so the gate runs in CI only: the caller is `templates/gates/mutation-gate.yml` (`uses: …/mutation-gate.yml@v4`, `with: dir: backend`), check `mutation / mutation`. The first run has no baseline and is red with the list to commit as the baseline; `mutmut show <name>` prints a mutant's diff. Make the check required once its run time is known: a few minutes belongs on every PR, more belongs on a separate trigger.
 
 </details>
 

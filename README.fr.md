@@ -138,7 +138,8 @@ claude-config/
 │   ├── baseline-ratchet.yml     # Workflow CI réutilisable : un baseline ne peut que rétrécir
 │   └── ci.yml                   # La CI de ce repo : shellcheck + tous les tests de tests/, sur ubuntu et macos
 ├── gates/python/
-│   └── check_imports.py         # Gate Python cycles + couches (grimp), lancé par arch-gates-python.yml au tag épinglé
+│   ├── check_imports.py         # Gate Python cycles + couches (grimp), lancé par arch-gates-python.yml au tag épinglé
+│   └── check_mutation.py        # Gate de mutation : les mutants que les tests ne tuent pas (mutmut) ne peuvent que diminuer, lancé par mutation-gate.yml
 ├── agents/                      # Sous-agents → ~/.claude/agents/ (miroir), épinglés sur un autre modèle, lancés par /feature
 │   ├── plan-reviewer.md         # Relit le plan contre le spec avant tout code, lecture seule
 │   ├── spec-tester.md           # Écrit les tests d'acceptation depuis le spec, avant que le code existe
@@ -178,6 +179,7 @@ claude-config/
     ├── baseline-ratchet.test.js # Le ratchet sur de vrais baselines d'un repo pilote
     ├── gates-template.test.js   # Le modèle dependency-cruiser sur un projet jouet : couches, cycle, module sans couche, alias de chemin
     ├── python/test_check_imports.py # Les gates Python sur graphes jouets, arbres temporaires et de bout en bout (uv run --no-project --with grimp==3.14 --with pytest pytest tests/python)
+    ├── python/test_check_mutation.py # Le gate de mutation sur des .meta écrits à la main, et sur un vrai run mutmut d'un paquet jouet (Linux et macOS : mutmut refuse Windows natif)
     └── fixtures/                # Vrais baselines et pyproject.toml d'un repo pilote, anonymisés
 ```
 
@@ -477,6 +479,8 @@ uv run --no-project --with grimp==3.14 python "$gates" layers --config backend/a
 **Rendre les checks obligatoires sur `main`.** GitHub → repo → Settings → Branches → ajouter une règle de protection pour `main` → cocher *Require a pull request before merging*, *Require status checks to pass before merging* et *Require branches to be up to date before merging*, puis ajouter chaque check par son nom (un check est proposé dès qu'il a tourné sur au moins une PR). Cocher aussi *Do not allow bypassing the above settings*, sinon un jeton admin — le tien, donc celui de Claude — merge malgré les checks. Les noms sont `<nom du workflow> / <nom du job>` tels que GitHub les liste : les jobs de gate du repo, plus `ratchet / ratchet`, `arch-python / python` et `arch-frontend / frontend` (`<job appelant> / <job appelé>`) une fois les workflows appelants ci-dessus sur `main`.
 
 **Migrer un appelant `@v2`.** Passer l'appelant aux jobs `@v3` ci-dessus sur une branche et laisser sa PR tourner une fois, pour que les nouveaux noms de checks existent. Puis, dans la protection de branche de `main` : ajouter `arch-python / python` et/ou `arch-frontend / frontend`, et retirer `arch / python` et `arch / frontend` — un nom requis qui ne tourne plus reste « Expected » et bloque toutes les PR. Ne pas toucher aux autres checks requis (`ratchet / ratchet`, les jobs propres au repo). À faire avant de merger cette PR.
+
+**Gate de mutation (Python).** `mutmut` réécrit un mutant à la fois les fichiers que `[tool.mutmut]` nomme dans `pyproject.toml` et lance les tests sélectionnés contre chacun ; un mutant sur lequel les tests passent encore, ou qu'aucun test sélectionné n'atteint, est un trou dans les tests. `gates/python/check_mutation.py` lit les `mutants/*.meta` de mutmut et compare ces mutants non tués, par nom, à `backend/mutation-baseline.json` : un nouveau échoue (exit 1), un déjà listé est toléré, et le fichier ne peut que rétrécir (cliquet). mutmut refuse Windows natif, donc le gate ne tourne qu'en CI : l'appelant est `templates/gates/mutation-gate.yml` (`uses: …/mutation-gate.yml@v4`, `with: dir: backend`), check `mutation / mutation`. Le premier run n'a pas de baseline et sort rouge avec la liste à committer comme baseline ; `mutmut show <nom>` affiche le diff d'un mutant. Rendre le check requis une fois son temps de run connu : quelques minutes, sur chaque PR ; davantage, sur un déclencheur séparé.
 
 </details>
 
