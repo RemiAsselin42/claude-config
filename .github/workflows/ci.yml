@@ -1,0 +1,33 @@
+# shellcheck and every self-check in tests/, on the two OS families the scripts
+# are deployed to. install.sh itself is not run: it needs the owner's machine.
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - name: shellcheck
+        run: |
+          command -v shellcheck >/dev/null || brew install shellcheck
+          shellcheck --version | sed -n 2p
+          shellcheck -S warning install.sh scripts/*.sh hooks/*.sh tests/*.sh
+      - name: bash self-checks
+        run: |
+          bash --version | head -1
+          for t in tests/*.sh; do echo "== $t"; bash "$t" || exit 1; done
+      - name: node tests
+        run: node --test tests/*.test.js
+      - name: python tests
+        run: uv run --no-project --python 3.12 --with grimp==3.14 --with pytest pytest tests/python
