@@ -136,6 +136,7 @@ claude-config/
 │   ├── arch-gates-python.yml    # Workflow CI réutilisable : cycles d'imports + contrats de couches d'un paquet Python
 │   ├── arch-gates-frontend.yml  # Workflow CI réutilisable : cycles d'imports + contrats de couches sous src/ (dependency-cruiser)
 │   ├── baseline-ratchet.yml     # Workflow CI réutilisable : un baseline ne peut que rétrécir
+│   ├── mutation-gate.yml        # Workflow CI réutilisable : mutmut sur ce que [tool.mutmut] nomme, puis les mutants non tués contre le baseline
 │   └── ci.yml                   # La CI de ce repo : shellcheck + tous les tests de tests/, sur ubuntu et macos
 ├── gates/python/
 │   ├── check_imports.py         # Gate Python cycles + couches (grimp), lancé par arch-gates-python.yml au tag épinglé

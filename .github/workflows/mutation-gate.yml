@@ -1,0 +1,73 @@
+# mutation-gate — reusable workflow: the mutants the tests do not kill may only shrink.
+#
+# mutmut mutates the files [tool.mutmut] names in the project's pyproject.toml and
+# runs the selected tests against every mutant (it refuses native Windows: CI is
+# where this runs). The gate script then reads mutants/*.meta and compares the
+# not-killed mutants (survived, or reached by no test) with mutation-baseline.json
+# next to pyproject.toml. The script comes from claude-config at the pinned tag
+# (checked out at this workflow's own commit, never from the branch under test);
+# the repo keeps only [tool.mutmut], the baseline and this caller, protected by
+# hooks/protect-gates.js and the baseline-ratchet workflow.
+#
+# Caller:
+#
+#   name: mutation-gate
+#   on:
+#     pull_request:
+#     push:
+#       branches: [main]
+#   permissions:
+#     contents: read
+#   jobs:
+#     mutation:
+#       uses: RemiAsselin42/claude-config/.github/workflows/mutation-gate.yml@v4
+#       with:
+#         dir: backend
+#
+# Check reported: "mutation / mutation". Make it required on main once its run time
+# is known: under a few minutes it belongs on every PR, otherwise keep it on a
+# separate trigger. First run with no baseline: red, with the list to commit.
+name: mutation-gate
+on:
+  workflow_call:
+    inputs:
+      dir:
+        description: directory holding pyproject.toml with [tool.mutmut], the tests and the baseline
+        type: string
+        required: true
+      sync-args:
+        description: arguments for `uv sync` so the project's tests can run (its test dependencies)
+        type: string
+        required: false
+        default: --group dev
+jobs:
+  mutation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .arch-gates
+          sparse-checkout: gates/python/check_mutation.py
+          sparse-checkout-cone-mode: false
+      - uses: astral-sh/setup-uv@v4
+      # mutmut is added to the project's environment for this run only: nothing to
+      # declare in the project. Its exit code is not the verdict, the gate's is.
+      - name: mutmut run
+        working-directory: ${{ inputs.dir }}
+        env:
+          SYNC_ARGS: ${{ inputs.sync-args }}
+        run: |
+          uv sync $SYNC_ARGS
+          start=$SECONDS
+          uv run --with mutmut==3.8.0 mutmut run || true
+          echo "mutmut run: $((SECONDS - start))s"
+          uv run --with mutmut==3.8.0 mutmut results || true
+      - name: Not-killed mutants against the baseline
+        working-directory: ${{ inputs.dir }}
+        run: uv run --no-project --python 3.12 python "$GITHUB_WORKSPACE/.arch-gates/gates/python/check_mutation.py"
