@@ -112,15 +112,25 @@ if [[ "${CLAUDE_CONFIG_SYNCED:-}" != "1" ]]; then
   if git -C "$REPO_DIR" remote get-url upstream &>/dev/null; then
     echo "${BOLD}${CYAN}Syncing from upstream...${RESET}"
     _head_before="$(git -C "$REPO_DIR" rev-parse HEAD)"
-    bash "$REPO_DIR/scripts/sync-upstream.sh" --force
+    _sync_rc=0
+    bash "$REPO_DIR/scripts/sync-upstream.sh" --force || _sync_rc=$?
     _head_after="$(git -C "$REPO_DIR" rev-parse HEAD)"
     if [[ "$_head_before" != "$_head_after" ]]; then
       echo "  ${YELLOW}Config updated from upstream — restarting install.sh with the new version...${RESET}"
       export CLAUDE_CONFIG_SYNCED=1
       exec bash "$REPO_DIR/install.sh" ${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}
     fi
-    echo "  ${GREEN}✓ upstream synced (no changes)${RESET}"
-    unset _head_before _head_after
+    # 3 = skipped (dirty synced path, upstream unreachable; reason printed above). Saying
+    # "synced" here once hid a fork three merges behind, which then deployed a stale
+    # settings.json over the owner's /model choice.
+    if [[ "$_sync_rc" -eq 3 ]]; then
+      echo "  ${YELLOW}⚠ upstream sync skipped — the files deployed below come from this checkout, possibly behind upstream${RESET}"
+    elif [[ "$_sync_rc" -ne 0 ]]; then
+      echo "  ${YELLOW}⚠ upstream sync failed (exit $_sync_rc) — deploying this checkout as it is${RESET}"
+    else
+      echo "  ${GREEN}✓ upstream synced (no changes)${RESET}"
+    fi
+    unset _head_before _head_after _sync_rc
   fi
 fi
 
