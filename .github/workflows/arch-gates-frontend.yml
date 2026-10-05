@@ -1,0 +1,38 @@
+# arch-gates-frontend — reusable workflow: import cycles and layer contracts under src/.
+#
+# One reusable workflow per side and no `if` on the job: a repo calls only the sides it
+# has, so a side it lacks never shows as a skipped check, and a required check can only
+# go missing — which blocks the merge — never be skipped past by emptying an input.
+# dependency-cruiser and typescript are pinned here, not in the repo's package.json;
+# the repo keeps only its declarations: .dependency-cruiser.cjs and
+# .dependency-cruiser-known-violations.json next to it, protected by
+# hooks/protect-gates.js and the baseline-ratchet workflow.
+#
+# Caller: see arch-gates-python.yml (same file, one job per side the repo has).
+# Check reported: "arch-frontend / frontend". Make it required on main.
+name: arch-gates-frontend
+on:
+  workflow_call:
+    inputs:
+      dir:
+        description: directory holding src/ and .dependency-cruiser.cjs ("." at the repo root)
+        type: string
+        required: true
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ${{ inputs.dir }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # No project install: the imports between the repo's own files are all the
+      # rules look at, and typescript sits next to dependency-cruiser so .ts files
+      # are parsed.
+      - name: Import cycles and layer contracts
+        run: npx --yes -p dependency-cruiser@17.4.3 -p typescript@5.9.3 depcruise src --config .dependency-cruiser.cjs --ignore-known
