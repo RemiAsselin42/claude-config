@@ -1,7 +1,8 @@
 # Mutation testing: the mutants the tests do not kill may only shrink. The gate
 # logic comes from claude-config at the pinned tag; this repo only declares what to
-# mutate ([tool.mutmut] in <dir>/pyproject.toml) and keeps <dir>/mutation-baseline.json.
-# mutmut refuses native Windows: this job is where the gate runs.
+# mutate ([tool.mutmut] in <dir>/pyproject.toml) and keeps <dir>/mutation-baseline.json,
+# a list of [mutant name, hash of its function] pairs. Add mutants/ (mutmut's working
+# directory) to .gitignore. mutmut refuses native Windows: this job is where the gate runs.
 name: mutation-gate
 on:
   pull_request:
