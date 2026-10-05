@@ -1092,9 +1092,14 @@ fi
 # settings.json copied above. The five others are removed here and the removal
 # is verified: a silent leftover is exactly how that bug lived for months.
 LEGACY_CC_SAFE_HOOKS=(comment-strip syntax-check context-monitor cd-git-allow api-error-alert)
+# Prints the name of each one it found and removed, one per line: the summary
+# below says "leftovers removed" only when there were some.
 _remove_legacy_cc_safe_hooks() {
   local h
-  for h in "${LEGACY_CC_SAFE_HOOKS[@]}"; do rm -f "$CLAUDE_DIR/hooks/$h.sh"; done
+  for h in "${LEGACY_CC_SAFE_HOOKS[@]}"; do
+    [[ -e "$CLAUDE_DIR/hooks/$h.sh" ]] || continue
+    rm -f "$CLAUDE_DIR/hooks/$h.sh" && echo "$h"
+  done
 }
 # Returns 1 and names what is left when any of the five is still on disk or
 # still registered in the deployed settings.json.
@@ -1108,10 +1113,10 @@ _verify_legacy_cc_safe_hooks_removed() {
   echo "  ${RED}✗ legacy cc-safe-setup hooks still present: ${left[*]}${RESET}" >&2
   return 1
 }
-_step "Removing legacy cc-safe-setup hooks..."
-_remove_legacy_cc_safe_hooks
+_step "Checking shell guards..."
+_legacy_removed="$(_remove_legacy_cc_safe_hooks)"
 _verify_legacy_cc_safe_hooks_removed || exit 1
-_ok "shell guards (hooks/*.sh, protect-gates.js), cc-safe-setup leftovers removed"
+_ok "shell guards (hooks/*.sh, protect-gates.js)${_legacy_removed:+, cc-safe-setup leftovers removed: ${_legacy_removed//$'\n'/, }}"
 
 # --- Install pinned plugins (after settings.json copy — plugin state must survive it) ---
 _step "Installing pinned plugins..."
