@@ -1124,6 +1124,7 @@ if [[ ! -f "$_style_cfg_root/ponytail/config.json" && ! -f "$_style_cfg_root/cav
 fi
 # Legacy caveman-toggle machinery (pre plugin-flag era) — retire deployed copies.
 rm -f "$CLAUDE_DIR/scripts/caveman-toggle.sh" "$CLAUDE_DIR/caveman.enabled" "$CLAUDE_DIR/caveman.level"
+rm -f "$CLAUDE_DIR/scripts/baseline-ratchet.js"   # renamed .cjs (2026-10): scripts/ is additive, the old copy would linger
 _ok_flush
 _detail "  ${GREEN}✓ Claude configuration updated${RESET}"
 

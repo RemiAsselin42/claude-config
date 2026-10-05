@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// baseline-ratchet.js — a gate baseline may only shrink.
+// baseline-ratchet.cjs — a gate baseline may only shrink.
 //
 // Compares every baseline file between two git refs and fails when the head
 // side holds entries the base side does not (or when a baseline appeared or
@@ -8,7 +8,7 @@
 // baseline that is not an array counts as one opaque entry: any change to it
 // is growth, and so is a change of shape (array <-> object).
 //
-//   node baseline-ratchet.js --base <ref> --head <ref> [--repo <dir>] [--override]
+//   node baseline-ratchet.cjs --base <ref> --head <ref> [--repo <dir>] [--override]
 //
 // Exit 0: no growth, or growth with --override (reported loudly).
 // Exit 1: growth without --override.
@@ -32,7 +32,7 @@ const head = arg("--head");
 const repo = arg("--repo", process.cwd());
 const override = process.argv.includes("--override");
 if (!base || !head) {
-  console.error("usage: baseline-ratchet.js --base <ref> --head <ref> [--repo <dir>] [--override]");
+  console.error("usage: baseline-ratchet.cjs --base <ref> --head <ref> [--repo <dir>] [--override]");
   process.exit(2);
 }
 
