@@ -127,6 +127,10 @@ claude-config/
 ├── settings.json                # Permissions, hooks, niveau d'effort, attribution
 ├── mempalace.yaml               # Wing MemPalace de ce repo + exclusions de mining
 ├── .graphifyignore              # Exclut vault/ (généré) du graphe de ce repo
+├── .gitignore                   # env.local, vault/, context/, graphify-out/ : le côté machine et généré
+├── .gitattributes               # LF partout ; vault/ et graphify-out/ en merge « ours », sans conversion de fin de ligne
+├── README.md                    # Ce fichier, en anglais
+├── README.fr.md                 # Ce fichier
 │
 ├── .github/workflows/
 │   ├── arch-gates-python.yml    # Workflow CI réutilisable : cycles d'imports + contrats de couches d'un paquet Python
