@@ -87,7 +87,7 @@ cd <frontend dir> && npx --yes -p dependency-cruiser@17.4.3 -p typescript@5.9.3 
 - the upward edges and cycles the baseline will freeze (count, then each `a -> b`), or "none";
 - each probe and its result (`sandbox/__probe.ts -> features/x/Panel.tsx: red, layer-2`);
 - the limitations: what the stack cannot enforce, and where a new file with an unforeseen name lands;
-- the repo's own analyzers (step 1) that will flag a created file, each with the exact config line the owner adds, verified on a **copy** of their config, never on the file itself (Fallow: `"ignorePatterns": [".dependency-cruiser.cjs"]`, checked with `fallow -c <copy> -r .`: findings on that file 2 -> 0 on the Cleant pilot).
+- the repo's own analyzers (step 1), the finding each will raise on a created file and the exact config line the owner adds (Fallow: `unused-file` on `.dependency-cruiser.cjs`, line `"ignorePatterns": [".dependency-cruiser.cjs"]`). Announced here, verified in step 6: the file does not exist yet, so nothing can be run against it now.
 
 Then ask with **AskUserQuestion**: "Approve these layers?" with options *Approve*, *Change them* (the owner writes the change in "Other"), *Stop*. Iterate — redraft, re-probe, show the full table again — until *Approve* or *Stop*. Never create a gate file before *Approve*.
 
@@ -103,7 +103,7 @@ uv run --no-project --with grimp==3.14 python "$gates" cycles --config <python d
 uv run --no-project --with grimp==3.14 python "$gates" layers --config <python dir>/arch-gates.json --init-baseline
 ```
 
-Exit 2 on `layers` means a module in no layer: the proposal missed it. Stop, report, and start over from step 4 (the config now exists on `ci/arch-gates`: the owner deletes it, or runs `/init-gates` again from a fresh branch off `origin/main`, where no gate file exists).
+Exit 2 on `layers` (a module in no layer) should not happen here: the draft was probed in step 4. If it does, the config you wrote differs from the draft: say so and go to the last rule of step 7 — the owner fixes `arch-gates.json` by hand (a human may edit it), then creates the baselines with the two `--init-baseline` commands above; list the unclassified modules and those two steps in the PR.
 
 **Frontend** — `<frontend dir>/.dependency-cruiser.cjs` from `~/.claude/templates/gates/dependency-cruiser.cjs`: fill `LAYERS` with the approved layers (one array of path regexes per layer, matched right after `src/`, e.g. `'utils/'`, `'(App|main)\\.tsx$'`) and set `tsConfig.fileName` to the tsconfig found in step 1. Change nothing else. Then the baseline:
 
@@ -117,13 +117,15 @@ cd <frontend dir> && npx --yes -p dependency-cruiser@17.4.3 -p typescript@5.9.3 
 
 Run the gates exactly as CI does (commands in step 5, without `--init-baseline`; frontend with `--ignore-known`): all green. Then replay the step 4 probes against the created files — one per invariant, plus, when no invariant crosses it, one **new** upward import through the tsconfig path alias (the edge a missing `tsConfig` would silently drop): each red with the rule named, then deleted, then green again. `rtk git status` must show no leftover.
 
+**The repo's own analyzers (step 1), now that the files exist.** Run each one as its CI or hook does, with the repo's config untouched: it must report the created files (Fallow on the pilot: `unused-file` on `.dependency-cruiser.cjs`). Run it again with a **copy** of its config carrying the line announced in step 4 (`fallow -c <copy> -r .`): no finding left on those files. Both results go in the PR; the repo's config itself is never edited.
+
 ## 7. Branch, commit, PR — then hand over
 
 - Commit only the files of step 5 on `ci/arch-gates` (Conventional Commits, `ci(gates): …`), `rtk git push -u origin ci/arch-gates`, `gh pr create` with: the invariants and their evidence, the approved layer table, the limitations, the frozen debt (entries per baseline), each probe red then green.
 - Tell the owner what only they can do:
   1. the PR's `ratchet / ratchet` check is red **by design**: every baseline is new, so it counts as growth. Setting the `baseline-update` label is how they accept the frozen debt;
-  2. the line from step 4 in their analyzer's config, if any: that check stays red until they add it, and you never add it for them;
+  2. the line from step 4 (verified in step 6) in their analyzer's config, if any: that check stays red until they add it, and you never add it for them;
   3. once the checks have run, make `arch / python` and/or `arch / frontend` (and `ratchet / ratchet`) required on `main` — offer to do it with their OK;
   4. merging is theirs.
 - Never merge, never set the label, never touch a gate file outside this flow.
-- Whatever stops you once step 5 has begun — a red check you may not fix, the exemption gone, a question — finish with what exists: commit the created files, push, open the PR, and list what is still missing for the owner to add. Never leave created gate files uncommitted, and never suggest running `/init-gates` again on this branch: step 1 refuses a repo that already has a gate file.
+- Whatever stops you once step 5 has begun — a red check you may not fix, the exemption gone, a question — publish what can be published: commit the created files, push, open the PR, and list what is still missing for the owner. If a hook blocks the commit itself (an analyzer in pre-commit, say), never bypass it (`--no-verify` is blocked anyway): leave the files in place, name the hook and the config line the owner adds, and say that once they have added it any session can commit and push these files — `git add` and `git commit` of a gate file are not blocked, only writing one is. Never suggest running `/init-gates` again on this branch: step 1 refuses a repo that already has a gate file.
