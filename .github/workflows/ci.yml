@@ -18,6 +18,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v4
+      # install.sh refuses bash < 4.4 and tells a Mac user to brew install bash;
+      # the runner's /bin/bash is 3.2, so the self-checks that load install.sh
+      # need the same thing a Mac user does.
+      - name: bash 4.4+ (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install bash
+          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
       - name: shellcheck
         run: |
           command -v shellcheck >/dev/null || brew install shellcheck
@@ -26,7 +34,9 @@ jobs:
       - name: bash self-checks
         run: |
           bash --version | head -1
-          for t in tests/*.sh; do echo "== $t"; bash "$t" || exit 1; done
+          rc=0
+          for t in tests/*.sh; do echo "== $t"; bash "$t" || rc=1; done
+          exit $rc
       - name: node tests
         run: node --test tests/*.test.js
       - name: python tests
