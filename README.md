@@ -135,6 +135,7 @@ claude-config/
 │   └── ci.yml                   # This repo's own CI: shellcheck + every test under tests/, on ubuntu and macos
 ├── gates/python/
 │   └── check_imports.py         # Python cycles + layers gate (grimp), run by arch-gates-python.yml at the pinned tag
+├── agents/                      # Demo drift: this directory does not exist
 ├── commands/                    # Slash-commands → ~/.claude/commands/
 ├── hooks/                       # PreToolUse guards → ~/.claude/hooks/ (Bash and PowerShell tools)
 │   ├── protect-gates.js         # Blocks Claude's edits to gate configs, baselines, workflows, --no-verify, merge, labels
