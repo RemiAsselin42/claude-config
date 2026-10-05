@@ -129,10 +129,11 @@ claude-config/
 ├── .graphifyignore              # Exclut vault/ (généré) du graphe de ce repo
 │
 ├── .github/workflows/
-│   ├── arch-gates.yml           # Workflow CI réutilisable : cycles d'imports + contrats de couches, backend et frontend
+│   ├── arch-gates-python.yml    # Workflow CI réutilisable : cycles d'imports + contrats de couches d'un paquet Python
+│   ├── arch-gates-frontend.yml  # Workflow CI réutilisable : cycles d'imports + contrats de couches sous src/ (dependency-cruiser)
 │   └── baseline-ratchet.yml     # Workflow CI réutilisable : un baseline ne peut que rétrécir
 ├── gates/python/
-│   └── check_imports.py         # Gate Python cycles + couches (grimp), lancé par arch-gates.yml au tag épinglé
+│   └── check_imports.py         # Gate Python cycles + couches (grimp), lancé par arch-gates-python.yml au tag épinglé
 ├── commands/                    # Slash-commands → ~/.claude/commands/
 ├── hooks/                       # Gardes PreToolUse → ~/.claude/hooks/ (outils Bash et PowerShell)
 │   ├── protect-gates.js         # Bloque les éditions par Claude des configs de gate, baselines, workflows, --no-verify, merge, labels
@@ -389,7 +390,7 @@ Principes : ce qui bloque est déterministe, les reviewers LLM sont consultatifs
 | `hooks/destructive-guard.sh`, `branch-guard.sh`, `secret-guard.sh` | `rm -rf` sur chemins larges, `git reset --hard`, `git clean`, checkout forcé, push sur `main`, force push, `git add` de `.env` ou de clés | copiés de cc-safe-setup 30.0.7 (MIT), retouchés pour matcher aussi `rtk git …` et `cd … && git …` |
 | `hooks/protect-gates.js` | éditions des configs de gate (`.dependency-cruiser.*`, `eslint.config.*`, `ruff.toml`, `mypy.ini`, `.github/workflows/*`), des baselines (`*-baseline.json`, `.dependency-cruiser-known-violations.json`) et des sections `[tool.ruff\|mypy\|mutmut\|pytest]` de `pyproject.toml` (les dépendances restent libres) ; `git commit --no-verify`, `--update-baseline`, `lint:arch:baseline`, `gh pr merge`, `gh pr edit --add-label` et les endpoints REST derrière ; `git merge` et tout push qui atterrit sur `main`/`master` (refspec, `HEAD`, `--all`, push nu depuis main) sauf si le dernier message tapé par l'humain est `/create-commit` ; écritures shell ou PowerShell (`>`, `sed -i`, `tee`, `cp`, `mv`, `rm`, `Set-Content`, `Out-File`, `Add-Content`, `Copy-Item`, `Move-Item`, `Remove-Item`) vers ces fichiers ; le harnais lui-même (`~/.claude/settings.json`, `~/.claude/hooks/*`, `.claude/settings*.json`, les transcripts de session `~/.claude/projects/**/*.jsonl` qui portent ce marqueur) | Node, sans dépendance ; `PreToolUse` sur `Bash\|PowerShell` et sur `Edit\|Write\|MultiEdit\|NotebookEdit` |
 | `.github/workflows/baseline-ratchet.yml` | un baseline qui grossit, apparaît ou disparaît dans une PR | CI — la couche qui tient vraiment ; les hooks sont des ralentisseurs |
-| `.github/workflows/arch-gates.yml` | un nouveau cycle d'imports, une nouvelle remontée entre couches, un module sans couche | CI ; Python via `gates/python/check_imports.py` (grimp), frontend via dependency-cruiser, imports runtime uniquement, arêtes directes, cycles entre modules des deux côtés |
+| `.github/workflows/arch-gates-python.yml`, `arch-gates-frontend.yml` | un nouveau cycle d'imports, une nouvelle remontée entre couches, un module sans couche | CI ; Python via `gates/python/check_imports.py` (grimp), frontend via dependency-cruiser, imports runtime uniquement, arêtes directes, cycles entre modules des deux côtés |
 
 Chaque hook se déclenche pour l'outil Bash comme pour l'outil PowerShell ; `tests/hooks.test.js` envoie les deux payloads. Lancer Claude Code avec `PROTECT_GATES=off` dans l'environnement transforme protect-gates en avertissement visible pour cette session — sauf pour les chemins du harnais, qui restent bloqués. Le ratchet CI n'est jamais désactivé.
 
@@ -430,7 +431,7 @@ jobs:
 - `frontend/.dependency-cruiser.cjs` depuis `templates/gates/dependency-cruiser.cjs` : seuls son tableau `LAYERS` et `tsConfig` changent d'un repo à l'autre ; les règles (`no-circular`, une `layer-*` par couche, un module sans couche) en découlent. `frontend/.dependency-cruiser-known-violations.json` est la baseline.
 
 ```yaml
-# .github/workflows/arch-gates.yml
+# .github/workflows/arch-gates.yml — ne garder que le ou les jobs des côtés que le repo a
 name: arch-gates
 on:
   pull_request:
@@ -439,12 +440,17 @@ on:
 permissions:
   contents: read
 jobs:
-  arch:
-    uses: RemiAsselin42/claude-config/.github/workflows/arch-gates.yml@v2
+  arch-python:
+    uses: RemiAsselin42/claude-config/.github/workflows/arch-gates-python.yml@v3
     with:
-      python-config: backend/arch-gates.json   # omettre un côté absent du repo
-      frontend-dir: frontend
+      config: backend/arch-gates.json
+  arch-frontend:
+    uses: RemiAsselin42/claude-config/.github/workflows/arch-gates-frontend.yml@v3
+    with:
+      dir: frontend
 ```
+
+Un workflow réutilisable par côté, sans `if` : un côté absent du repo n'a pas de job, donc rien n'apparaît en « skipped », et un check requis ne peut que manquer — ce qui bloque le merge — jamais être sauté en vidant une entrée (c'est exactement ce que permettait l'unique `arch-gates.yml@v2` d'avant).
 
 Les lancer en local avant de pousser, depuis la racine du repo :
 
@@ -455,7 +461,7 @@ uv run --no-project --with grimp==3.14 python "$gates" layers --config backend/a
 (cd frontend && npx --yes -p dependency-cruiser@17.4.3 -p typescript@5.9.3 depcruise src --config .dependency-cruiser.cjs --ignore-known)
 ```
 
-**Rendre les checks obligatoires sur `main`.** GitHub → repo → Settings → Branches → ajouter une règle de protection pour `main` → cocher *Require a pull request before merging*, *Require status checks to pass before merging* et *Require branches to be up to date before merging*, puis ajouter chaque check par son nom (un check est proposé dès qu'il a tourné sur au moins une PR). Cocher aussi *Do not allow bypassing the above settings*, sinon un jeton admin — le tien, donc celui de Claude — merge malgré les checks. Les noms sont `<nom du workflow> / <nom du job>` tels que GitHub les liste : les jobs de gate du repo, plus `ratchet / ratchet`, `arch / python` et `arch / frontend` (`<job appelant> / <job appelé>`) une fois les workflows appelants ci-dessus sur `main`.
+**Rendre les checks obligatoires sur `main`.** GitHub → repo → Settings → Branches → ajouter une règle de protection pour `main` → cocher *Require a pull request before merging*, *Require status checks to pass before merging* et *Require branches to be up to date before merging*, puis ajouter chaque check par son nom (un check est proposé dès qu'il a tourné sur au moins une PR). Cocher aussi *Do not allow bypassing the above settings*, sinon un jeton admin — le tien, donc celui de Claude — merge malgré les checks. Les noms sont `<nom du workflow> / <nom du job>` tels que GitHub les liste : les jobs de gate du repo, plus `ratchet / ratchet`, `arch-python / python` et `arch-frontend / frontend` (`<job appelant> / <job appelé>`) une fois les workflows appelants ci-dessus sur `main`.
 
 </details>
 
