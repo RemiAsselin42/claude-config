@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Self-check that both READMEs describe the repo as git has it: every path in the
 # "## Structure" tree is tracked, every tracked entry of a directory the tree
-# enumerates is in the tree, and the slash-command table names exactly the files
-# in commands/. The tree once kept agents/ and templates/context/ for months after
+# enumerates (the root included) is in the tree, and the slash-command table
+# names exactly the files in commands/. The tree once kept agents/ and templates/context/ for months after
 # both were gone, and listed a local-only docs file; nothing noticed. Reads
 # `git ls-files`, not the disk, so an untracked local file cannot make it pass.
 # Run after adding, moving or removing a file:
@@ -49,7 +49,7 @@ tree_paths() {  # <readme> -> one tracked-relative path per line
         *) continue ;;
       esac
       name=${name%%#*}
-      name=${name%"${name##*[! ]}"}
+      name=${name%"${name##*[![:space:]]}"}
       stack[depth]=$name
       path=""
       for ((i = 0; i < depth; i++)); do path+=${stack[i]}; done
@@ -69,8 +69,9 @@ for readme in README.md README.fr.md; do
   [[ $missing -eq 0 ]] && ok "$readme: every tree entry is tracked"
 
   # 2. Every tracked entry of a directory the tree enumerates (the parent of at
-  #    least one entry) is in the tree, as itself or as the first segment of a
-  #    deeper entry. A directory listed without children is a leaf: not checked.
+  #    least one entry; the root, "", is one) is in the tree, as itself or as the
+  #    first segment of a deeper entry. A directory listed without children is a
+  #    leaf: not checked.
   stray=0
   while IFS= read -r dir; do
     while IFS= read -r entry; do
@@ -80,12 +81,12 @@ for readme in README.md README.fr.md; do
         [[ $p == "$dir$entry" || $p == "$dir$entry/"* ]] && { found=1; break; }
       done <<<"$paths"
       [[ $found -eq 1 ]] || { bad "$readme: $dir$entry is tracked but not in the tree"; stray=$((stray + 1)); }
-    done < <(git ls-files -- "$dir" | sed "s|^$dir||" | cut -d/ -f1 | sort -u)
-  done < <(sed 's|/$||; s|[^/]*$||' <<<"$paths" | grep . | sort -u)
+    done < <(git ls-files -- "${dir:-.}" | sed "s|^$dir||" | cut -d/ -f1 | sort -u)
+  done < <(sed 's|/$||; s|[^/]*$||' <<<"$paths" | sort -u)
   [[ $stray -eq 0 ]] && ok "$readme: every tracked entry of an enumerated directory is in the tree"
 
   # 3. The slash-command table and commands/*.md name the same set.
-  table="$(sed -n 's/^| `\/\([a-z-]*\)`.*/\1/p' "$readme" | sort)"
+  table="$(sed -n 's/^| `\/\([^`]*\)`.*/\1/p' "$readme" | sort)"
   files="$(git ls-files -- commands | sed 's|^commands/||; s|\.md$||' | sort)"
   if [[ $table == "$files" ]]; then
     ok "$readme: the command table matches commands/"

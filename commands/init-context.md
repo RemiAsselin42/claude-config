@@ -25,7 +25,7 @@ find . -path './context/*.md' | sort
 ```
 
 For each file found, read it and check:
-- If it contains only the template placeholder comments (`<!--`) with no real content → **fill it**
+- If it is empty or holds only placeholder comments (`<!--`) → **fill it**
 - If it already has real content → **skip it** (do not overwrite unless the file is explicitly listed in $ARGUMENTS)
 
 If `context/` doesn't exist, create it:
