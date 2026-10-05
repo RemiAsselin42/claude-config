@@ -1,0 +1,65 @@
+# arch-gates-python — reusable workflow: import cycles and layer contracts of a Python package.
+#
+# One reusable workflow per side and no `if` on the job: a repo calls only the sides it
+# has, so a side it lacks never shows as a skipped check, and a required check can only
+# go missing — which blocks the merge — never be skipped past by emptying an input.
+# The script comes from claude-config at the pinned tag (checked out at this
+# workflow's own commit, never from the branch under test); the repo keeps only its
+# declarations: arch-gates.json and the two baselines next to it, protected by
+# hooks/protect-gates.js and the baseline-ratchet workflow.
+#
+# Caller, written by /init-gates with only the job(s) of the sides the repo has:
+#
+#   name: arch-gates
+#   on:
+#     pull_request:
+#     push:
+#       branches: [main]
+#   permissions:
+#     contents: read
+#   jobs:
+#     arch-python:
+#       uses: RemiAsselin42/claude-config/.github/workflows/arch-gates-python.yml@v3
+#       with:
+#         config: backend/arch-gates.json
+#     arch-frontend:
+#       uses: RemiAsselin42/claude-config/.github/workflows/arch-gates-frontend.yml@v3
+#       with:
+#         dir: frontend
+#
+# Check reported: "arch-python / python". Make it required on main.
+name: arch-gates-python
+on:
+  workflow_call:
+    inputs:
+      config:
+        description: path to the package's arch-gates.json (its directory holds the package and the baselines)
+        type: string
+        required: true
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      # The gate script at this workflow's own commit, never the caller's branch
+      # (same mechanism as baseline-ratchet.yml).
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .arch-gates
+          sparse-checkout: gates/python/check_imports.py
+          sparse-checkout-cone-mode: false
+      - uses: astral-sh/setup-uv@v4
+      # grimp parses the files statically: the project's own dependencies are not installed.
+      - name: Import cycles
+        env:
+          CONFIG: ${{ inputs.config }}
+        run: uv run --no-project --python 3.12 --with grimp==3.14 python .arch-gates/gates/python/check_imports.py cycles --config "$CONFIG"
+      - name: Layer contracts
+        if: success() || failure()
+        env:
+          CONFIG: ${{ inputs.config }}
+        run: uv run --no-project --python 3.12 --with grimp==3.14 python .arch-gates/gates/python/check_imports.py layers --config "$CONFIG"
