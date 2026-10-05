@@ -14,7 +14,7 @@ The gate logic lives in claude-config (`gates/python/check_imports.py`, `.github
 
 **The protected-file exemption.** While the latest message the owner typed is `/init-gates`, `protect-gates` lets you **create** a gate file that does not exist yet (Write to an absent path, or a shell redirect to one). Changing or deleting an existing one stays blocked, and so does `--update-baseline`. Consequences:
 
-- Ask every question with **AskUserQuestion**: its answer comes back as a tool result, so `/init-gates` stays the latest typed message. If the owner types a free reply instead, the exemption ends — say so and ask them to run `/init-gates` again.
+- Ask every question with **AskUserQuestion**: its answer comes back as a tool result, so `/init-gates` stays the latest typed message. If the owner types a free reply instead, the exemption ends — say so and ask them to run `/init-gates` again (that works only while nothing has been created yet; once step 5 has begun, see the last rule of step 7).
 - Write each gate file **once**, in its final form. Draft and iterate in the scratchpad, never in the repo.
 
 ## 1. Preconditions — stop and report if one fails
@@ -26,6 +26,7 @@ Read-only until every check below has passed: stopping must leave the owner exac
 - Detect the sides (or take them from the arguments):
   - **Python**: a directory with `pyproject.toml` and a package directory under it (the one the app imports from, e.g. `app/`).
   - **Frontend**: a directory with `package.json`, `src/` and the tsconfig whose `include` covers `src` (check `references` when `tsconfig.json` has no `include`).
+- **Detect the repo's own analyzers**: Fallow (`.fallowrc.json`, `fallow.toml`), knip (`knip.json*`, `knip.ts`, a `knip` key in `package.json`), depcheck (`.depcheckrc*`), and any CI job that runs one (`grep -ril 'fallow\|knip\|depcheck' .github/workflows`). They report a created `.dependency-cruiser.cjs` as an unused file (nothing imports a config), and their config is a check you never edit (CLAUDE.md, engineering rules). Note them: step 4 names the line the owner will add, step 7 hands it over.
 - Only then: `rtk git fetch` and `git switch -c ci/arch-gates origin/main`.
 
 ## 2. Find the boundaries first — before reading the graph
@@ -85,7 +86,8 @@ cd <frontend dir> && npx --yes -p dependency-cruiser@17.4.3 -p typescript@5.9.3 
 - the layers, lowest first: `# | regex (or modules) | runtime / role | what it holds`;
 - the upward edges and cycles the baseline will freeze (count, then each `a -> b`), or "none";
 - each probe and its result (`sandbox/__probe.ts -> features/x/Panel.tsx: red, layer-2`);
-- the limitations: what the stack cannot enforce, and where a new file with an unforeseen name lands.
+- the limitations: what the stack cannot enforce, and where a new file with an unforeseen name lands;
+- the repo's own analyzers (step 1) that will flag a created file, each with the exact config line the owner adds, verified on a **copy** of their config, never on the file itself (Fallow: `"ignorePatterns": [".dependency-cruiser.cjs"]`, checked with `fallow -c <copy> -r .`: findings on that file 2 -> 0 on the Cleant pilot).
 
 Then ask with **AskUserQuestion**: "Approve these layers?" with options *Approve*, *Change them* (the owner writes the change in "Other"), *Stop*. Iterate — redraft, re-probe, show the full table again — until *Approve* or *Stop*. Never create a gate file before *Approve*.
 
@@ -101,7 +103,7 @@ uv run --no-project --with grimp==3.14 python "$gates" cycles --config <python d
 uv run --no-project --with grimp==3.14 python "$gates" layers --config <python dir>/arch-gates.json --init-baseline
 ```
 
-Exit 2 on `layers` means a module in no layer: the proposal missed it. Stop, report, and start over from step 4 (the config already exists: the owner deletes it, or runs `/init-gates` on a fresh branch).
+Exit 2 on `layers` means a module in no layer: the proposal missed it. Stop, report, and start over from step 4 (the config now exists on `ci/arch-gates`: the owner deletes it, or runs `/init-gates` again from a fresh branch off `origin/main`, where no gate file exists).
 
 **Frontend** — `<frontend dir>/.dependency-cruiser.cjs` from `~/.claude/templates/gates/dependency-cruiser.cjs`: fill `LAYERS` with the approved layers (one array of path regexes per layer, matched right after `src/`, e.g. `'utils/'`, `'(App|main)\\.tsx$'`) and set `tsConfig.fileName` to the tsconfig found in step 1. Change nothing else. Then the baseline:
 
@@ -120,6 +122,8 @@ Run the gates exactly as CI does (commands in step 5, without `--init-baseline`;
 - Commit only the files of step 5 on `ci/arch-gates` (Conventional Commits, `ci(gates): …`), `rtk git push -u origin ci/arch-gates`, `gh pr create` with: the invariants and their evidence, the approved layer table, the limitations, the frozen debt (entries per baseline), each probe red then green.
 - Tell the owner what only they can do:
   1. the PR's `ratchet / ratchet` check is red **by design**: every baseline is new, so it counts as growth. Setting the `baseline-update` label is how they accept the frozen debt;
-  2. once the checks have run, make `arch / python` and/or `arch / frontend` (and `ratchet / ratchet`) required on `main` — offer to do it with their OK;
-  3. merging is theirs.
+  2. the line from step 4 in their analyzer's config, if any: that check stays red until they add it, and you never add it for them;
+  3. once the checks have run, make `arch / python` and/or `arch / frontend` (and `ratchet / ratchet`) required on `main` — offer to do it with their OK;
+  4. merging is theirs.
 - Never merge, never set the label, never touch a gate file outside this flow.
+- Whatever stops you once step 5 has begun — a red check you may not fix, the exemption gone, a question — finish with what exists: commit the created files, push, open the PR, and list what is still missing for the owner to add. Never leave created gate files uncommitted, and never suggest running `/init-gates` again on this branch: step 1 refuses a repo that already has a gate file.

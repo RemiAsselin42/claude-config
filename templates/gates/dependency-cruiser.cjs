@@ -10,7 +10,9 @@
  * Same semantics as the Python gate: runtime imports only, direct edges,
  * module-level cycles, and a module in no layer is an error.
  *
- * @type {import('dependency-cruiser').IConfiguration}
+ * No JSDoc `@type` import of dependency-cruiser's IConfiguration on purpose: the
+ * package is pinned by the workflow, not listed in the repo, and a dead-code
+ * analyzer (Fallow, knip) reads such a JSDoc import as an unlisted dependency.
  */
 const SRC = '^src/';
 const LAYERS = [
