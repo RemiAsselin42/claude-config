@@ -40,6 +40,12 @@ const CLEAN = {
   "src/main.ts": "import { card } from './components/card';\ncard();\n",
 };
 
+test("template: no JSDoc import of dependency-cruiser", () => {
+  // Fallow on the Cleant pilot read `@type {import('dependency-cruiser')...}` as an import of a
+  // package the repo does not list (unlisted-dependency); the type hint is not worth that.
+  assert.doesNotMatch(fs.readFileSync(TEMPLATE, "utf8"), /import\(['"]dependency-cruiser['"]\)/);
+});
+
 test("template: a layered project is green, each kind of violation is red", { skip }, () => {
   assert.equal(cruise(project(CLEAN)).code, 0, "clean project");
 
