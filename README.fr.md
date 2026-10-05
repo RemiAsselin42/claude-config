@@ -140,7 +140,7 @@ claude-config/
 │   ├── branch-guard.sh          # Push sur main/master, force push (copié de cc-safe-setup)
 │   └── secret-guard.sh          # git add de .env / clés / credentials (copié de cc-safe-setup)
 ├── scripts/                     # Scripts utilitaires → ~/.claude/scripts/
-│   ├── baseline-ratchet.js      # Compare les baselines entre deux refs ; exécuté par le workflow ci-dessus
+│   ├── baseline-ratchet.cjs     # Compare les baselines entre deux refs ; exécuté par le workflow ci-dessus (.cjs : un appelant peut être un paquet ESM)
 │   ├── repo-identity.sh         # Lib partagée : canonical_repo_name()
 │   ├── session-start.sh         # Hook SessionStart : diary MemPalace + tête de TODO.md
 │   ├── session-stop.sh          # Hook Stop : graphify update + mine du wing + sync vault
@@ -410,7 +410,7 @@ jobs:
     uses: RemiAsselin42/claude-config/.github/workflows/baseline-ratchet.yml@v1
 ```
 
-`@v1` est un tag de ce repo. Le job récupère `scripts/baseline-ratchet.js` au même commit : la logique des gates vient toujours de claude-config à une version épinglée, jamais de la branche testée. Un humain accepte un baseline qui grossit en posant le label `baseline-update` sur la PR : le job passe alors et poste les entrées ajoutées en commentaire. Limite : GitHub ne voit que le jeton, un label posé par Claude avec ton jeton est indiscernable d'un label posé par toi — d'où la règle du hook et le commentaire.
+`@v1` est un tag de ce repo : il avance avec les correctifs compatibles (`git tag -f v1 <sha> && git push -f origin v1`, geste du propriétaire) et jamais vers un changement incompatible, qui reçoit un nouveau tag majeur. Le job récupère `scripts/baseline-ratchet.cjs` au même commit : la logique des gates vient toujours de claude-config à cette version, jamais de la branche testée (`.cjs` et non `.js` : le checkout atterrit dans le repo appelant, et un `"type": "module"` dans son `package.json` ferait charger un `.js` comme ESM, d'où un plantage sur `require`). Un humain accepte un baseline qui grossit en posant le label `baseline-update` sur la PR : le job passe alors et poste les entrées ajoutées en commentaire. Limite : GitHub ne voit que le jeton, un label posé par Claude avec ton jeton est indiscernable d'un label posé par toi — d'où la règle du hook et le commentaire.
 
 **Brancher les gates d'architecture dans un repo.** Taper `/init-gates` dedans : Claude lit le graphe d'imports, propose les couches, attend ton accord, puis crée tout ce qui suit sur une branche `ci/arch-gates` et ouvre une PR. Tant que `/init-gates` est le dernier message que tu as tapé, protect-gates laisse Claude *créer* un fichier de gate qui n'existe pas encore — jamais en modifier ni en supprimer un — et les baselines Python viennent de `--init-baseline`, qui refuse d'écraser. Le ratchet de la PR est rouge par construction (toutes les baselines sont nouvelles) : ton label `baseline-update` est la façon d'accepter la dette gelée.
 

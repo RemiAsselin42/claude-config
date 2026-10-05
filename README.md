@@ -140,7 +140,7 @@ claude-config/
 │   ├── branch-guard.sh          # Push to main/master, force push (vendored, cc-safe-setup)
 │   └── secret-guard.sh          # git add of .env / keys / credentials (vendored, cc-safe-setup)
 ├── scripts/                     # Utility scripts → ~/.claude/scripts/
-│   ├── baseline-ratchet.js      # Compares baselines between two refs; run by the workflow above
+│   ├── baseline-ratchet.cjs     # Compares baselines between two refs; run by the workflow above (.cjs: callers may be ESM packages)
 │   ├── repo-identity.sh         # Shared lib: canonical_repo_name()
 │   ├── session-start.sh         # SessionStart hook: MemPalace diary + TODO.md head
 │   ├── session-stop.sh          # Stop hook: graphify update + wing mine + vault sync
@@ -410,7 +410,7 @@ jobs:
     uses: RemiAsselin42/claude-config/.github/workflows/baseline-ratchet.yml@v1
 ```
 
-`@v1` is a tag on this repo. The job checks out `scripts/baseline-ratchet.js` at the same commit, so the gate logic always comes from claude-config at a pinned version, never from the branch under test. A human accepts a growing baseline by setting the `baseline-update` label on the PR: the job then passes and posts the added entries as a PR comment. Limit: GitHub only sees the token, so a label set by Claude with your token is indistinguishable from one you set — hence the hook rule and the comment.
+`@v1` is a tag on this repo: it moves forward with compatible fixes (`git tag -f v1 <sha> && git push -f origin v1`, the owner's gesture) and never to a breaking change, which gets a new major tag. The job checks out `scripts/baseline-ratchet.cjs` at the same commit, so the gate logic always comes from claude-config at that version, never from the branch under test (`.cjs`, not `.js`: the checkout lands inside the caller's repo, and a `"type": "module"` in its `package.json` would make Node load a `.js` as ESM and crash on `require`). A human accepts a growing baseline by setting the `baseline-update` label on the PR: the job then passes and posts the added entries as a PR comment. Limit: GitHub only sees the token, so a label set by Claude with your token is indistinguishable from one you set — hence the hook rule and the comment.
 
 **Wire the architecture gates into a repo.** Type `/init-gates` in it: Claude reads the import graph, proposes the layers, waits for your approval, then creates everything below on a `ci/arch-gates` branch and opens a PR. While `/init-gates` is the latest message you typed, protect-gates lets Claude *create* a gate file that does not exist yet — never change or delete one — and the Python baselines come from `--init-baseline`, which refuses to overwrite. The PR's ratchet is red by design (every baseline is new): your `baseline-update` label is how you accept the frozen debt.
 

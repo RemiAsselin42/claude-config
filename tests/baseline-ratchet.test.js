@@ -1,4 +1,4 @@
-// Self-check for scripts/baseline-ratchet.js on real baselines taken from a pilot repository
+// Self-check for scripts/baseline-ratchet.cjs on real baselines taken from a pilot repository
 // (tests/fixtures/baselines): unchanged and shrinking baselines pass; a growing,
 // new or deleted one fails unless --override (the PR label) is given, and even
 // then the growth is reported. Run after touching the script or the workflow:
@@ -12,7 +12,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const SCRIPT = path.join(__dirname, "..", "scripts", "baseline-ratchet.js");
+const SCRIPT = path.join(__dirname, "..", "scripts", "baseline-ratchet.cjs");
 const FIXTURES = path.join(__dirname, "fixtures", "baselines");
 const T = fs.mkdtempSync(path.join(os.tmpdir(), "ratchet-repo-"));
 const OUT = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "ratchet-out-")), "github-output.txt");
@@ -141,4 +141,19 @@ test("an unknown ref is a usage error, never a pass", () => {
   const r = ratchet("no-such-ref", BASE);
   assert.equal(r.code, 2);
   assert.match(r.err, /unknown ref no-such-ref/);
+});
+
+// The workflow checks the script out inside the caller's repo (.baseline-ratchet/);
+// Node then reads the caller's package.json, and a `"type": "module"` there made every
+// run crash with "require is not defined in ES module scope" (Cleant, 2026-10-05).
+test("the script runs unchanged inside a repo whose package.json says type: module", () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), "ratchet-esm-"));
+  fs.writeFileSync(path.join(repo, "package.json"), '{ "type": "module" }\n');
+  const dest = path.join(repo, ".baseline-ratchet", "scripts", path.basename(SCRIPT));
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  fs.copyFileSync(SCRIPT, dest);
+  const r = spawnSync(process.execPath, [dest], { encoding: "utf8" }); // no args: usage, exit 2
+  assert.doesNotMatch(r.stderr, /ReferenceError/);
+  assert.equal(r.status, 2, r.stderr);
+  assert.match(r.stderr, /usage:/);
 });
