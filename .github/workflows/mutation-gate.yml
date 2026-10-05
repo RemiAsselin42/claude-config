@@ -57,17 +57,22 @@ jobs:
           sparse-checkout-cone-mode: false
       - uses: astral-sh/setup-uv@v4
       # mutmut is added to the project's environment for this run only: nothing to
-      # declare in the project. Its exit code is not the verdict, the gate's is.
+      # declare in the project. It exits 0 whatever the mutants did and 1 when it
+      # could not run (the clean tests fail, the stats collection fails): that stops
+      # the job here with mutmut's own message, the gate never reads half-written
+      # results. A mutants/ left in the checkout would feed old results for every
+      # unchanged function (mutmut merges them by function hash): removed first.
       - name: mutmut run
         working-directory: ${{ inputs.dir }}
         env:
           SYNC_ARGS: ${{ inputs.sync-args }}
         run: |
           uv sync $SYNC_ARGS
+          rm -rf mutants
           start=$SECONDS
-          uv run --with mutmut==3.8.0 mutmut run || true
+          uv run --with mutmut==3.8.0 mutmut run
           echo "mutmut run: $((SECONDS - start))s"
-          uv run --with mutmut==3.8.0 mutmut results || true
+          uv run --with mutmut==3.8.0 mutmut results
       - name: Not-killed mutants against the baseline
         working-directory: ${{ inputs.dir }}
         run: uv run --no-project --python 3.12 python "$GITHUB_WORKSPACE/.arch-gates/gates/python/check_mutation.py"
