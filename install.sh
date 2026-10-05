@@ -1092,21 +1092,25 @@ fi
 # settings.json copied above. The five others are removed here and the removal
 # is verified: a silent leftover is exactly how that bug lived for months.
 LEGACY_CC_SAFE_HOOKS=(comment-strip syntax-check context-monitor cd-git-allow api-error-alert)
-# Prints the name of each one it found and removed, one per line: the summary
-# below says "leftovers removed" only when there were some.
+# Prints the name of each one it found and removed, one per line, so the caller
+# reports each removal and nothing when there was none. A dangling symlink counts
+# (-e is false on it). Always returns 0: a failed rm must reach the verification
+# below and its message, not end the run under set -e with rm's stderr alone.
 _remove_legacy_cc_safe_hooks() {
-  local h
+  local h f
   for h in "${LEGACY_CC_SAFE_HOOKS[@]}"; do
-    [[ -e "$CLAUDE_DIR/hooks/$h.sh" ]] || continue
-    rm -f "$CLAUDE_DIR/hooks/$h.sh" && echo "$h"
+    f="$CLAUDE_DIR/hooks/$h.sh"
+    [[ -e "$f" || -L "$f" ]] || continue
+    rm -f "$f" && echo "$h"
   done
+  return 0
 }
 # Returns 1 and names what is left when any of the five is still on disk or
 # still registered in the deployed settings.json.
 _verify_legacy_cc_safe_hooks_removed() {
   local h left=()
   for h in "${LEGACY_CC_SAFE_HOOKS[@]}"; do
-    [[ -e "$CLAUDE_DIR/hooks/$h.sh" ]] && left+=("hooks/$h.sh")
+    [[ -e "$CLAUDE_DIR/hooks/$h.sh" || -L "$CLAUDE_DIR/hooks/$h.sh" ]] && left+=("hooks/$h.sh")
     grep -qF "$h" "$CLAUDE_DIR/settings.json" 2>/dev/null && left+=("settings.json:$h")
   done
   [[ ${#left[@]} -eq 0 ]] && return 0
@@ -1114,9 +1118,11 @@ _verify_legacy_cc_safe_hooks_removed() {
   return 1
 }
 _step "Checking shell guards..."
-_legacy_removed="$(_remove_legacy_cc_safe_hooks)"
+while IFS= read -r h; do
+  echo "  ${YELLOW}⚠ cc-safe-setup leftover removed: $h${RESET}"
+done < <(_remove_legacy_cc_safe_hooks)
 _verify_legacy_cc_safe_hooks_removed || exit 1
-_ok "shell guards (hooks/*.sh, protect-gates.js)${_legacy_removed:+, cc-safe-setup leftovers removed: ${_legacy_removed//$'\n'/, }}"
+_ok "shell guards (hooks/*.sh, protect-gates.js)"
 
 # --- Install pinned plugins (after settings.json copy — plugin state must survive it) ---
 _step "Installing pinned plugins..."
