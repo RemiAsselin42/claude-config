@@ -1117,11 +1117,28 @@ _verify_legacy_cc_safe_hooks_removed() {
   echo "  ${RED}✗ legacy cc-safe-setup hooks still present: ${left[*]}${RESET}" >&2
   return 1
 }
+# The guards settings.json registers must be on disk and non-empty: a registered
+# hook whose file is missing exits 127, which Claude Code treats as non-blocking,
+# so it would guard nothing and nobody would know (the hooks copy above runs under
+# nullglob: an empty source directory copies nothing, silently). Returns 1 and
+# names what is missing, on disk or in the deployed settings.json.
+SHELL_GUARDS=(destructive-guard.sh branch-guard.sh secret-guard.sh protect-gates.js)
+_verify_shell_guards_deployed() {
+  local g missing=()
+  for g in "${SHELL_GUARDS[@]}"; do
+    [[ -s "$CLAUDE_DIR/hooks/$g" ]] || missing+=("hooks/$g")
+    grep -qF "hooks/$g" "$CLAUDE_DIR/settings.json" 2>/dev/null || missing+=("settings.json:$g")
+  done
+  [[ ${#missing[@]} -eq 0 ]] && return 0
+  echo "  ${RED}✗ shell guards missing: ${missing[*]}${RESET}" >&2
+  return 1
+}
 _step "Checking shell guards..."
 while IFS= read -r h; do
   echo "  ${YELLOW}⚠ cc-safe-setup leftover removed: $h${RESET}"
 done < <(_remove_legacy_cc_safe_hooks)
 _verify_legacy_cc_safe_hooks_removed || exit 1
+_verify_shell_guards_deployed || exit 1
 _ok "shell guards (hooks/*.sh, protect-gates.js)"
 
 # --- Install pinned plugins (after settings.json copy — plugin state must survive it) ---

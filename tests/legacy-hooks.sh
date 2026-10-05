@@ -19,7 +19,8 @@ mkdir -p "$CLAUDE_DIR/hooks"
 
 # The array and the two functions, taken straight out of install.sh by name.
 eval "$(grep -m1 '^LEGACY_CC_SAFE_HOOKS=(' "$REPO_DIR/install.sh")"
-for fn in _remove_legacy_cc_safe_hooks _verify_legacy_cc_safe_hooks_removed; do
+eval "$(grep -m1 '^SHELL_GUARDS=(' "$REPO_DIR/install.sh")"
+for fn in _remove_legacy_cc_safe_hooks _verify_legacy_cc_safe_hooks_removed _verify_shell_guards_deployed; do
   body="$(awk -v n="$fn" '$0 == n"() {" {f=1} f{print} f&&/^}/{exit}' "$REPO_DIR/install.sh")"
   [[ -n "$body" ]] || { echo "FAIL: $fn not found in install.sh"; exit 1; }
   eval "$body"
@@ -105,6 +106,29 @@ if _verify_legacy_cc_safe_hooks_removed; then
   ok "a clean install passes"
 else
   ko "a clean install is reported as dirty"
+fi
+
+# The guards settings.json registers must be on disk and non-empty: a registered
+# hook whose file is missing exits 127, which Claude Code treats as non-blocking,
+# so it would guard nothing and nobody would know. Here protect-gates.js is absent.
+msg="$(_verify_shell_guards_deployed 2>&1 || true)"
+if [[ "$msg" == *"hooks/protect-gates.js"* ]]; then
+  ok "a guard missing from hooks/ is reported"
+else
+  ko "a guard missing from hooks/ goes unnoticed: '$msg'"
+fi
+echo '// guard' > "$CLAUDE_DIR/hooks/protect-gates.js"
+if _verify_shell_guards_deployed; then
+  ok "the four guards on disk and registered pass"
+else
+  ko "a complete deployment is reported as incomplete"
+fi
+printf '{"hooks":{}}\n' > "$CLAUDE_DIR/settings.json"
+msg="$(_verify_shell_guards_deployed 2>&1 || true)"
+if [[ "$msg" == *"settings.json:branch-guard.sh"* ]]; then
+  ok "a guard missing from settings.json is reported"
+else
+  ko "a guard missing from settings.json goes unnoticed: '$msg'"
 fi
 
 echo "$pass passed, $fail failed"
