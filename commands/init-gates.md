@@ -10,7 +10,7 @@ disable-model-invocation: true
 
 Target: "$ARGUMENTS" (empty = detect).
 
-The gate logic lives in claude-config (`gates/python/check_imports.py`, `.github/workflows/arch-gates.yml`, pinned at a tag). This command only creates the repo's **declarations**: its layers, its baselines and two short CI callers. Semantics, identical on both sides: runtime imports only, direct edges, module-level cycles, a module in no layer is an error.
+The gate logic lives in claude-config (`gates/python/check_imports.py`, `.github/workflows/arch-gates-python.yml` and `arch-gates-frontend.yml`, pinned at a tag). This command only creates the repo's **declarations**: its layers, its baselines and two short CI callers. Semantics, identical on both sides: runtime imports only, direct edges, module-level cycles, a module in no layer is an error.
 
 **The protected-file exemption.** While the latest message the owner typed is `/init-gates`, `protect-gates` lets you **create** a gate file that does not exist yet (Write to an absent path, or a shell redirect to one). Changing or deleting an existing one stays blocked, and so does `--update-baseline`. Consequences:
 
@@ -111,7 +111,7 @@ Exit 2 on `layers` (a module in no layer) should not happen here: the draft was 
 cd <frontend dir> && npx --yes -p dependency-cruiser@17.4.3 -p typescript@5.9.3 depcruise src --config .dependency-cruiser.cjs --output-type baseline > .dependency-cruiser-known-violations.json
 ```
 
-**CI** — `.github/workflows/arch-gates.yml` from `~/.claude/templates/gates/arch-gates.yml`, keeping only the `with:` lines of the sides the repo has, with their real paths. Also `.github/workflows/baseline-ratchet.yml` from `~/.claude/templates/gates/baseline-ratchet.yml` if the repo has no ratchet caller yet.
+**CI** — `.github/workflows/arch-gates.yml` from `~/.claude/templates/gates/arch-gates.yml`, keeping only the job(s) of the sides the repo has, with their real paths: a side the repo lacks has no job, so nothing shows as skipped and its check cannot be skipped past. Also `.github/workflows/baseline-ratchet.yml` from `~/.claude/templates/gates/baseline-ratchet.yml` if the repo has no ratchet caller yet.
 
 ## 6. Prove it — green, red on the fragile case, green
 
@@ -125,7 +125,7 @@ Run the gates exactly as CI does (commands in step 5, without `--init-baseline`;
 - Tell the owner what only they can do:
   1. the PR's `ratchet / ratchet` check is red **by design**: every baseline is new, so it counts as growth. Setting the `baseline-update` label is how they accept the frozen debt;
   2. the line from step 4 (verified in step 6) in their analyzer's config, if any: that check stays red until they add it, and you never add it for them;
-  3. once the checks have run, make `arch / python` and/or `arch / frontend` (and `ratchet / ratchet`) required on `main` — offer to do it with their OK;
+  3. once the checks have run, make `arch-python / python` and/or `arch-frontend / frontend` (and `ratchet / ratchet`) required on `main` — offer to do it with their OK;
   4. merging is theirs.
 - Never merge, never set the label, never touch a gate file outside this flow.
 - Whatever stops you once step 5 has begun — a red check you may not fix, the exemption gone, a question — publish what can be published: commit the created files, push, open the PR, and list what is still missing for the owner. If a hook blocks the commit itself (an analyzer in pre-commit, say), never bypass it (`--no-verify` is blocked anyway): leave the files in place, name the hook and the config line the owner adds, and say that once they have added it any session can commit and push these files — `git add` and `git commit` of a gate file are not blocked, only writing one is. Never suggest running `/init-gates` again on this branch: step 1 refuses a repo that already has a gate file.

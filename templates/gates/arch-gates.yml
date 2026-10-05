@@ -1,6 +1,8 @@
 # Import cycles and layer contracts. The gate logic comes from claude-config at the
-# pinned tag; this repo only declares its layers and baselines. Created by /init-gates:
-# drop the `with:` line of a side the repo does not have.
+# pinned tag; this repo only declares its layers and baselines. Created by /init-gates
+# with only the job(s) of the sides the repo has: a side the repo lacks has no job, so
+# nothing shows as skipped, and a required check can only go missing (which blocks),
+# never be skipped past.
 name: arch-gates
 on:
   pull_request:
@@ -9,8 +11,11 @@ on:
 permissions:
   contents: read
 jobs:
-  arch:
-    uses: RemiAsselin42/claude-config/.github/workflows/arch-gates.yml@v2
+  arch-python:
+    uses: RemiAsselin42/claude-config/.github/workflows/arch-gates-python.yml@v3
     with:
-      python-config: backend/arch-gates.json
-      frontend-dir: frontend
+      config: backend/arch-gates.json
+  arch-frontend:
+    uses: RemiAsselin42/claude-config/.github/workflows/arch-gates-frontend.yml@v3
+    with:
+      dir: frontend
