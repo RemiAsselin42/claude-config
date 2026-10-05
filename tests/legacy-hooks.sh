@@ -33,8 +33,20 @@ ko() { echo "  FAIL  $1"; fail=$((fail + 1)); }
 # Red: a machine as cc-safe-setup left it — all eight hook files on disk, one of
 # the dropped ones still registered in settings.json.
 for h in destructive-guard branch-guard secret-guard comment-strip syntax-check context-monitor cd-git-allow api-error-alert; do
-  : > "$CLAUDE_DIR/hooks/$h.sh"
+  echo '# hook' > "$CLAUDE_DIR/hooks/$h.sh"
 done
+# One of the five as a dangling symlink (an aborted reinstall, a moved checkout):
+# `-e` is false on it, so a removal that only looks at `-e` leaves it on disk for
+# good. MSYS without native symlinks cannot create one: skipped here, covered in CI.
+dangling=""
+link="$CLAUDE_DIR/hooks/syntax-check.sh"
+rm -f "$link"
+if ln -s "$T/gone" "$link" 2>/dev/null && [[ -L "$link" && ! -e "$link" ]]; then
+  dangling="$link"
+else
+  rm -f "$link"; echo '# hook' > "$link"
+  echo "  SKIP  dangling symlink: this shell cannot create one"
+fi
 printf '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"bash \\"%s/hooks/comment-strip.sh\\""}]}]}}\n' \
   "$CLAUDE_DIR" > "$CLAUDE_DIR/settings.json"
 if _verify_legacy_cc_safe_hooks_removed 2>/dev/null; then
@@ -47,10 +59,14 @@ fi
 # removal names what it removed, so install.sh only says "leftovers removed"
 # when there were some: every install said it for months, with nothing to remove.
 removed="$(_remove_legacy_cc_safe_hooks)"
-if [[ "$removed" == "$(printf '%s\n' "${LEGACY_CC_SAFE_HOOKS[@]}")" ]]; then
+unnamed=()
+for h in "${LEGACY_CC_SAFE_HOOKS[@]}"; do
+  grep -qx "$h" <<<"$removed" || unnamed+=("$h")
+done
+if [[ ${#unnamed[@]} -eq 0 ]]; then
   ok "the removal names the five it removed"
 else
-  ko "the removal does not name what it removed: '$removed'"
+  ko "the removal does not name what it removed: ${unnamed[*]} (got '$removed')"
 fi
 if [[ -z "$(_remove_legacy_cc_safe_hooks)" ]]; then
   ok "a second removal, nothing left, names nothing"
@@ -58,8 +74,15 @@ else
   ko "a second removal still claims to have removed something"
 fi
 for h in "${LEGACY_CC_SAFE_HOOKS[@]}"; do
-  [[ -e "$CLAUDE_DIR/hooks/$h.sh" ]] && ko "$h.sh survived the removal"
+  [[ -e "$CLAUDE_DIR/hooks/$h.sh" || -L "$CLAUDE_DIR/hooks/$h.sh" ]] && ko "$h.sh survived the removal"
 done
+if [[ -n "$dangling" ]]; then
+  if [[ -L "$dangling" ]]; then
+    ko "the dangling symlink survived the removal"
+  else
+    ok "the dangling symlink is removed like a file"
+  fi
+fi
 for h in destructive-guard branch-guard secret-guard; do
   [[ -e "$CLAUDE_DIR/hooks/$h.sh" ]] || ko "$h.sh (a kept guard) was removed"
 done
