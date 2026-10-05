@@ -1,7 +1,7 @@
 # baseline-ratchet — reusable workflow: a gate baseline may only shrink.
 #
 # Call it from a repo with one job. Pin a tag, never @main: the job checks out
-# scripts/baseline-ratchet.js at the exact commit of this file, so the gate
+# scripts/baseline-ratchet.cjs at the exact commit of this file, so the gate
 # logic always comes from claude-config at a pinned version, never from the
 # branch under test.
 #
@@ -47,7 +47,7 @@ jobs:
           repository: ${{ job.workflow_repository }}
           ref: ${{ job.workflow_sha }}
           path: .baseline-ratchet
-          sparse-checkout: scripts/baseline-ratchet.js
+          sparse-checkout: scripts/baseline-ratchet.cjs
           sparse-checkout-cone-mode: false
       - id: ratchet
         name: Compare baselines with the base branch
@@ -59,7 +59,7 @@ jobs:
         run: |
           flags=""
           [ "$OVERRIDE" = "true" ] && flags="--override"
-          node .baseline-ratchet/scripts/baseline-ratchet.js --base "$BASE" --head "$HEAD" $flags | tee ratchet-report.md
+          node .baseline-ratchet/scripts/baseline-ratchet.cjs --base "$BASE" --head "$HEAD" $flags | tee ratchet-report.md
       - name: Make the override visible on the PR
         if: steps.ratchet.outputs.grew == 'true'
         env:
