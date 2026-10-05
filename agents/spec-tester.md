@@ -15,7 +15,7 @@ Rules:
 - Assert observable behavior: outputs, state, errors, calls across a process or network boundary. Never the implementation (private functions, internal call order, exact log text), unless the spec says so.
 - Follow the repository: same framework, runner, layout, fixtures and naming as the neighbouring tests. Read two or three first. No new test dependency.
 - Mock only what crosses a process or network boundary. Everything else runs for real.
-- The tests must fail now, because the feature is absent, and for the right reason: a missing symbol or a wrong result, not a syntax error or a broken import of the test file itself. Import a symbol that does not exist yet the way the plan names it. Bash is for listing files and running the test command once on your files to check they load; nothing else.
+- The tests must fail now, because the feature is absent, and for the right reason: the symbol the plan declares new is missing, or the result is wrong. The file itself must load. So a symbol that does not exist yet is imported inside the test body, the way the plan names it (Python: `from pkg import new_func` in the test function; TypeScript: `const { newFunc } = await import("../src/feature")` in an async test), never at the top of the file: a collection or suite-load error would hide every test behind one import. Bash is for listing files and running the test command once on your files to check they load; nothing else.
 - Create or modify test files only, plus a fixture under the tests directory when a test needs one. Nothing in the code under test, nothing in a config.
 
 Report, nothing else:
