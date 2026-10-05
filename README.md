@@ -8,7 +8,7 @@ Shared Claude Code configuration: slash-commands, scripts and hooks, persistent 
 > `install.sh` performs persistent, potentially destructive operations:
 >
 > - **Writes** to `~/.claude/` (commands, scripts, templates, settings, CLAUDE.md)
-> - **Prunes** `~/.claude/commands/` and `~/.claude/agents/`: anything there without a source file in the repo is deleted on every run — the repo ships no `agents/`, so every install empties `~/.claude/agents/`
+> - **Prunes** `~/.claude/commands/` and `~/.claude/agents/`: anything there without a source file in the repo is deleted on every run — `~/.claude/agents/` ends up holding exactly the three subagents of `agents/`
 > - **Installs** global packages (`graphify`, `mempalace`, `rtk`)
 > - **Modifies PATH** — adds `~/.local/bin` to `~/.bashrc` / `~/.bash_profile` / `~/.profile` (with confirmation, or silently with `-y`)
 > - **Deletes files** (`graphify-out/`, mempalace wings, vault folders) via `exclude-from-index.sh`
@@ -49,7 +49,7 @@ Your private repo stays in sync with this one automatically — see [Minimal set
 1. Syncs from `upstream` remote **first** if present (private repos get latest shared config automatically); if the sync brings changes, the script re-executes itself so the rest of the run uses the updated version. Skipped, with a message, while the repo has uncommitted changes
 2. Checks **Node.js**, installs **uv** if missing, then installs/upgrades **Graphify**, **MemPalace**, **chromadb**, **RTK**, **jq**, **shellcheck** and **context-mode** (plus the Zilliz MCP server when `MILVUS_ADDRESS` is set)
 3. Asks once to add `~/.local/bin` to persistent PATH (`-y` skips)
-4. Copies **commands**, **scripts**, **templates** to `~/.claude/` — `commands/` and `agents/` are mirrored (deployed files with no source in the repo are pruned), `scripts/` and `templates/` are additive. The repo has no `agents/` since `3eb0605`, so this step empties `~/.claude/agents/` on every run
+4. Copies **commands**, **scripts**, **templates** to `~/.claude/` — `commands/` and `agents/` are mirrored (deployed files with no source in the repo are pruned), `scripts/` and `templates/` are additive. `agents/` holds the three subagents `/feature` spawns, pinned to another model; a subagent dropped from the repo disappears from every machine at the next install
 5. Records the repo location in `~/.claude/claude-config.path`; hooks, `scripts/session-start.sh` (SessionStart hook: newest MemPalace diary entries for the repo + head of `TODO.md`, ~200 tokens) and `scripts/session-stop.sh` (Stop hook: `graphify update` + mining the repo into its MemPalace wing + vault sync, run detached) resolve the repo through this pointer instead of hardcoded absolute paths
 6. Initializes **MemPalace**: creates the palace, selects the embedding model, checks index health. Repos are _not_ mined here — each one is mined into its own wing during step 16
 7. Copies **CLAUDE.md** to `~/.claude/CLAUDE.md` (substitutes `${VAULT_DIR}`)
@@ -139,6 +139,10 @@ claude-config/
 │   └── ci.yml                   # This repo's own CI: shellcheck + every test under tests/, on ubuntu and macos
 ├── gates/python/
 │   └── check_imports.py         # Python cycles + layers gate (grimp), run by arch-gates-python.yml at the pinned tag
+├── agents/                      # Subagents → ~/.claude/agents/ (mirrored), pinned to another model, spawned by /feature
+│   ├── plan-reviewer.md         # Reviews the plan against the spec before any code, read-only
+│   ├── spec-tester.md           # Writes the acceptance tests from the spec, before the code exists
+│   └── diff-reviewer.md         # Adversarial review of the diff against spec, tests and gate output, read-only
 ├── commands/                    # Slash-commands → ~/.claude/commands/
 ├── hooks/                       # PreToolUse guards → ~/.claude/hooks/ (Bash and PowerShell tools)
 │   ├── protect-gates.js         # Blocks Claude's edits to gate configs, baselines, workflows, --no-verify, merge, labels
@@ -189,6 +193,7 @@ claude-config/
 | `/create-commit`        | Create a git commit                                                                   |
 | `/create-pr`            | Split work into logical commits and open a PR                                         |
 | `/explain-changes`      | Explain recent changes                                                                |
+| `/feature`              | A feature end to end on a local branch: plan, plan review by another model, tests from the spec seen red, code, gates, tests frozen by git, adversarial review, report; no PR (human-only) |
 | `/find-dead-code`       | Find dead code in the project                                                         |
 | `/init-context`         | Generate `context/architecture.md`, `patterns.md`, `constraints.md` from the codebase |
 | `/init-gates`           | Install the architecture gates in a repo: propose layers, wait for approval, create configs, baselines and CI callers, open a PR (human-only) |
@@ -399,6 +404,8 @@ Principles: whatever blocks is deterministic, LLM reviewers are consultative, th
 | `.github/workflows/arch-gates-python.yml`, `arch-gates-frontend.yml` | a new import cycle, a new upward import between layers, a module in no layer | CI; Python through `gates/python/check_imports.py` (grimp), frontend through dependency-cruiser, both runtime imports only, direct edges, module-level cycles |
 
 Every hook fires for the Bash tool and for the PowerShell tool alike; `tests/hooks.test.js` feeds both payloads. Starting Claude Code with `PROTECT_GATES=off` in the environment turns protect-gates into a visible warning for that session — except for the harness paths, which stay blocked. The CI ratchet is never off.
+
+`/feature` is the harness applied to one feature, in this order: plan; review of the plan by `agents/plan-reviewer.md`, another model with no memory of the session; the owner approves; `agents/spec-tester.md` writes the acceptance tests from the spec, which are run red and committed alone; code; the repo's own gates; `git diff` against that commit proves the tests untouched; `agents/diff-reviewer.md` reads the diff adversarially; one fix pass, gates again; a report. The branch stays local: the owner reads, runs `/create-pr`, and merges.
 
 **Known limit, accepted.** The hooks match command spellings, so they stop accidents, not a deliberate bypass: a write from an interpreter (`node -e "fs.appendFileSync(…)"`) reaches a baseline or forges the `/create-commit` marker in a transcript. GitHub branch protection is what holds, and `main` is protected with admins exempted by choice — so the owner's token, which Claude also uses, can bypass it. Turning on "Do not allow bypassing the above settings" closes that, at the cost of a PR for every change to `main`, the owner's included.
 
