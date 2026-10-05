@@ -87,7 +87,7 @@ git remote add origin https://github.com/<you>/my-claude-config
 git push -u origin main
 ```
 
-From then on, `scripts/sync-upstream.sh` pulls shared files from `upstream` into your private repo without touching personal files (`vault/`, `env.local`, `.claude/`). It runs at the start of every `install.sh` and nowhere else: no hook calls it between installs, so the script's 8-hour debounce (`~/.claude/.upstream-sync-stamp`) only matters if you wire one up yourself.
+From then on, `scripts/sync-upstream.sh` pulls shared files from `upstream` into your private repo without touching personal files (`vault/`, `env.local`, `.claude/`). It runs at the start of every `install.sh` and nowhere else: no hook calls it between installs, so the script's 8-hour debounce (`~/.claude/.upstream-sync-stamp`) only matters if you wire one up yourself. It never touches a fork with uncommitted changes on a synced path, and it cannot sync an unreachable upstream: in both cases it exits 3 with the reason on stderr, and install.sh prints a yellow `⚠ upstream sync skipped` — the files it then deploys come from the fork as it is, possibly behind upstream — instead of the green `✓ upstream synced`.
 
 ### Obsidian vault
 
@@ -163,6 +163,7 @@ claude-config/
     ├── statusline.sh            # Pins the statusline line format against a fixture payload
     ├── legacy-hooks.sh          # install.sh must remove the dropped cc-safe-setup hooks and notice a leftover
     ├── install-scope.sh         # install.sh --only: usage names both halves, bad values are refused, the guard answers right
+    ├── sync-upstream.sh         # The upstream sync on two throwaway repos: dirty or unreachable = exit 3 (skipped), clean = pulled and committed
     ├── hooks.test.js            # Every guard in hooks/, fed Bash and PowerShell payloads (node --test "tests/*.test.js")
     ├── baseline-ratchet.test.js # The ratchet on real baselines from a pilot repository
     ├── gates-template.test.js   # The dependency-cruiser template on a toy project: layers, cycle, module in no layer, path alias

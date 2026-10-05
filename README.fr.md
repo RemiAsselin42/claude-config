@@ -87,7 +87,7 @@ git remote add origin https://github.com/<vous>/mon-claude-config
 git push -u origin main
 ```
 
-Ensuite, `scripts/sync-upstream.sh` tire les fichiers partagés depuis `upstream` dans le repo privé sans toucher aux fichiers personnels (`vault/`, `env.local`, `.claude/`). Il s'exécute au début de chaque `install.sh` et nulle part ailleurs : aucun hook ne l'appelle entre deux installs, donc le debounce de 8h du script (`~/.claude/.upstream-sync-stamp`) ne sert que si tu en branches un toi-même.
+Ensuite, `scripts/sync-upstream.sh` tire les fichiers partagés depuis `upstream` dans le repo privé sans toucher aux fichiers personnels (`vault/`, `env.local`, `.claude/`). Il s'exécute au début de chaque `install.sh` et nulle part ailleurs : aucun hook ne l'appelle entre deux installs, donc le debounce de 8h du script (`~/.claude/.upstream-sync-stamp`) ne sert que si tu en branches un toi-même. Il ne touche jamais un fork qui a des modifications non commitées sur un chemin synchronisé, et il ne peut rien tirer d'un upstream injoignable : dans les deux cas il sort en 3 avec la raison sur stderr, et install.sh affiche un `⚠ upstream sync skipped` jaune — les fichiers qu'il déploie ensuite viennent du fork tel quel, possiblement en retard sur upstream — au lieu du `✓ upstream synced` vert.
 
 ### Vault Obsidian
 
@@ -163,6 +163,7 @@ claude-config/
     ├── statusline.sh            # Fige le format des lignes de la statusline sur un payload fixture
     ├── legacy-hooks.sh          # install.sh doit retirer les hooks cc-safe-setup abandonnés et voir un reliquat
     ├── install-scope.sh         # install.sh --only : l'usage nomme les deux moitiés, les valeurs invalides sont refusées, le garde répond juste
+    ├── sync-upstream.sh         # La sync upstream sur deux repos jetables : sale ou injoignable = exit 3 (sautée), propre = tirée et commitée
     ├── hooks.test.js            # Chaque garde de hooks/, nourrie de payloads Bash et PowerShell (node --test "tests/*.test.js")
     ├── baseline-ratchet.test.js # Le ratchet sur de vrais baselines d'un repo pilote
     ├── gates-template.test.js   # Le modèle dependency-cruiser sur un projet jouet : couches, cycle, module sans couche, alias de chemin

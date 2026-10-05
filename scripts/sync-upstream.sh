@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Auto-sync shared files from upstream — debounced to once per 8h
 # Usage: sync-upstream.sh [--force]
+# Exit 0: synced, or nothing to do (no upstream remote, debounce). Exit 3: skipped —
+# uncommitted changes on a synced path, or upstream unreachable — with the reason on
+# stderr, so install.sh can warn instead of claiming "synced (no changes)".
 
 FORCE=false
 [[ "${1:-}" == "--force" ]] && FORCE=true
@@ -20,7 +23,10 @@ if [[ "$FORCE" == "false" && -f "$STAMP" ]]; then
   (( NOW - LAST < 28800 )) && exit 0
 fi
 
-git -C "$REPO_DIR" fetch upstream --quiet 2>/dev/null || exit 0
+git -C "$REPO_DIR" fetch upstream --quiet 2>/dev/null || {
+  echo "sync-upstream: upstream unreachable — sync skipped." >&2
+  exit 3
+}
 
 # Checkout shared files from upstream (leaves vault/, env.local, .claude/ untouched).
 # .gitignore is intentionally NOT synced: a fork's ignore rules are local policy —
@@ -37,7 +43,7 @@ _UPSTREAM_PATHS=(
 # without asking, and the commit below would sweep whatever is already staged.
 if ! git -C "$REPO_DIR" diff --cached --quiet || ! git -C "$REPO_DIR" diff --quiet -- "${_UPSTREAM_PATHS[@]}"; then
   echo "sync-upstream: uncommitted changes in $REPO_DIR — commit or stash them, sync skipped." >&2
-  exit 0
+  exit 3
 fi
 
 # Apply upstream deletions first: `checkout upstream/main -- <dir>` only adds or
