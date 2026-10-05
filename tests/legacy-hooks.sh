@@ -43,8 +43,20 @@ else
   ok "leftovers on disk and in settings.json are reported"
 fi
 
-# Removing the files is not enough while settings.json still names one.
-_remove_legacy_cc_safe_hooks
+# Removing the files is not enough while settings.json still names one. The
+# removal names what it removed, so install.sh only says "leftovers removed"
+# when there were some: every install said it for months, with nothing to remove.
+removed="$(_remove_legacy_cc_safe_hooks)"
+if [[ "$removed" == "$(printf '%s\n' "${LEGACY_CC_SAFE_HOOKS[@]}")" ]]; then
+  ok "the removal names the five it removed"
+else
+  ko "the removal does not name what it removed: '$removed'"
+fi
+if [[ -z "$(_remove_legacy_cc_safe_hooks)" ]]; then
+  ok "a second removal, nothing left, names nothing"
+else
+  ko "a second removal still claims to have removed something"
+fi
 for h in "${LEGACY_CC_SAFE_HOOKS[@]}"; do
   [[ -e "$CLAUDE_DIR/hooks/$h.sh" ]] && ko "$h.sh survived the removal"
 done
