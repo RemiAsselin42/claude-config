@@ -54,7 +54,7 @@ Your private repo stays in sync with this one automatically — see [Minimal set
 6. Initializes **MemPalace**: creates the palace, selects the embedding model, checks index health. Repos are _not_ mined here — each one is mined into its own wing during step 16
 7. Copies **CLAUDE.md** to `~/.claude/CLAUDE.md` (substitutes `${VAULT_DIR}`)
 8. Registers the **MCP servers** in user scope via `claude mcp add` — `mempalace` (`mempalace-mcp`), `context-mode` and `figma`. Claude Code reads MCP servers from `~/.claude.json` or a project `.mcp.json` only, never from `settings.json`. Figma authenticates over OAuth: run `/mcp` once inside Claude Code
-9. Copies **`settings.json`** — this pins the default model/effort (`opus[1m]` · `xhigh`) and points the statusline at `scripts/statusline.sh` on every machine
+9. Copies **`settings.json`** — this pins the default model/effort (`fable` · `xhigh`) and points the statusline at `scripts/statusline.sh` on every machine
 10. Activates **RTK** via `setup-rtk.sh`
 11. Removes the five **cc-safe-setup** hooks that earlier installs left behind (`comment-strip`, `syntax-check`, `context-monitor`, `cd-git-allow`, `api-error-alert`) and fails if one is still on disk or in the deployed `settings.json`. The blocking hooks now ship in `hooks/` (see **Quality harness** below) and are registered by `settings.json`; `comment-strip` was the real cause of the "heredoc bug" (`docs/pitfall.md`)
 12. Installs **pinned plugins** via the `claude` CLI (`ponytail`, upstream `caveman`, official `context7` + `frontend-design`, `hono`)
@@ -157,7 +157,6 @@ claude-config/
 │   ├── gitignore.append         # .gitignore entries appended by install.sh
 │   └── gates/                   # What /init-gates creates in a repo: dependency-cruiser config, CI callers
 ├── docs/
-│   ├── harness-plan.md          # Deterministic quality harness: principles and lots A–E
 │   └── pitfall.md               # Append-only log of traps Claude Code hit in this repo
 └── tests/
     ├── claude-md-refresh.sh     # Self-check for the per-repo CLAUDE.md refresh
@@ -165,6 +164,7 @@ claude-config/
     ├── legacy-hooks.sh          # install.sh must remove the dropped cc-safe-setup hooks and notice a leftover
     ├── install-scope.sh         # install.sh --only: usage names both halves, bad values are refused, the guard answers right
     ├── sync-upstream.sh         # The upstream sync on two throwaway repos: dirty or unreachable = exit 3 (skipped), clean = pulled and committed
+    ├── readme-structure.sh      # Both READMEs against git ls-files: every tree entry tracked, every tracked entry in the tree, command table = commands/
     ├── hooks.test.js            # Every guard in hooks/, fed Bash and PowerShell payloads (node --test "tests/*.test.js")
     ├── baseline-ratchet.test.js # The ratchet on real baselines from a pilot repository
     ├── gates-template.test.js   # The dependency-cruiser template on a toy project: layers, cycle, module in no layer, path alias
@@ -193,6 +193,7 @@ claude-config/
 | `/review-documentation` | Check doc/code consistency                                                            |
 | `/review-quality`       | Evaluate code quality                                                                 |
 | `/review-stack`         | Audit the technology stack                                                            |
+| `/style-toggle`         | Switch terse mode: ponytail ⇄ caveman ⇄ off (empty = status)                          |
 | `/update-agents`        | Update AGENTS.md                                                                      |
 | `/update-documentation` | Update documentation                                                                  |
 | `/update-prompts`       | Adapt prompt examples to the current project                                          |
@@ -247,7 +248,7 @@ Configured in `settings.json`:
 | Hook          | Trigger           | Action                                                                                            |
 | ------------- | ----------------- | ------------------------------------------------------------------------------------------------- |
 | `SessionStart` | Session start / after compaction | `session-start.sh` — newest MemPalace diary entries for this repo + head of `TODO.md` |
-| `PreToolUse`  | Every tool call   | `context-mode` hook; on `Bash` calls, `rtk hook claude` rewrites the command through RTK          |
+| `PreToolUse`  | Every tool call   | `context-mode` hook; on `Bash` calls, `rtk hook claude` rewrites the command through RTK; on `Bash` and `PowerShell`, the three `hooks/*.sh` guards then `protect-gates.js`; on `Edit`/`Write`/`MultiEdit`/`NotebookEdit`, `protect-gates.js` |
 | `PostToolUse` | Every tool call   | `context-mode` hook                                                                               |
 | `Stop`        | End of session    | MemPalace save + `session-stop.sh`, detached (graphify update + wing mine + vault sync)           |
 | `PreCompact`  | Before compaction | MemPalace save + `context-mode` hook                                                              |

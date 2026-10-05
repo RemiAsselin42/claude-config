@@ -32,7 +32,7 @@ If `context/` doesn't exist, create it:
 ```bash
 mkdir -p context
 ```
-Then copy the templates from `~/.claude/templates/context/` if they exist, otherwise start from scratch.
+Then start each file from the skeleton given in its "Filling" section below: the repo ships no context templates.
 
 ### 2. Read the knowledge graph if available
 
