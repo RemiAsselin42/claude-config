@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import contextlib
 import importlib
-import importlib.util
 import json
 import sys
 from collections.abc import Iterator
@@ -20,12 +19,9 @@ from pathlib import Path
 
 import grimp
 import pytest
+from conftest import load_gate
 
-_SCRIPT = Path(__file__).resolve().parents[2] / "gates" / "python" / "check_imports.py"
-_spec = importlib.util.spec_from_file_location("check_imports", _SCRIPT)
-assert _spec and _spec.loader
-ci = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(ci)
+ci = load_gate("check_imports")
 
 
 class FakeGraph:
