@@ -1,0 +1,90 @@
+{
+  "statistics": {
+    "total": {
+      "clones": 164,
+      "duplicatedLines": 2206,
+      "duplicatedTokens": 13164,
+      "lines": 33209,
+      "newClones": 0,
+      "newDuplicatedLines": 0,
+      "percentage": 6.642777560299919,
+      "percentageTokens": 6.942854882518922,
+      "sources": 199,
+      "tokens": 189605
+    }
+  },
+  "duplicates": [
+    {
+      "format": "python",
+      "lines": 9,
+      "tokens": 113,
+      "fragment": "        pdf_title=str(chroma_meta.get(\"pdf_title\", \"\")) or stem,\n        author=str(chroma_meta.get(\"author\", \"\")),\n        year=str(chroma_meta.get(\"year\", \"\")),\n        authors_json=str(chroma_meta.get(\"authors_json\", \"\")),\n        publication=str(chroma_meta.get(\"publication\", \"\")),\n        doi=str(chroma_meta.get(\"doi\", \"\")),\n        abstract=str(chroma_meta.get(\"abstract\", \"\")),\n        notes=str(chroma_meta.get(\"notes\", \"\")),\n        categories=str(chroma_meta.get(\"categories\", \"\")),",
+      "firstFile": {
+        "name": "graph\\builder.py",
+        "start": 106,
+        "end": 114,
+        "startLoc": {
+          "column": 63,
+          "line": 106,
+          "position": 3312
+        },
+        "endLoc": {
+          "column": 58,
+          "line": 114,
+          "position": 3743
+        }
+      },
+      "secondFile": {
+        "name": "routes\\papers.py",
+        "start": 434,
+        "end": 442,
+        "startLoc": {
+          "column": 63,
+          "line": 434,
+          "position": 15601
+        },
+        "endLoc": {
+          "column": 66,
+          "line": 442,
+          "position": 16096
+        }
+      }
+    },
+    {
+      "format": "python",
+      "lines": 8,
+      "tokens": 66,
+      "fragment": "class _BodyExtractor(HTMLParser):\n    def __init__(self) -> None:\n        super().__init__()\n        self._parts: list[str] = []\n        self._skip_depth = 0\n\n    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:\n        if tag in (\"script\", \"style\"):",
+      "firstFile": {
+        "name": "parsers\\_epub.py",
+        "start": 12,
+        "end": 19,
+        "startLoc": {
+          "column": 20,
+          "line": 12,
+          "position": 178
+        },
+        "endLoc": {
+          "column": 17,
+          "line": 19,
+          "position": 420
+        }
+      },
+      "secondFile": {
+        "name": "parsers\\_html.py",
+        "start": 10,
+        "end": 17,
+        "startLoc": {
+          "column": 20,
+          "line": 10,
+          "position": 205
+        },
+        "endLoc": {
+          "column": 17,
+          "line": 17,
+          "position": 447
+        }
+      }
+    }
+  ]
+}
