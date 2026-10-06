@@ -1,7 +1,7 @@
 ---
-description: 'Installs the architecture gates (import cycles + layer contracts) in the current repo: proposes the layers, waits for the owner, then creates configs, baselines and CI callers on a branch with a PR.'
+description: 'Installs the gates in the current repo: import cycles + layer contracts, complexity + duplication, mutation testing on the Python side. Proposes layers, thresholds and the mutation target, waits for the owner, then creates configs, baselines and CI callers on a branch with a PR.'
 argument-hint: '[backend dir and/or frontend dir, or empty to detect them]'
-allowed-tools: Read, Write, Grep, Glob, AskUserQuestion, Bash(git status:*), Bash(git fetch:*), Bash(git switch:*), Bash(git add:*), Bash(git commit:*), Bash(git push:*), Bash(git log:*), Bash(git diff:*), Bash(gh pr create:*), Bash(uv run:*), Bash(npx:*), Bash(ls:*), Bash(cat:*)
+allowed-tools: Read, Write, Edit, Grep, Glob, AskUserQuestion, Bash(git status:*), Bash(git fetch:*), Bash(git switch:*), Bash(git add:*), Bash(git commit:*), Bash(git push:*), Bash(git log:*), Bash(git diff:*), Bash(gh pr create:*), Bash(uv run:*), Bash(npx:*), Bash(npm ci:*), Bash(pnpm install:*), Bash(yarn install:*), Bash(corepack:*), Bash(ls:*), Bash(cat:*)
 # Only a human may start this command: hooks/protect-gates.js lets Claude create gate files that do not exist yet only while the latest typed message is /init-gates.
 disable-model-invocation: true
 ---
@@ -10,7 +10,7 @@ disable-model-invocation: true
 
 Target: "$ARGUMENTS" (empty = detect).
 
-The gate logic lives in claude-config (`gates/python/check_imports.py`, `.github/workflows/arch-gates-python.yml` and `arch-gates-frontend.yml`, pinned at a tag). This command only creates the repo's **declarations**: its layers, its baselines and two short CI callers. Semantics, identical on both sides: runtime imports only, direct edges, module-level cycles, a module in no layer is an error.
+The gate logic lives in claude-config, pinned at a tag: `gates/python/check_imports.py` with `arch-gates-python.yml` and `arch-gates-frontend.yml` (import cycles and layer contracts), `gates/python/check_quality.py` with `quality-python.yml` and `quality-frontend.yml` (cyclomatic complexity and duplication), `gates/python/check_mutation.py` with `mutation-gate.yml` (mutation testing, Python only). This command only creates the repo's **declarations**: layers, baselines and short CI callers; the thresholds live in the callers and the mutation target in `pyproject.toml`. Architecture semantics, identical on both sides: runtime imports only, direct edges, module-level cycles, a module in no layer is an error. Three families, each installed as a whole or not at all; a repo that already has one family gets only the others.
 
 **The protected-file exemption.** While the latest message the owner typed is `/init-gates`, `protect-gates` lets you **create** a gate file that does not exist yet (Write to an absent path, or a shell redirect to one). Changing or deleting an existing one stays blocked, and so does `--update-baseline`. Consequences:
 
@@ -22,14 +22,16 @@ The gate logic lives in claude-config (`gates/python/check_imports.py`, `.github
 Read-only until every check below has passed: stopping must leave the owner exactly where they were.
 
 - `rtk git status`: the tree is clean.
-- None of these exist yet: `arch-gates.json`, `import-cycles-baseline.json`, `import-layers-baseline.json`, `.dependency-cruiser.cjs`, `.dependency-cruiser-known-violations.json`, `.github/workflows/arch-gates.yml`. An existing one means the repo already has gates: report it, change nothing.
+- Which families the repo already has, from its files: **architecture** (`arch-gates.json`, `import-cycles-baseline.json`, `import-layers-baseline.json`, `.dependency-cruiser.cjs`, `.dependency-cruiser-known-violations.json`, `.github/workflows/arch-gates.yml`), **quality** (`complexity-baseline.json`, `duplication-baseline.json`, `.github/workflows/quality-gates.yml`), **mutation** (`mutation-baseline.json`, `.github/workflows/mutation-gate.yml`, a `[tool.mutmut]` section in `pyproject.toml`). A family with any of its files present is installed: report it and leave every file of it alone; only the absent families go on. All three present: stop, there is nothing to do.
 - Detect the sides (or take them from the arguments):
   - **Python**: a directory with `pyproject.toml` and a package directory under it (the one the app imports from, e.g. `app/`).
   - **Frontend**: a directory with `package.json`, `src/` and the tsconfig whose `include` covers `src` (check `references` when `tsconfig.json` has no `include`).
 - **Detect the repo's own analyzers**: Fallow (`.fallowrc.json`, `fallow.toml`), knip (`knip.json*`, `knip.ts`, a `knip` key in `package.json`), depcheck (`.depcheckrc*`), and any CI job that runs one (`grep -ril 'fallow\|knip\|depcheck' .github/workflows`). They report a created `.dependency-cruiser.cjs` as an unused file (nothing imports a config), and their config is a check you never edit (CLAUDE.md, engineering rules). Note them: step 4 names the line the owner will add, step 7 hands it over.
-- Only then: `rtk git fetch` and `git switch -c ci/arch-gates origin/main`.
+- Only then: `rtk git fetch` and `git switch -c ci/gates origin/main`.
 
 ## 2. Find the boundaries first — before reading the graph
+
+Steps 2 to 4 are the architecture family; when it is already installed, go to step 4b.
 
 The gates exist to hold the boundaries the code must never cross. Fitting the current graph comes second: an order chosen because it gives zero violations can leave the one rule that matters unguarded (in a Figma plugin, sandbox code importing a React panel).
 
@@ -91,6 +93,24 @@ cd <frontend dir> && npx --yes -p dependency-cruiser@17.4.3 -p typescript@5.9.3 
 
 Then ask with **AskUserQuestion**: "Approve these layers?" with options *Approve*, *Change them* (the owner writes the change in "Other"), *Stop*. Iterate — redraft, re-probe, show the full table again — until *Approve* or *Stop*. Never create a gate file before *Approve*.
 
+## 4b. Quality and mutation gates — measure, propose, wait
+
+Still nothing written in the repo. Measure the debt with the pinned tools, reports in the scratchpad, for the families that are absent:
+
+- **Complexity, Python** (from `<python dir>`): `uv run --no-project --with ruff==0.16.10 ruff check --select C901 --config "lint.mccabe.max-complexity=10" --output-format json --exit-zero <package> > <scratchpad>/ruff.json`. The repo's own ruff configuration applies (its `exclude`), only the rule and the threshold are imposed.
+- **Complexity, frontend** (from `<frontend dir>`, with the repo's own eslint and config): when `node_modules/` is absent, install from the lockfile first (`npm ci`, `pnpm install --frozen-lockfile` or `yarn install --immutable`; it writes nothing the repo tracks). Then `npx eslint --rule "complexity: [2, 10]" --format json src > <scratchpad>/eslint.json || true`.
+- **Duplication**, per side: `npx --yes jscpd@5.4.0 <package or src> --format <python | typescript,tsx,javascript,jsx,scss,css> --ignore "<the default of the side's workflow>" --reporters json --output <scratchpad>/jscpd-<side> --absolute --silent`.
+- The gate on each report, with no baseline (`gates="$(cat ~/.claude/claude-config.path)/gates/python/check_quality.py"`): `uv run --no-project --python 3.12 python "$gates" complexity --tool ruff|eslint --report <report> --project-dir <side dir>` and `… duplication --report <report> --project-dir <side dir>`: exit 1, and the list it prints is the debt the baseline will freeze. Exit 2 is a blind spot (a file the tool cannot parse, a report that is not the tool's): fix the run, not the repo.
+
+**Mutation, Python side only.** mutmut refuses native Windows: nothing runs here, the PR's first run prints the baseline. Choose the target: one module of pure, deterministic logic with a dedicated test file (`tests/test_<name>.py` ↔ `<package>/…/<name>.py`), the smallest such pair; a module whose tests need a network, a database, a clock or the filesystem is a bad target, its mutants time out or flake. Draft the `[tool.mutmut]` block the header of `check_mutation.py` shows (`source_paths`, `also_copy = ["<package>"]`, `pytest_add_cli_args_test_selection = ["tests/test_<name>.py"]`).
+
+**Show the owner, as text before the questions**: per side, the functions above 10 (count, the three highest with their file) and the clones (count, by format); the mutation target with its test file and the block; what each caller will carry. Then **AskUserQuestion**, one question per absent family:
+
+- "Quality gates: threshold and scope?" with *10, code and styles, tests excluded* (the workflows' defaults), *15*, *Code only, no styles*, *Skip quality*;
+- "Mutation gate on `<module>`?" with *Approve*, *Another module* (named in Other: redraft, ask again), *Skip mutation*.
+
+A skipped family creates nothing. Nothing is written before the answers.
+
 ## 5. Create the declarations — once each, in final form
 
 **Python** — `<python dir>/arch-gates.json`: the package and the approved layers, in the format the header of `check_imports.py` gives (`cat "$(cat ~/.claude/claude-config.path)/gates/python/check_imports.py"`). The root package entry covers only itself: list every top-level module and subpackage explicitly.
@@ -113,19 +133,28 @@ cd <frontend dir> && npx --yes -p dependency-cruiser@17.4.3 -p typescript@5.9.3 
 
 **CI** — `.github/workflows/arch-gates.yml` from `~/.claude/templates/gates/arch-gates.yml`, keeping only the job(s) of the sides the repo has, with their real paths: a side the repo lacks has no job, so nothing shows as skipped and its check cannot be skipped past. Also `.github/workflows/baseline-ratchet.yml` from `~/.claude/templates/gates/baseline-ratchet.yml` if the repo has no ratchet caller yet.
 
+**Quality** — the two baselines per side, in final form, from the reports of step 4b (rerun a tool if a probe file of step 4 could have been in its report): the same `check_quality.py` commands with `--init-baseline`, which creates `complexity-baseline.json` and `duplication-baseline.json` in `--project-dir`. Then `.github/workflows/quality-gates.yml` from `~/.claude/templates/gates/quality-gates.yml`, only the job(s) of the sides, with the real `dir` and `package`, plus `max-complexity`, `jscpd-formats` or `jscpd-ignore` when the owner chose other than the defaults. `.quality-*` goes in `.gitignore` (a file you may edit).
+
+**Mutation** — `.github/workflows/mutation-gate.yml` from `~/.claude/templates/gates/mutation-gate.yml` with the Python dir, and `<python dir>/mutants/` in `.gitignore`. The `[tool.mutmut]` block belongs in `<python dir>/pyproject.toml`, a section a human edits (protect-gates keeps the `[tool.*]` sections): put it in the PR body and the hand-over, never write it. No baseline here: the PR's first `mutation / mutation` run is red with the list to commit as `mutation-baseline.json`, the owner's gesture.
+
 ## 6. Prove it — green, red on the fragile case, green
 
 Run the gates exactly as CI does (commands in step 5, without `--init-baseline`; frontend with `--ignore-known`): all green. Then replay the step 4 probes against the created files — one per invariant, plus, when no invariant crosses it, one **new** upward import through the tsconfig path alias (the edge a missing `tsConfig` would silently drop): each red with the rule named, then deleted, then green again. `rtk git status` must show no leftover.
+
+**Quality.** Run both gates per side exactly as the workflows do, with the baselines in place: green. Then one throwaway file per side holding a function with twelve `if` branches and a copy of an existing function of eight lines or more: the complexity gate names the function, the duplication gate names the clone with its two files; delete the file, rerun, green, `rtk git status` clean.
+
+**Mutation.** No local run on Windows: the proof is the PR's own first run (red with the list), then the owner's baseline commit (green). Say so in the PR.
 
 **The repo's own analyzers (step 1), now that the files exist.** Run each one as its CI or hook does, with the repo's config untouched: it must report the created files (Fallow on the pilot: `unused-file` on `.dependency-cruiser.cjs`). Run it again with a **copy** of its config carrying the line announced in step 4 (`fallow -c <copy> -r .`): no finding left on those files. Both results go in the PR; the repo's config itself is never edited.
 
 ## 7. Branch, commit, PR — then hand over
 
-- Commit only the files of step 5 on `ci/arch-gates` (Conventional Commits, `ci(gates): …`), `rtk git push -u origin ci/arch-gates`, `gh pr create` with: the invariants and their evidence, the approved layer table, the limitations, the frozen debt (entries per baseline), each probe red then green.
+- Commit only the files of step 5 on `ci/gates` (Conventional Commits, `ci(gates): …`), `.gitignore` included, `rtk git push -u origin ci/gates`, `gh pr create` with: the invariants and their evidence, the approved layer table, the limitations, the thresholds and the mutation target, the frozen debt (entries per baseline), each probe red then green, and the `[tool.mutmut]` block to paste.
 - Tell the owner what only they can do:
   1. the PR's `ratchet / ratchet` check is red **by design**: every baseline is new, so it counts as growth. Setting the `baseline-update` label is how they accept the frozen debt;
   2. the line from step 4 (verified in step 6) in their analyzer's config, if any: that check stays red until they add it, and you never add it for them;
-  3. once the checks have run, make `arch-python / python` and/or `arch-frontend / frontend` (and `ratchet / ratchet`) required on `main` — offer to do it with their OK;
-  4. merging is theirs.
+  3. for the mutation gate: paste the `[tool.mutmut]` block into `pyproject.toml` on the branch; the first `mutation / mutation` run is then red and prints `mutation-baseline.json` to commit; a test of the target module weakened on a throwaway PR is the owner's own red proof, if they want one;
+  4. once the checks have run, make them required on `main`: `arch-python / python` and/or `arch-frontend / frontend`, `quality-python / python` and/or `quality-frontend / frontend`, `mutation / mutation`, and `ratchet / ratchet` — offer to do it with their OK. A caller whose check is required must have no `paths:` filter on `pull_request`: a check that never reports leaves every other PR "Expected", blocked for good;
+  5. merging is theirs.
 - Never merge, never set the label, never touch a gate file outside this flow.
 - Whatever stops you once step 5 has begun — a red check you may not fix, the exemption gone, a question — publish what can be published: commit the created files, push, open the PR, and list what is still missing for the owner. If a hook blocks the commit itself (an analyzer in pre-commit, say), never bypass it (`--no-verify` is blocked anyway): leave the files in place, name the hook and the config line the owner adds, and say that once they have added it any session can commit and push these files — `git add` and `git commit` of a gate file are not blocked, only writing one is. Never suggest running `/init-gates` again on this branch: step 1 refuses a repo that already has a gate file.

@@ -169,7 +169,7 @@ claude-config/
 ├── templates/
 │   ├── CLAUDE.project.md        # Per-repo CLAUDE.md, re-rendered on every install
 │   ├── gitignore.append         # .gitignore entries appended by install.sh
-│   └── gates/                   # What /init-gates creates in a repo: dependency-cruiser config, CI callers
+│   └── gates/                   # What /init-gates creates in a repo: dependency-cruiser config, the CI callers of the three gate families
 ├── docs/
 │   └── pitfall.md               # Append-only log of traps Claude Code hit in this repo
 └── tests/
@@ -205,7 +205,7 @@ claude-config/
 | `/feature`              | A feature end to end on a local branch: plan, plan review by another model, tests from the spec seen red, code, gates, tests frozen by git, adversarial review, report; no PR (human-only) |
 | `/find-dead-code`       | Find dead code in the project                                                         |
 | `/init-context`         | Generate `context/architecture.md`, `patterns.md`, `constraints.md` from the codebase |
-| `/init-gates`           | Install the architecture gates in a repo: propose layers, wait for approval, create configs, baselines and CI callers, open a PR (human-only) |
+| `/init-gates`           | Install the gates in a repo, architecture, quality and mutation: propose layers, thresholds and the mutation target, wait for approval, create configs, baselines and CI callers, open a PR (human-only) |
 | `/review-changes`       | Analyze changes since last commit                                                     |
 | `/review-codebase`      | Evaluate a freshly cloned repository                                                  |
 | `/review-comments`      | Analyze code comment quality                                                          |
@@ -436,7 +436,7 @@ jobs:
 
 `@v1` is a tag on this repo: it moves forward with compatible fixes (`git tag -f v1 <sha> && git push -f origin v1`, the owner's gesture) and never to a breaking change, which gets a new major tag. The job checks out `scripts/baseline-ratchet.cjs` at the same commit, so the gate logic always comes from claude-config at that version, never from the branch under test (`.cjs`, not `.js`: the checkout lands inside the caller's repo, and a `"type": "module"` in its `package.json` would make Node load a `.js` as ESM and crash on `require`). A human accepts a growing baseline by setting the `baseline-update` label on the PR: the job then passes and posts the added entries as a PR comment. Limit: GitHub only sees the token, so a label set by Claude with your token is indistinguishable from one you set — hence the hook rule and the comment.
 
-**Wire the architecture gates into a repo.** Type `/init-gates` in it: Claude reads the import graph, proposes the layers, waits for your approval, then creates everything below on a `ci/arch-gates` branch and opens a PR. While `/init-gates` is the latest message you typed, protect-gates lets Claude *create* a gate file that does not exist yet — never change or delete one — and the Python baselines come from `--init-baseline`, which refuses to overwrite. The PR's ratchet is red by design (every baseline is new): your `baseline-update` label is how you accept the frozen debt.
+**Wire the gates into a repo.** Type `/init-gates` in it: Claude reads the import graph, proposes the layers, measures complexity and duplication with the pinned tools, proposes a mutation target on the Python side, waits for your approval on each family, then creates everything on a `ci/gates` branch and opens a PR. A family the repo already has is left alone; the others are added. While `/init-gates` is the latest message you typed, protect-gates lets Claude *create* a gate file that does not exist yet — never change or delete one — and the baselines come from `--init-baseline`, which refuses to overwrite. Two things stay yours: the `[tool.mutmut]` block in `pyproject.toml` (a tool section Claude may not edit) and `mutation-baseline.json`, printed by the PR's first run since mutmut cannot run on Windows. The PR's ratchet is red by design (every baseline is new): your `baseline-update` label is how you accept the frozen debt.
 
 By hand, the logic (the Python script, the grimp and dependency-cruiser versions, the flags) comes from this repo at the pinned tag; the repo keeps only its declarations, all protected by protect-gates and the ratchet:
 
