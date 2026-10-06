@@ -110,10 +110,24 @@ test('a row of thumbnails shrinks to the room it has', () => {
 })
 
 const IMAGES_DIR = '/tmp/claude-501/-work/sess-1/images'
+// On Windows nothing sets CLAUDE_CODE_TMPDIR, and the cache is under %TEMP%\claude.
+const WINDOWS_TEMP = 'C:\\Users\\me\\AppData\\Local\\Temp'
+const WINDOWS_IMAGES_DIR = `${WINDOWS_TEMP}/claude/-work/sess-1/images`
 
-function harness(on: On, env: Record<string, string> = {}) {
+// The engine hands a hook each path made absolute for the machine the tests run on
+// (`C:\tmp\claude-501\…` on Windows): paths are compared by their end, separators aside.
+const isPath = (given: string, expected: string) => given.replace(/\\/g, '/').endsWith(expected.replace(/\\/g, '/'))
+
+function harness(on: On, env: Record<string, string> = {}, isWindows = false) {
   const clock = mock.clock(on)
-  mock.env(on, { CLAUDE_CODE_TMPDIR: '/tmp/claude-501', TERM: 'xterm-256color', ...env })
+  const imagesDir = isWindows ? WINDOWS_IMAGES_DIR : IMAGES_DIR
+  mock.env(on, {
+    ...(isWindows ? { OS: 'Windows_NT', TEMP: WINDOWS_TEMP } : { CLAUDE_CODE_TMPDIR: '/tmp/claude-501' }),
+    TERM: 'xterm-256color',
+    ...env,
+  })
+  // A Mac answers pbpaste, uname and open; Windows has PowerShell alone.
+  const commands = isWindows ? ['powershell.exe'] : ['pbpaste', 'uname', 'open']
   const state = {
     draft: '',
     clipboard: '',
@@ -127,9 +141,11 @@ function harness(on: On, env: Record<string, string> = {}) {
   const entry = (name: string, kind: 'file' | 'dir') => ({ name, kind, size: 0, mtimeMs: 0, isLink: false })
   on('session.id', () => ({ value: 'sess-1' }))
   on('fs.list', ($, e) => ({
-    value: e.path === IMAGES_DIR ? state.images.map(name => entry(name, 'file')) : [entry('-work', 'dir')],
+    value: isPath(e.path, imagesDir) ? state.images.map(name => entry(name, 'file')) : [entry('-work', 'dir')],
   }))
-  on('fs.exists', ($, e) => ({ value: e.path === IMAGES_DIR || state.images.some(name => e.path === `${IMAGES_DIR}/${name}`) }))
+  on('fs.exists', ($, e) => ({
+    value: isPath(e.path, imagesDir) || state.images.some(name => isPath(e.path, `${imagesDir}/${name}`)),
+  }))
   on('fs.read', () => ({ value: { base64: pngStart(800, 400) } }))
   on('state.set', ($, e, next) => (state.writes++, next(e)))
   on('session.start', () => ({ cwd: '/work' }))
@@ -137,8 +153,8 @@ function harness(on: On, env: Record<string, string> = {}) {
   on('process.run', ($, e) => {
     state.ran.push([...e.argv])
     const [command] = e.argv
-    const stdout = command === 'pbpaste' ? state.clipboard : command === 'uname' ? 'Darwin\n' : ''
-    const exitCode = command === 'pbpaste' || command === 'uname' || command === 'open' ? 0 : 1
+    const stdout = command === 'pbpaste' || command === 'powershell.exe' ? state.clipboard : command === 'uname' ? 'Darwin\n' : ''
+    const exitCode = commands.includes(command ?? '') ? 0 : 1
     return { value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('ui.open', ($, e) => (state.opened.push(e.id), { value: { isPlaced: true } }))
@@ -269,4 +285,53 @@ test('an image whose file is still missing does not redraw the band on every pol
   expect(state.writes).toBeGreaterThan(afterFirst)
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect((await band.find({ type: 'Image' }))?.props).toMatchObject({ source: { file: `${IMAGES_DIR}/1.png` } })
+})
+
+test('on Windows a pasted text is read from the clipboard by PowerShell', async ($, on) => {
+  const { clock, state } = harness(on, {}, true)
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+
+  // The Windows clipboard ends its lines with CRLF: they are folded to LF, so the
+  // count is the text's own and no carriage return reaches the pane.
+  state.clipboard = LOREM.replace(/\n/g, '\r\n')
+  state.draft = 'explain [Pasted text #2 +2 lines]'
+  await clock.advance(200)
+
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await band.find({ type: 'Button', key: 'text-2', text: '#2 · 3 lines · 79 chars — Lorem ipsum dolor sit amet,' })).toBeDefined()
+  expect(state.ran.at(-1)?.[0]).toBe('powershell.exe')
+})
+
+test('on Windows a pasted image is found under %TEMP%\\claude and opens through PowerShell', async ($, on) => {
+  const { clock, state } = harness(on, {}, true)
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+
+  state.draft = 'see [Image #1]'
+  await clock.advance(200)
+
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await band.find({ type: 'Button', key: 'image-1', text: '#1 · image 800×400 — open' })).toBeDefined()
+  await $.ui.press({ plugin: 'paste-view', key: 'image-1' })
+  expect(state.ran).toContainEqual([
+    'powershell.exe',
+    '-NoProfile',
+    '-NonInteractive',
+    '-Command',
+    `Invoke-Item -LiteralPath '${WINDOWS_IMAGES_DIR}/1.png'`,
+  ])
+  // Windows has neither `id` nor `uname`: a poll that asked for one would fail.
+  expect(state.ran.some(([command]) => command === 'id' || command === 'uname')).toBe(false)
+})
+
+test('on Windows a quote in an image name cannot end the PowerShell string', async ($, on) => {
+  const { clock, state } = harness(on, {}, true)
+  state.images = ["1.it's.jpg"]
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+
+  state.draft = 'see [Image #1]'
+  await clock.advance(200)
+
+  await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await $.ui.press({ plugin: 'paste-view', key: 'image-1' })
+  expect(state.ran.at(-1)?.at(-1)).toBe(`Invoke-Item -LiteralPath '${WINDOWS_IMAGES_DIR}/1.it''s.jpg'`)
 })
