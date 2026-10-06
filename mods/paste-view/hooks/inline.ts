@@ -1,24 +1,6 @@
-// Local to claude-config, not upstream's: what the band shows of a paste with no key
-// pressed. The first lines of a text, and an image as a mosaic of half blocks for the
-// terminals that draw no pictures: Windows Terminal and VS Code speak Sixel, Claude
-// Code's Image element the kitty protocol only.
-
-/** Up to `count` lines from the first non-blank one, indentation kept, each cut to `width`. */
-export function previewLines(text: string, count: number, width: number): string[] {
-  const lines = text.split(/\r\n|\r|\n/)
-  const start = lines.findIndex(line => line.trim() !== '')
-  if (start < 0 || count < 1 || width < 1) return []
-  return lines.slice(start, start + count).map(line => {
-    // A pasted log may hold colour sequences: none of them, and no other control
-    // character, reaches the terminal. A tab takes two cells here.
-    const clean = line
-      .replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, '')
-      .replace(/\t/g, '  ')
-      .replace(/[\u0000-\u001f\u007f]/g, '')
-      .trimEnd()
-    return clean.length <= width ? clean : `${clean.slice(0, Math.max(0, width - 1))}…`
-  })
-}
+// Local to claude-config, not upstream's: an image shown in the band with no key
+// pressed, as a mosaic of half blocks, for the terminals that draw no pictures. Windows
+// Terminal and VS Code speak Sixel, Claude Code's Image element the kitty protocol only.
 
 // The most cells a mosaic takes. A cell is a half block: two pixels, one above the
 // other, each its own colour. Sextants (two by three pixels a cell, in two colours)

@@ -5,17 +5,17 @@
 // for under %TEMP%\claude, the clipboard is read and an image opened through
 // PowerShell, and CRLF line ends are folded to LF. On every platform: a clipboard
 // read that fails is not remembered, and a session with nobody at the prompt is not
-// polled. Shown with no key pressed (inline.ts, local): the first lines of a text and,
-// on Windows where no picture is drawn, an image as a mosaic of half blocks; the hint
-// names the click under the fullscreen layout alone. The pane of a text never gets
-// the keyboard when it opens, so the band carries the keys that scroll and close it.
-// tags.ts and thumbnails.ts are upstream's, untouched.
+// polled. On Windows where no picture is drawn, an image shows as a mosaic of half
+// blocks (inline.ts, local). A text is its label alone, its size and no excerpt. The
+// hint names the click under the fullscreen layout alone. The pane of a text never
+// gets the keyboard when it opens, so the band carries the keys that scroll and close
+// it. tags.ts and thumbnails.ts are upstream's, untouched.
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { PastedImage, PastedText } from '../types'
-import { MOSAIC_COLUMNS, MOSAIC_COMMAND, MOSAIC_ROWS, mosaicCells, parseMosaic, previewLines } from './inline'
-import { charCount, draftTags, firstLine, lineBreaks, matchesTag } from './tags'
+import { MOSAIC_COLUMNS, MOSAIC_COMMAND, MOSAIC_ROWS, mosaicCells, parseMosaic } from './inline'
+import { charCount, draftTags, lineBreaks, matchesTag } from './tags'
 import type { TextTag } from './tags'
 import { drawsImages, pngDimensions, thumbnailBoxes } from './thumbnails'
 import type { Dimensions } from './thumbnails'
@@ -55,8 +55,6 @@ const dimensions = new Map<string, Dimensions | null>()
 const grids = new Map<string, string[] | null>()
 // The cells a mosaic may take: the band's room when it was last drawn.
 let room = { columns: MOSAIC_COLUMNS, rows: MOSAIC_ROWS }
-// A text shows at most this many of its lines in the band.
-const PREVIEW_LINES = 5
 // Pasted texts by tag number, each read once, when its tag first shows up.
 const pastes = new Map<number, string | null>()
 // What the draft held at the last refresh; undefined forces the next one to redo the work.
@@ -314,12 +312,6 @@ export const register: Register = on => {
     const hotkey = (i: number) => (i >= 0 && i < 9 ? { hotkey: String(i + 1) } : {})
     // Where no picture is drawn, each image scaled to a mosaic sits above the lines.
     const mosaics = imageLines.flatMap(image => (image.pixels == null ? [] : [{ n: image.n, rows: mosaicCells(image.pixels) }]))
-    const mosaicRows = mosaics.length === 0 ? 0 : Math.max(...mosaics.map(mosaic => mosaic.rows.length)) + 1
-    // The rows left once every line has its own are shared by the texts that can be read:
-    // each shows that many of its lines, less the one that says how many are left.
-    const readable = textList.filter(paste => paste.text !== null).length
-    const spare = e.props.maxRows - mosaicRows - lineRows
-    const previewCount = readable === 0 ? 0 : Math.max(0, Math.min(PREVIEW_LINES, Math.floor(spare / readable) - 1))
     const below = await next(e)
 
     return (
@@ -380,30 +372,16 @@ export const register: Register = on => {
           if (paste.text === null) {
             return <Text dimColor wrap="truncate">{`${head} · no preview (clipboard changed)`}</Text>
           }
-          const label = `${head} · ${charCount(paste.text.length)}`
-          // The hotkey prefix (`1: `) takes three cells: the lines of the text sit under the label.
-          const lines = previewLines(paste.text, previewCount, width - 3)
-          if (lines.length < 2) {
-            // One line, or no room for more: the first line follows the label.
-            return (
-              <Button
-                key={`text-${paste.n}`}
-                plain
-                {...hotkey(openable.length + i)}
-                label={`${label} — ${firstLine(paste.text, width - label.length - 6)}`}
-                onPress={() => openPane($, paste)}
-              />
-            )
-          }
-          const left = shownLines(paste) - lines.length
+          // The label alone, its size and nothing of the text: its first lines under it, and
+          // upstream's first line after it, were seen on screen and taken out (Rémi, 2026-10-06).
           return (
-            <Box flexDirection="column">
-              <Button key={`text-${paste.n}`} plain {...hotkey(openable.length + i)} label={label} onPress={() => openPane($, paste)} />
-              {lines.map(line => (
-                <Text dimColor wrap="truncate">{`   ${line}`}</Text>
-              ))}
-              {left > 0 && <Text dimColor wrap="truncate">{`   … ${left} more ${left === 1 ? 'line' : 'lines'}`}</Text>}
-            </Box>
+            <Button
+              key={`text-${paste.n}`}
+              plain
+              {...hotkey(openable.length + i)}
+              label={`${head} · ${charCount(paste.text.length)}`}
+              onPress={() => openPane($, paste)}
+            />
           )
         })}
         {(openable.length > 0 || textList.some(paste => paste.text !== null)) && (
