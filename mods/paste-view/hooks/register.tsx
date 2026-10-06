@@ -1,3 +1,10 @@
+// Vendored from github.com/Amorfx/claude-paste-view at a71ba10 (MIT, see ../LICENSE)
+// on 2026-10-06: claude-config ships the mod itself instead of installing it from
+// a third-party marketplace at whatever commit that holds on install day.
+// Local change: Windows, which upstream does not cover. The image cache is looked
+// for under %TEMP%\claude, the clipboard is read and an image opened through
+// PowerShell, and CRLF line ends are folded to LF. tags.ts and thumbnails.ts are
+// upstream's, untouched; the tests compare paths by their end so they run there too.
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
@@ -17,11 +24,20 @@ const images = atom({ plugin: 'paste-view', key: 'images' } as const, [] as Past
 const texts = atom({ plugin: 'paste-view', key: 'texts' } as const, [] as PastedText[])
 const viewing = atom({ plugin: 'paste-view', key: 'viewing' } as const, null as number | null)
 
+const POWERSHELL = ['powershell.exe', '-NoProfile', '-NonInteractive', '-Command'] as const
+// The text goes out as UTF-8 bytes: written as text it would come back in the console's
+// code page, accents lost, with a newline added.
+const WINDOWS_CLIPBOARD = [
+  ...POWERSHELL,
+  '$t = Get-Clipboard -Raw; if ($t) { $b = [Text.Encoding]::UTF8.GetBytes($t); [Console]::OpenStandardOutput().Write($b, 0, $b.Length) }',
+] as const
+
 // Tried in order on first use; the first that runs is kept.
 const CLIPBOARD_COMMANDS: readonly (readonly string[])[] = [
   ['pbpaste'],
   ['wl-paste', '--no-newline'],
   ['xclip', '-selection', 'clipboard', '-o'],
+  WINDOWS_CLIPBOARD,
 ]
 
 let cwd = ''
@@ -38,9 +54,14 @@ let lastSignature: string | undefined
 let written: string | undefined
 let isRefreshing = false
 
+// Windows has no `id`, `uname` or `open`; it always sets OS.
+const isWindows = async ($: EngineInterface) => (await $.env.get('OS')) === 'Windows_NT'
+
 async function tmpRoot($: EngineInterface): Promise<string> {
   const configured = await $.env.get('CLAUDE_CODE_TMPDIR')
   if (configured !== undefined) return configured
+  // There the folder is %TEMP%\claude, with no user id in its name.
+  if (await isWindows($)) return `${await $.env.get('TEMP')}/claude`
   const { stdout } = await $.process.run(['id', '-u'])
   return `/tmp/claude-${stdout.trim()}`
 }
@@ -94,11 +115,15 @@ async function describeImage($: EngineInterface, dir: string | undefined, n: num
 async function readClipboard($: EngineInterface): Promise<string | null> {
   if (clipboardCommand === null) return null
   for (const argv of clipboardCommand === undefined ? CLIPBOARD_COMMANDS : [clipboardCommand]) {
+    // PowerShell starts in 0.3 to 0.4s once warm (measured 2026-10) and a cold start can
+    // pass a second: timing out there would leave the whole session without previews.
+    const timeoutMs = argv === WINDOWS_CLIPBOARD ? 5000 : 1000
     // pbpaste decodes by the locale, which a bare child process may lack.
-    const ran = await $.process.run(argv, { env: { LANG: 'en_US.UTF-8' }, timeoutMs: 1000 }).catch(() => undefined)
+    const ran = await $.process.run(argv, { env: { LANG: 'en_US.UTF-8' }, timeoutMs }).catch(() => undefined)
     if (ran?.exitCode === 0 && !ran.isStdoutTruncated) {
       clipboardCommand = argv
-      return ran.stdout
+      // The Windows clipboard ends lines with CRLF: a carriage return must not reach the pane.
+      return ran.stdout.replace(/\r\n?/g, '\n')
     }
   }
   clipboardCommand ??= null
@@ -152,8 +177,17 @@ async function poll($: EngineInterface) {
 
 // Without pictures in the terminal, an image opens in the system's own viewer.
 async function openImage($: EngineInterface, path: string) {
-  viewerCommand ??= (await $.process.run(['uname'])).stdout.trim() === 'Darwin' ? 'open' : 'xdg-open'
-  const ran = await $.process.run([viewerCommand, path], { timeoutMs: 5000 }).catch(() => undefined)
+  viewerCommand ??= (await isWindows($))
+    ? 'Invoke-Item'
+    : (await $.process.run(['uname'])).stdout.trim() === 'Darwin'
+      ? 'open'
+      : 'xdg-open'
+  // Invoke-Item is PowerShell's: the path goes in a quoted string, a quote in it doubled.
+  const argv =
+    viewerCommand === 'Invoke-Item'
+      ? [...POWERSHELL, `Invoke-Item -LiteralPath '${path.replace(/'/g, "''")}'`]
+      : [viewerCommand, path]
+  const ran = await $.process.run(argv, { timeoutMs: 5000 }).catch(() => undefined)
   if (ran?.exitCode !== 0) $.ui.toast(`paste-view: couldn't open the image with ${viewerCommand}`)
 }
 
