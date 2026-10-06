@@ -14,7 +14,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { PastedImage, PastedText } from '../types'
-import { MOSAIC_COLUMNS, MOSAIC_COMMAND, MOSAIC_ROWS, mosaicCells, parseMosaic } from './inline'
+import { MOSAIC_COLUMNS, MOSAIC_COMMAND, MOSAIC_ROWS, mosaicRaster, parseMosaic } from './inline'
 import { charCount, draftTags, lineBreaks, matchesTag } from './tags'
 import type { TextTag } from './tags'
 import { drawsImages, pngDimensions, thumbnailBoxes } from './thumbnails'
@@ -51,8 +51,13 @@ let clipboardCommand: readonly string[] | undefined
 let viewerCommand: string | undefined
 let imagesDir: { session: string; path: string } | undefined
 const dimensions = new Map<string, Dimensions | null>()
-// The mosaic of each image, by path, scaled once.
-const grids = new Map<string, string[] | null>()
+// The mosaic of each image, by path; a scaling that failed leaves none.
+const grids = new Map<string, string[]>()
+// How many times each image's scaling was tried. A cold PowerShell or a file still being
+// written fails once and is worth another try; a format System.Drawing cannot read fails
+// every time, and a poll must not start PowerShell for it five times a second.
+const scalings = new Map<string, number>()
+const SCALINGS = 3
 // The cells a mosaic may take: the band's room when it was last drawn.
 let room = { columns: MOSAIC_COLUMNS, rows: MOSAIC_ROWS }
 // Pasted texts by tag number, each read once, when its tag first shows up.
@@ -110,21 +115,29 @@ async function findImage($: EngineInterface, dir: string, n: number): Promise<st
 const isPng = (path: string) => path.endsWith('.png')
 
 // Where the terminal draws no pictures, the band draws the image itself, as half blocks.
-// Windows only: PowerShell's System.Drawing does the scaling.
-async function mosaicOf($: EngineInterface, path: string): Promise<string[] | null> {
-  if (hasGraphics || !(await isWindows($))) return null
-  if (!grids.has(path)) {
+// Windows only: PowerShell's System.Drawing does the scaling. The images that have no
+// mosaic yet are scaled one after the other; true when the next poll has one to draw or
+// a failed one to try again.
+async function scaleMissing($: EngineInterface, list: readonly PastedImage[]): Promise<boolean> {
+  if (hasGraphics || !(await isWindows($))) return false
+  let isChanged = false
+  for (const { path } of list) {
+    const tried = path === null ? SCALINGS : (scalings.get(path) ?? 0)
+    if (path === null || grids.has(path) || tried >= SCALINGS) continue
+    scalings.set(path, tried + 1)
     const env = { PASTE_VIEW_PATH: path, PASTE_VIEW_COLUMNS: String(room.columns), PASTE_VIEW_ROWS: String(room.rows) }
     const ran = await $.process.run([...POWERSHELL, MOSAIC_COMMAND], { env, timeoutMs: 5000 }).catch(() => undefined)
-    grids.set(path, ran?.exitCode === 0 ? parseMosaic(ran.stdout) : null)
+    const pixels = ran?.exitCode === 0 ? parseMosaic(ran.stdout) : null
+    if (pixels !== null) grids.set(path, pixels)
+    isChanged = true
   }
-  return grids.get(path) ?? null
+  return isChanged
 }
 
 async function describeImage($: EngineInterface, dir: string | undefined, n: number): Promise<PastedImage> {
   const path = dir === undefined ? undefined : await findImage($, dir, n)
   if (path === undefined) return { n, path: null, size: null, pixels: null }
-  const pixels = await mosaicOf($, path)
+  const pixels = grids.get(path) ?? null
   if (!isPng(path)) return { n, path, size: null, pixels }
   if (!dimensions.has(path)) {
     // A file past the read cap is still drawn, in a default shape.
@@ -188,6 +201,12 @@ async function refresh($: EngineInterface, draft: string) {
 
   const shown = await read($, viewing)
   if (shown !== null && !tags.texts.some(tag => tag.n === shown)) await closePane($)
+
+  // The lines are written above before any image is scaled: 0.4s of PowerShell an image
+  // must not hold them back. The next poll draws what was scaled, or tries a failure again.
+  // ponytail: the poll waits while PowerShell runs, so a text pasted meanwhile is seen that
+  // much later; run the scaling apart from the poll if that ever shows.
+  if (await scaleMissing($, imageList)) lastSignature = undefined
 }
 
 async function poll($: EngineInterface) {
@@ -224,27 +243,40 @@ const PART_LINES = 10
 // window's offset from the pane's props if that ever matters.
 let panePart = 0
 
+const partCount = (text: string) => Math.ceil((lineBreaks(text) + 1) / PART_LINES)
+
 const paneParts = (text: string) => {
   const lines = text.split(/\r\n|\r|\n/)
-  return Array.from({ length: Math.ceil(lines.length / PART_LINES) }, (_, i) => lines.slice(i * PART_LINES, (i + 1) * PART_LINES).join('\n'))
+  return Array.from({ length: partCount(text) }, (_, i) => lines.slice(i * PART_LINES, (i + 1) * PART_LINES).join('\n'))
+}
+
+// Asks the pane to show a part from its first line, the very top for the first one so
+// that the header above it shows again. False when the engine refused or could not.
+async function showPart($: EngineInterface, part: number): Promise<boolean> {
+  const move = part === 0 ? { in: PANE, to: 'start' as const } : { in: PANE, to: { key: `part-${part}` }, block: 'start' as const }
+  const moved = await $.ui.scroll(move).catch(() => ({ deny: 'failed' }))
+  return moved.deny === undefined
 }
 
 async function openPane($: EngineInterface, paste: PastedText) {
-  panePart = 0
   await update($, viewing, () => paste.n)
   // `focus` is a request the engine refuses while the prompt holds text or the band holds
   // the keyboard, which is every time here: the pane opens without the keys, the arrows
   // never reach it, and the band's own keys move it instead (scrollPane).
   await $.ui.open({ id: PANE, title: `Pasted text #${paste.n}`, focus: true, closeOnEscape: true })
+  // The pane keeps its window from one text to the next: a text opened while another was
+  // scrolled down would start part-way through.
+  panePart = 0
+  await showPart($, 0)
 }
 
 async function scrollPane($: EngineInterface, by: -1 | 1) {
   const shown = await read($, viewing)
   const paste = (await read($, texts)).find(one => one.n === shown)
   if (paste?.text == null) return
-  panePart = Math.max(0, Math.min(paneParts(paste.text).length - 1, panePart + by))
-  // A move the engine refuses or cannot make leaves the pane where it is, no more.
-  await $.ui.scroll({ in: PANE, to: { key: `part-${panePart}` }, block: 'start' }).catch(() => undefined)
+  const part = Math.max(0, Math.min(partCount(paste.text) - 1, panePart + by))
+  // A move the engine refuses leaves the pane, and the count of where it is, as they were.
+  if (await showPart($, part)) panePart = part
 }
 
 async function closePane($: EngineInterface) {
@@ -298,7 +330,7 @@ export const register: Register = on => {
     // The text open in the pane, if any: the band then carries the keys that move it.
     const shown = await read($, viewing)
 
-    const { Box, Button, Image, Text } = $.ui.resolve(e)
+    const { Box, Button, Image, Raster, Text } = $.ui.resolve(e)
     const width = e.props.bodyColumns
     // The Image element draws a PNG file only: any other format is a line that opens it.
     const pictures = hasGraphics ? imageList.filter(image => image.path !== null && isPng(image.path)) : []
@@ -310,8 +342,18 @@ export const register: Register = on => {
     const boxes = thumbnailBoxes(pictures.map(image => image.size), e.props.maxRows - lineRows, width)
     // Number keys run down the lines that open something, images first.
     const hotkey = (i: number) => (i >= 0 && i < 9 ? { hotkey: String(i + 1) } : {})
-    // Where no picture is drawn, each image scaled to a mosaic sits above the lines.
-    const mosaics = imageLines.flatMap(image => (image.pixels == null ? [] : [{ n: image.n, rows: mosaicCells(image.pixels) }]))
+    // Where no picture is drawn, the images scaled to a mosaic sit above the lines, side by
+    // side while the band is wide enough. A mosaic was scaled for the room the band had
+    // then: none is drawn when the band is now too short for it and every line, since a
+    // line scrolled out of the band's window no longer answers its key.
+    let across = 0
+    const mosaics = imageLines.flatMap(image => {
+      if (image.pixels == null) return []
+      const mosaic = mosaicRaster(image.pixels)
+      if (mosaic.rows + 1 + lineRows > e.props.maxRows || across + mosaic.columns > width) return []
+      across += mosaic.columns + 1
+      return [{ n: image.n, ...mosaic }]
+    })
     const below = await next(e)
 
     return (
@@ -338,15 +380,7 @@ export const register: Register = on => {
           <Box flexDirection="row" columnGap={1} alignItems="flex-end">
             {mosaics.map(mosaic => (
               <Box flexDirection="column" alignItems="center">
-                {mosaic.rows.map(runs => (
-                  <Box flexDirection="row">
-                    {runs.map(run => (
-                      <Text color={run.top} backgroundColor={run.bottom}>
-                        {'▀'.repeat(run.cells)}
-                      </Text>
-                    ))}
-                  </Box>
-                ))}
+                <Raster key={`mosaic-${mosaic.n}`} columns={mosaic.columns} rows={mosaic.rows} cells={mosaic.cells} />
                 <Text dimColor>#{mosaic.n}</Text>
               </Box>
             ))}
