@@ -44,24 +44,24 @@ export function parseMosaic(stdout: string): string[] | null {
   return isGrid ? rows : null
 }
 
-/** Cells in a row that share their two colours: `top` is the half block's, `bottom` its background. */
-export type Run = { top: string; bottom: string; cells: number }
+/** A mosaic as the Raster element takes it: its size in cells, and the cells packed. */
+export type Mosaic = { columns: number; rows: number; cells: string }
 
-/** A grid of pixels as rows of cells, each row cut into runs of equal cells. */
-export function mosaicCells(pixels: readonly string[]): Run[][] {
-  const rows: Run[][] = []
-  for (let y = 0; y + 1 < pixels.length; y += 2) {
-    const upper = pixels[y] ?? ''
-    const lower = pixels[y + 1] ?? ''
-    const runs: Run[] = []
-    for (let at = 0; at < upper.length; at += 6) {
-      const top = `#${upper.slice(at, at + 6)}`
-      const bottom = `#${lower.slice(at, at + 6)}`
-      const last = runs.at(-1)
-      if (last !== undefined && last.top === top && last.bottom === bottom) last.cells++
-      else runs.push({ top, bottom, cells: 1 })
-    }
-    rows.push(runs)
+const HALF_BLOCK = 0x2580
+
+/**
+ * A grid of pixels as one grid of half blocks: for each cell the block's code point,
+ * the upper pixel as its ink and the lower as its background, each a little-endian u32,
+ * row after row, in base64.
+ */
+export function mosaicRaster(pixels: readonly string[]): Mosaic {
+  const columns = (pixels[0]?.length ?? 0) / 6
+  const rows = Math.floor(pixels.length / 2)
+  const u32 = (value: number) => String.fromCharCode(value & 0xff, (value >> 8) & 0xff, (value >> 16) & 0xff, value >>> 24)
+  const colour = (row: number, x: number) => parseInt((pixels[row] ?? '').slice(x * 6, x * 6 + 6), 16)
+  let bytes = ''
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < columns; x++) bytes += u32(HALF_BLOCK) + u32(colour(2 * y, x)) + u32(colour(2 * y + 1, x))
   }
-  return rows
+  return { columns, rows, cells: btoa(bytes) }
 }

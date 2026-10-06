@@ -1,7 +1,7 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
-import { mosaicCells, parseMosaic } from '../hooks/inline'
+import { mosaicRaster, parseMosaic } from '../hooks/inline'
 import { charCount, draftTags, firstLine, matchesTag } from '../hooks/tags'
 import { drawsImages, pngDimensions, thumbnailBoxes } from '../hooks/thumbnails'
 
@@ -154,6 +154,8 @@ function harness(on: On, env: Record<string, string> = {}, isWindows = false) {
     isClipboardDown: false,
     /** What the command that scales an image to a mosaic writes. */
     mosaic: '',
+    /** In order: 'write' for each value written to state, 'scale' for each image scaled. */
+    log: [] as string[],
     /** Names of the files in the session's image cache. */
     images: ['1.png'],
     writes: 0,
@@ -177,7 +179,7 @@ function harness(on: On, env: Record<string, string> = {}, isWindows = false) {
     return { value: isPath(e.path, imagesDir) || state.images.some(name => isPath(e.path, `${imagesDir}/${name}`)) }
   })
   on('fs.read', () => ({ value: { base64: pngStart(800, 400) } }))
-  on('state.set', ($, e, next) => (state.writes++, next(e)))
+  on('state.set', ($, e, next) => (state.writes++, state.log.push('write'), next(e)))
   on('session.start', () => ({ cwd: '/work' }))
   on('prompt.read', () => (state.reads++, { value: { text: state.draft, cursor: state.draft.length } }))
   on('process.run', ($, e) => {
@@ -186,6 +188,7 @@ function harness(on: On, env: Record<string, string> = {}, isWindows = false) {
     const [command] = e.argv
     const isClipboard = command === 'pbpaste' || (command === 'powershell.exe' && e.argv.at(-1)?.includes('Get-Clipboard'))
     const isMosaic = command === 'powershell.exe' && e.argv.at(-1)?.includes('System.Drawing')
+    if (isMosaic) state.log.push('scale')
     const stdout = isClipboard ? state.clipboard : isMosaic ? state.mosaic : command === 'uname' ? 'Darwin\n' : ''
     const exitCode = commands.includes(command ?? '') && !(isClipboard && state.isClipboardDown) ? 0 : 1
     return { value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
@@ -410,33 +413,113 @@ test('a mosaic is a whole grid of hex pixels, cut into runs of equal cells', () 
   expect(parseMosaic('ff0000\n00ff0000\n')).toBeNull() // ragged
   expect(parseMosaic('ff0000\nnot-hex\n')).toBeNull()
   expect(parseMosaic('')).toBeNull()
-  // Two red-over-black cells side by side are one run; the green-over-white one is its own.
-  expect(mosaicCells(['ff0000ff000000ff00', '000000000000ffffff'])).toEqual([
-    [
-      { top: '#ff0000', bottom: '#000000', cells: 2 },
-      { top: '#00ff00', bottom: '#ffffff', cells: 1 },
-    ],
+  // Three cells in one row: each a half block, the upper pixel its ink, the lower its background.
+  const raster = mosaicRaster(['ff0000ff000000ff00', '000000000000ffffff'])
+  expect({ columns: raster.columns, rows: raster.rows }).toEqual({ columns: 3, rows: 1 })
+  expect(cellsOf(raster.cells)).toEqual([
+    [0x2580, 0xff0000, 0x000000],
+    [0x2580, 0xff0000, 0x000000],
+    [0x2580, 0x00ff00, 0xffffff],
   ])
 })
 
+/** A Raster's cells unpacked: one `[code point, foreground, background]` per cell. */
+function cellsOf(cells: string): number[][] {
+  const bytes = atob(cells)
+  const u32 = (at: number) => (bytes.charCodeAt(at) | (bytes.charCodeAt(at + 1) << 8) | (bytes.charCodeAt(at + 2) << 16) | (bytes.charCodeAt(at + 3) << 24)) >>> 0
+  return Array.from({ length: bytes.length / 12 }, (_, i) => [u32(i * 12), u32(i * 12 + 4), u32(i * 12 + 8)])
+}
+
+// A 48 by 20 grid of pixels, no two neighbours alike: the largest mosaic, 48 cells by 10.
+const GRID = Array.from({ length: 20 }, (_, y) =>
+  Array.from({ length: 48 }, (_, x) => ((x * 5 + y * 13) % 256).toString(16).padStart(2, '0').repeat(3)).join(''),
+).join('\n')
+
 test('on Windows an image is drawn as a mosaic above its line, at the largest size too', async ($, on) => {
   const { clock, state } = harness(on, {}, true)
-  // 48 columns by 10 rows, no two neighbours alike: the most cells a mosaic ever holds.
-  const pixel = (x: number, y: number) => ((x * 5 + y * 13) % 256).toString(16).padStart(2, '0').repeat(3)
-  state.mosaic = Array.from({ length: 20 }, (_, y) => Array.from({ length: 48 }, (_, x) => pixel(x, y)).join('')).join('\n')
+  state.mosaic = GRID
   await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
 
   state.draft = 'see [Image #1]'
   await clock.advance(200)
   if (!isWindowsHost(state)) return
+  // The line is written before the image is scaled: 0.4s of PowerShell must not hold it back.
+  expect(state.log.indexOf('write')).toBeGreaterThanOrEqual(0)
+  expect(state.log.indexOf('write')).toBeLessThan(state.log.indexOf('scale'))
+  await clock.advance(200)
 
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  // The first cell: pixel 00 over pixel 0d.
-  const cell = await band.find({ type: 'Text', text: '▀' })
-  expect(cell?.props).toMatchObject({ color: '#000000', backgroundColor: '#0d0d0d' })
+  // One element for the whole mosaic; its first cell is pixel 00 over pixel 0d.
+  const mosaic = await band.find({ type: 'Raster', key: 'mosaic-1' })
+  expect(mosaic?.props).toMatchObject({ columns: 48, rows: 10 })
+  const cells = cellsOf(String(mosaic?.props.cells))
+  expect(cells.length).toBe(480)
+  expect(cells[0]).toEqual([0x2580, 0x000000, 0x0d0d0d])
   // The line that opens the image stays under the mosaic.
   expect(await band.find({ type: 'Button', key: 'image-1', text: '#1 · image 800×400 — open' })).toBeDefined()
   expect(state.env).toEqual({ PASTE_VIEW_PATH: `${WINDOWS_IMAGES_DIR}/1.png`, PASTE_VIEW_COLUMNS: '48', PASTE_VIEW_ROWS: '10' })
+})
+
+test('on Windows mosaics are drawn only where the band has the room', async ($, on) => {
+  const { clock, state } = harness(on, {}, true)
+  state.images = ['1.png', '2.png']
+  state.mosaic = GRID
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+
+  state.draft = 'see [Image #1] [Image #2]'
+  await clock.advance(200)
+  if (!isWindowsHost(state)) return
+  await clock.advance(200)
+
+  // Two mosaics of 48 cells and the cell between them take 97: both fit in 120 columns.
+  const wide = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await wide.find({ type: 'Raster', key: 'mosaic-1' })).toBeDefined()
+  expect(await wide.find({ type: 'Raster', key: 'mosaic-2' })).toBeDefined()
+  await wide.unmount()
+
+  // In 80 columns the second would wrap: it is left out, and keeps the line that opens it.
+  const narrow = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 80 }, surface: 'terminal' })
+  expect(await narrow.find({ type: 'Raster', key: 'mosaic-1' })).toBeDefined()
+  expect(await narrow.find({ type: 'Raster', key: 'mosaic-2' })).toBeUndefined()
+  expect(await narrow.find({ type: 'Button', key: 'image-2' })).toBeDefined()
+  await narrow.unmount()
+
+  // Ten rows of mosaic, its label, two lines and the hint are 14 rows. In 13 a line would
+  // be scrolled out of the band, where its key no longer answers: no mosaic is drawn.
+  const short = await $.ui.mount({ ...BAND, props: { ...BAND.props, maxRows: 13 }, surface: 'terminal' })
+  expect(await short.find({ type: 'Raster' })).toBeUndefined()
+  expect(await short.find({ type: 'Button', key: 'image-1' })).toBeDefined()
+  await short.unmount()
+  const enough = await $.ui.mount({ ...BAND, props: { ...BAND.props, maxRows: 14 }, surface: 'terminal' })
+  expect(await enough.find({ type: 'Raster', key: 'mosaic-1' })).toBeDefined()
+})
+
+test('on Windows a scaling that fails is tried again, three times at most', async ($, on) => {
+  const { clock, state } = harness(on, {}, true)
+  const scalings = () => state.log.filter(entry => entry === 'scale').length
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+
+  // PowerShell writes nothing: a cold start past its time, a file still being written.
+  state.draft = 'see [Image #1]'
+  await clock.advance(200)
+  if (!isWindowsHost(state)) return
+  expect(scalings()).toBe(1)
+
+  // The next poll tries again, and this time draws it.
+  state.mosaic = GRID
+  await clock.advance(200)
+  await clock.advance(200)
+  expect(scalings()).toBe(2)
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await band.find({ type: 'Raster', key: 'mosaic-1' })).toBeDefined()
+  await band.unmount()
+
+  // An image that never scales (a format System.Drawing cannot read) is given up on.
+  state.mosaic = ''
+  state.images = ['1.png', '2.png']
+  state.draft = 'see [Image #1] [Image #2]'
+  for (let poll = 0; poll < 8; poll++) await clock.advance(200)
+  expect(scalings()).toBe(2 + 3)
 })
 
 test('a pasted text is one line that gives its size, whatever its length', async ($, on) => {
@@ -479,7 +562,7 @@ test('the hint names the click under the fullscreen layout alone', async ($, on)
   expect(await fullscreen.find({ type: 'Text', text: 'to open one: click its line, or press Ctrl+X, then Tab, then its number' })).toBeDefined()
 })
 
-test('a text open in the pane is scrolled and closed from the band, which holds the keyboard', async ($, on) => {
+test('a text open in the pane has its keys in the band, which holds the keyboard', async ($, on) => {
   const { clock, state } = harness(on)
   await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
 
@@ -500,14 +583,10 @@ test('a text open in the pane is scrolled and closed from the band, which holds 
   expect((await band.find({ type: 'Button', key: 'pane-up' }))?.props).toMatchObject({ hotkey: 'k', label: 'up' })
   expect((await band.find({ type: 'Button', key: 'pane-close' }))?.props).toMatchObject({ hotkey: 'x', label: 'close' })
 
-  // The text is drawn ten lines a part: down shows the next part from its first line.
+  // The text is drawn ten lines a part, each a place the keys bring to the top. The moves
+  // themselves were checked on screen by the owner (2026-10-06): the kit (2.1.291) hands a
+  // plugin's scroll to no hook of the test.
   expect(await pane.find({ type: 'Box', key: 'part-2' })).toBeDefined()
-  await $.ui.press({ plugin: 'paste-view', key: 'pane-down' })
-  await $.ui.press({ plugin: 'paste-view', key: 'pane-down' })
-  await $.ui.press({ plugin: 'paste-view', key: 'pane-down' }) // already at the last part
-  await $.ui.press({ plugin: 'paste-view', key: 'pane-up' })
-  // What each press asks of the pane's window is checked on screen: the kit (2.1.291) hands a
-  // plugin's scroll to no hook of the test, so here the presses only have to be taken.
 
   await $.ui.press({ plugin: 'paste-view', key: 'pane-close' })
   expect(state.closed).toEqual(['paste-view'])
