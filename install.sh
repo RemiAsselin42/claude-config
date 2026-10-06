@@ -110,9 +110,31 @@ _report_upstream_sync() {
   esac
 }
 
+# Whether an upstream sync pass is due. CLAUDE_CONFIG_SYNCED counts the passes that
+# restarted this script. Unset: the first one. 1: a second one, only when the first
+# changed the sync script itself: that pass ran the script the fork had before it,
+# whose _UPSTREAM_PATHS cannot name a path upstream added in the same change. mods/
+# arrived this way (2026-10): the fork got the settings.json naming
+# ~/.claude/mods/paste-view and not the folder, with nothing said, until the next
+# install. 2: both made. Pulled out by name by tests/sync-upstream.sh: keep the
+# definition at column 0, closing brace included.
+_sync_pass_due() {
+  local rc=0
+  case "${CLAUDE_CONFIG_SYNCED:-}" in
+    "") return 0 ;;
+    1)
+      # HEAD is the commit the first pass made. Exit 1 = the file differs; anything
+      # else (unchanged, or no parent to compare with) is no reason to sync again.
+      git -C "$REPO_DIR" diff --quiet HEAD~1 HEAD -- scripts/sync-upstream.sh 2>/dev/null || rc=$?
+      [[ $rc -eq 1 ]]
+      ;;
+    *) return 1 ;;
+  esac
+}
+
 # If the sync brings changes, re-exec the updated install.sh and abandon this run.
-# CLAUDE_CONFIG_SYNCED guards against re-exec loops.
-if [[ "${CLAUDE_CONFIG_SYNCED:-}" != "1" ]]; then
+# CLAUDE_CONFIG_SYNCED guards against re-exec loops: two passes at most.
+if _sync_pass_due; then
   # Auto-add the upstream remote on private forks (origin = claude-config-private)
   if ! git -C "$REPO_DIR" remote get-url upstream &>/dev/null; then
     _origin_url="$(git -C "$REPO_DIR" remote get-url origin 2>/dev/null)"
@@ -130,7 +152,7 @@ if [[ "${CLAUDE_CONFIG_SYNCED:-}" != "1" ]]; then
     _head_after="$(git -C "$REPO_DIR" rev-parse HEAD)"
     if [[ "$_head_before" != "$_head_after" ]]; then
       echo "  ${YELLOW}Config updated from upstream — restarting install.sh with the new version...${RESET}"
-      export CLAUDE_CONFIG_SYNCED=1
+      export CLAUDE_CONFIG_SYNCED=$(( ${CLAUDE_CONFIG_SYNCED:-0} + 1 ))
       exec bash "$REPO_DIR/install.sh" ${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}
     fi
     _report_upstream_sync "$_sync_rc"
