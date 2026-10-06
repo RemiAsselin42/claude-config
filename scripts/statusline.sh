@@ -163,13 +163,17 @@ fi
 line_vibe=""
 if [ -n "$cwd" ] && [ -d "$cwd" ]; then
   here=${BASH_SOURCE[0]%/*}; [ "$here" = "${BASH_SOURCE[0]}" ] && here=.
-  vibe=$(bash "$here/vibe-toggle.sh" status "$cwd" 2>/dev/null | tr -d '\r')
-  case "$vibe" in
-    "vibe-wise: on ["*) vibe=${vibe#*[}; vibe=${vibe%]}
-                        line_vibe="$(label VibeWise)${D}On · ${vibe^}${R}" ;;
-    "vibe-wise: on")    line_vibe="$(label VibeWise)${D}On${R}" ;;
-    "vibe-wise: off")   line_vibe="$(label VibeWise)${D}Off${R}" ;;
+  # One process a render, the script itself; its echo carries no CR to strip.
+  # Spelled out rather than ${var^}: nothing bash 4 in this block.
+  case "$(bash "$here/vibe-toggle.sh" status "$cwd" 2>/dev/null)" in
+    "vibe-wise: on [light]")    vibe="On · Light" ;;
+    "vibe-wise: on [normal]")   vibe="On · Normal" ;;
+    "vibe-wise: on [frequent]") vibe="On · Frequent" ;;
+    "vibe-wise: on")            vibe="On" ;;
+    "vibe-wise: off")           vibe="Off" ;;
+    *)                          vibe="" ;;
   esac
+  [ -n "$vibe" ] && line_vibe="$(label VibeWise)${D}${vibe}${R}"
 fi
 
 # ── Github: branch + live diff vs HEAD, cached 5 s per cwd ───────────────────

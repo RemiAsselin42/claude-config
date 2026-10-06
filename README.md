@@ -178,6 +178,7 @@ claude-config/
     ├── claude-md-refresh.sh     # Self-check for the per-repo CLAUDE.md refresh
     ├── statusline.sh            # Pins the statusline line format against a fixture payload
     ├── vibe-toggle.sh           # vibe-toggle.sh on throwaway projects (lookup, on/off, CRLF, symlinks), the VibeWise statusline line, the plugin's wiring
+    ├── vibe-toggle-write.sh     # What vibe-toggle.sh writes: only the plugin's markers, line endings and a missing final newline kept, a failed write leaves the notes whole
     ├── legacy-hooks.sh          # install.sh must remove the dropped cc-safe-setup hooks and notice a leftover
     ├── install-scope.sh         # install.sh --only: usage names both halves, bad values are refused, the guard answers right
     ├── sync-upstream.sh         # The upstream sync on two throwaway repos: dirty or unreachable = exit 3 (skipped), clean = pulled and committed, a path added to the list = brought by install.sh's second pass

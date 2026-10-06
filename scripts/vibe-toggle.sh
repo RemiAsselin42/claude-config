@@ -23,6 +23,7 @@ case "$cmd" in
 esac
 
 PAUSED_RE='^learning mode:[[:space:]]*paused[[:space:]]*$'
+ACTIVE_RE='^learning mode:[[:space:]]*active[[:space:]]*$'
 FREQ_RE='^checkpoint frequency:[[:space:]]*(light|normal|frequent)[[:space:]]*$'
 
 # Mirrors state_directory() of the plugin's hooks/session_start.py (read at
@@ -30,10 +31,16 @@ FREQ_RE='^checkpoint frequency:[[:space:]]*(light|normal|frequent)[[:space:]]*$'
 # upward, .vibe-wise before the legacy .sensible-vibes; the first one that exists
 # in any form decides, and a file or a symlink there means no notes, with no
 # fallback to the other name or to a parent; never past the level holding .git.
+# One known difference, on Windows: an NTFS junction is a link for bash's -L and
+# a plain directory for Python's is_symlink(). The hook restores through it; this
+# script answers "none" and never writes through it (checked 2026-10-06).
 profile=""
 find_profile() {
   local d s
-  cd -P -- "$dir" 2>/dev/null || return 0
+  [ "$dir" = - ] && dir=./-   # cd reads a lone "-" as $OLDPWD, even after --
+  # CDPATH: cd looks there first for a relative name, and would answer for a
+  # same-named directory of another project.
+  CDPATH='' cd -P -- "$dir" >/dev/null 2>&1 || return 0
   d=$PWD
   while :; do
     # ${d%/}: at the root this gives "/.vibe-wise"; "//.vibe-wise" is a network
@@ -72,21 +79,37 @@ read_state() {
   fi
 }
 
-# Rewrites every "Learning mode:" line and nothing else; a CR at the end of a
-# line stays where it is (BINMODE: gawk on Windows must not touch them either).
+# Flips the plugin's markers and nothing else. A marker is a whole line, the
+# form the hook matches: a learner's sentence that starts with "Learning mode:"
+# is not one and comes out as written, like every other line, its CR and a
+# missing final newline included. `on` turns the paused markers active; `off`
+# turns the active ones paused and adds a marker when the profile has none.
+# The new content is written beside the profile and renamed over it: a write
+# that fails leaves the notes as they were (the first version emptied the file
+# before writing it, review of 2026-10-06).
 set_mode() {  # $1 = active | paused
-  local tmp rc
-  tmp=$(mktemp) || return 1
-  # ponytail: a profile with no mode line gets "paused" appended at the end, not
-  # near the top where the plugin's template keeps it; the hook scans the whole file.
-  awk -v BINMODE=3 -v v="$1" '
-    tolower($0) ~ /^learning mode:/ { sub(/^[^\r]*/, "Learning mode: " v); seen = 1 }
-    { print }
-    END { if (!seen && v == "paused") print "Learning mode: paused" }
-  ' "$profile" > "$tmp" && cat "$tmp" > "$profile"
-  rc=$?
+  local from=$ACTIVE_RE tmp="$profile.tmp.$$" line nl cr="" eol="" paused=0
+  [ "$1" = active ] && from=$PAUSED_RE
+  cp -p "$profile" "$tmp" 2>/dev/null || return 1   # the copy carries the file's mode
+  {
+    while :; do
+      nl=$'\n'
+      IFS= read -r line || { [ -n "$line" ] || break; nl=""; }   # "": no newline after the last line
+      cr=""; [[ $line == *$'\r' ]] && cr=$'\r' && eol=$'\r'
+      [[ $line =~ $from ]] && line="Learning mode: $1$cr"
+      [[ $line =~ $PAUSED_RE ]] && paused=1
+      printf '%s%s' "$line" "$nl"
+      [ -n "$nl" ] || break
+    done
+    if [ "$1" = paused ] && (( ! paused )); then
+      # ponytail: the marker is appended at the end, not near the top where the
+      # plugin's template keeps it; the hook scans the whole file.
+      [ -n "$nl" ] || printf '%s\n' "$eol"
+      printf 'Learning mode: paused%s\n' "$eol"
+    fi
+  } < "$profile" > "$tmp" && mv -f "$tmp" "$profile" && return 0
   rm -f "$tmp"
-  return $rc
+  return 1
 }
 
 find_profile
@@ -101,12 +124,16 @@ case "$cmd" in
   status)
     if [ "$state" = on ]; then echo "vibe-wise: on${freq:+ [$freq]}"; else echo "vibe-wise: off"; fi
     ;;
-  on)
-    set_mode active || exit 1
-    echo "vibe-wise ON — restored at the next session start, /clear or compaction; /vibe-wise:learn starts it now"
-    ;;
-  off)
-    set_mode paused || exit 1
-    echo "vibe-wise OFF — paused in ${profile%/*}"
+  on|off)
+    mode=active; [ "$cmd" = off ] && mode=paused
+    if ! set_mode "$mode"; then
+      echo "vibe-toggle: could not rewrite $profile, left as it was" >&2
+      exit 1
+    fi
+    if [ "$cmd" = on ]; then
+      echo "vibe-wise ON — restored at the next session start, /clear or compaction; /vibe-wise:learn starts it now"
+    else
+      echo "vibe-wise OFF — paused in ${profile%/*}"
+    fi
     ;;
 esac
