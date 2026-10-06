@@ -1,6 +1,7 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
+import { mosaicCells, parseMosaic, previewLines } from '../hooks/inline'
 import { charCount, draftTags, firstLine, matchesTag } from '../hooks/tags'
 import { drawsImages, pngDimensions, thumbnailBoxes } from '../hooks/thumbnails'
 
@@ -151,6 +152,8 @@ function harness(on: On, env: Record<string, string> = {}, isWindows = false) {
     clipboard: '',
     /** While true the clipboard command fails, as on a timeout. */
     isClipboardDown: false,
+    /** What the command that scales an image to a mosaic writes. */
+    mosaic: '',
     /** Names of the files in the session's image cache. */
     images: ['1.png'],
     writes: 0,
@@ -182,7 +185,8 @@ function harness(on: On, env: Record<string, string> = {}, isWindows = false) {
     state.env = { ...e.init?.env }
     const [command] = e.argv
     const isClipboard = command === 'pbpaste' || (command === 'powershell.exe' && e.argv.at(-1)?.includes('Get-Clipboard'))
-    const stdout = isClipboard ? state.clipboard : command === 'uname' ? 'Darwin\n' : ''
+    const isMosaic = command === 'powershell.exe' && e.argv.at(-1)?.includes('System.Drawing')
+    const stdout = isClipboard ? state.clipboard : isMosaic ? state.mosaic : command === 'uname' ? 'Darwin\n' : ''
     const exitCode = commands.includes(command ?? '') && !(isClipboard && state.isClipboardDown) ? 0 : 1
     return { value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
@@ -202,7 +206,9 @@ test('a pasted text shows a preview, opens whole in a pane, and clears on send',
   await clock.advance(200)
 
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect(await band.find({ type: 'Button', key: 'text-2', text: '#2 · 3 lines · 79 chars — Lorem ipsum dolor sit amet,' })).toBeDefined()
+  // The label, then the text's own lines under it.
+  expect((await band.find({ type: 'Button', key: 'text-2' }))?.props).toMatchObject({ label: '#2 · 3 lines · 79 chars' })
+  expect(await band.find({ type: 'Text', text: '   consectetur adipiscing elit,' })).toBeDefined()
   await $.ui.press({ plugin: 'paste-view', key: 'text-2' })
   await band.unmount()
   expect(state.opened).toEqual(['paste-view'])
@@ -332,7 +338,9 @@ test('a clipboard read that fails once does not cost the session its previews', 
 
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await band.find({ type: 'Text', text: '#1 · 3 lines · no preview (clipboard changed)' })).toBeDefined()
-  expect(await band.find({ type: 'Button', key: 'text-2', text: '#2 · 3 lines · 79 chars — Lorem ipsum dolor sit amet,' })).toBeDefined()
+  // The label, then the text's own lines under it.
+  expect((await band.find({ type: 'Button', key: 'text-2' }))?.props).toMatchObject({ label: '#2 · 3 lines · 79 chars' })
+  expect(await band.find({ type: 'Text', text: '   consectetur adipiscing elit,' })).toBeDefined()
 })
 
 test('a session nobody types in is not polled', async ($, on) => {
@@ -355,7 +363,9 @@ test('on Windows a pasted text is read from the clipboard by PowerShell', async 
   await clock.advance(200)
 
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect(await band.find({ type: 'Button', key: 'text-2', text: '#2 · 3 lines · 79 chars — Lorem ipsum dolor sit amet,' })).toBeDefined()
+  // The label, then the text's own lines under it.
+  expect((await band.find({ type: 'Button', key: 'text-2' }))?.props).toMatchObject({ label: '#2 · 3 lines · 79 chars' })
+  expect(await band.find({ type: 'Text', text: '   consectetur adipiscing elit,' })).toBeDefined()
   // PowerShell alone is asked: a pbpaste or xclip left on the PATH must not answer first.
   expect(state.ran.map(([command]) => command)).toEqual(['powershell.exe'])
 })
@@ -392,4 +402,103 @@ test('on Windows an apostrophe in an image name stays out of the PowerShell comm
   await $.ui.press({ plugin: 'paste-view', key: 'image-1' })
   expect(state.ran.at(-1)?.at(-1)).toBe(OPEN_COMMAND)
   expect(state.env).toEqual({ PASTE_VIEW_PATH: `${WINDOWS_IMAGES_DIR}/1.it’s.jpg` })
+})
+
+test('the lines shown of a text keep their indentation and lose what a terminal would obey', () => {
+  expect(previewLines('\n\ndef f():\n\treturn 1\n\nnext', 3, 40)).toEqual(['def f():', '  return 1', ''])
+  expect(previewLines('\u001b[31mred\u001b[0m alert\u0007', 5, 40)).toEqual(['red alert'])
+  expect(previewLines('abcdefghij', 5, 5)).toEqual(['abcd…'])
+  expect(previewLines('   \n', 5, 40)).toEqual([])
+  expect(previewLines('one', 0, 40)).toEqual([])
+})
+
+test('a mosaic is a whole grid of hex pixels, cut into runs of equal cells', () => {
+  expect(parseMosaic('ff0000ff000000ff00\n000000000000ffffff\n')).toEqual(['ff0000ff000000ff00', '000000000000ffffff'])
+  expect(parseMosaic('ff0000\n')).toBeNull() // a cell needs two pixel rows
+  expect(parseMosaic('ff0000\n00ff0000\n')).toBeNull() // ragged
+  expect(parseMosaic('ff0000\nnot-hex\n')).toBeNull()
+  expect(parseMosaic('')).toBeNull()
+  // Two red-over-black cells side by side are one run; the green-over-white one is its own.
+  expect(mosaicCells(['ff0000ff000000ff00', '000000000000ffffff'])).toEqual([
+    [
+      { top: '#ff0000', bottom: '#000000', cells: 2 },
+      { top: '#00ff00', bottom: '#ffffff', cells: 1 },
+    ],
+  ])
+})
+
+test('on Windows an image is drawn as a mosaic above its line, at the largest size too', async ($, on) => {
+  const { clock, state } = harness(on, {}, true)
+  // 48 columns by 10 rows, no two neighbours alike: the most cells a mosaic ever holds.
+  const pixel = (x: number, y: number) => ((x * 5 + y * 13) % 256).toString(16).padStart(2, '0').repeat(3)
+  state.mosaic = Array.from({ length: 20 }, (_, y) => Array.from({ length: 48 }, (_, x) => pixel(x, y)).join('')).join('\n')
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+
+  state.draft = 'see [Image #1]'
+  await clock.advance(200)
+  if (!isWindowsHost(state)) return
+
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  // The first cell: pixel 00 over pixel 0d.
+  const cell = await band.find({ type: 'Text', text: '▀' })
+  expect(cell?.props).toMatchObject({ color: '#000000', backgroundColor: '#0d0d0d' })
+  // The line that opens the image stays under the mosaic.
+  expect(await band.find({ type: 'Button', key: 'image-1', text: '#1 · image 800×400 — open' })).toBeDefined()
+  expect(state.env).toEqual({ PASTE_VIEW_PATH: `${WINDOWS_IMAGES_DIR}/1.png`, PASTE_VIEW_COLUMNS: '48', PASTE_VIEW_ROWS: '10' })
+})
+
+test('a long text shows its first five lines and how many are left', async ($, on) => {
+  const { clock, state } = harness(on)
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+
+  state.clipboard = ['def main():', '    one()', '    two()', '    three()', '    four()', '    five()', '    six()', '    seven()'].join('\n')
+  state.draft = '[Pasted text #1 +7 lines]'
+  await clock.advance(200)
+
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await band.find({ type: 'Button', key: 'text-1' }))?.props).toMatchObject({ label: '#1 · 8 lines · 87 chars' })
+  // Indentation is the text's own, under the label.
+  expect(await band.find({ type: 'Text', text: '   def main():' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: '       four()' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: 'five()' })).toBeUndefined()
+  expect(await band.find({ type: 'Text', text: '   … 3 more lines' })).toBeDefined()
+})
+
+test('a text of one line, or a band with no room, keeps the first line on the label', async ($, on) => {
+  const { clock, state } = harness(on)
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+
+  state.clipboard = 'one long line'
+  state.draft = '[Pasted text #1]'
+  await clock.advance(200)
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await band.find({ type: 'Button', key: 'text-1' }))?.props).toMatchObject({ label: '#1 · 1 lines · 13 chars — one long line' })
+  await band.unmount()
+
+  // Three rows: the label, the hint, and one to spare, which a single line of text is not worth.
+  state.clipboard = LOREM
+  state.draft = '[Pasted text #2 +2 lines]'
+  await clock.advance(200)
+  const tight = await $.ui.mount({ ...BAND, props: { ...BAND.props, maxRows: 3 }, surface: 'terminal' })
+  expect((await tight.find({ type: 'Button', key: 'text-2' }))?.props).toMatchObject({
+    label: '#2 · 3 lines · 79 chars — Lorem ipsum dolor sit amet,',
+  })
+})
+
+test('the hint names the click under the fullscreen layout alone', async ($, on) => {
+  const { clock, state } = harness(on)
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+
+  state.clipboard = LOREM
+  state.draft = '[Pasted text #1 +2 lines]'
+  await clock.advance(200)
+
+  // On the main screen a click reaches no line.
+  const main = await $.ui.mount({ ...BAND, viewport: { ...BAND.viewport, isFullscreen: false }, surface: 'terminal' })
+  expect(await main.find({ type: 'Text', text: 'to open one: press Ctrl+X, then Tab, then its number' })).toBeDefined()
+  expect(await main.find({ type: 'Text', text: 'click' })).toBeUndefined()
+  await main.unmount()
+
+  const fullscreen = await $.ui.mount({ ...BAND, viewport: { ...BAND.viewport, isFullscreen: true }, surface: 'terminal' })
+  expect(await fullscreen.find({ type: 'Text', text: 'to open one: click its line, or press Ctrl+X, then Tab, then its number' })).toBeDefined()
 })

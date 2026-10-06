@@ -4,6 +4,11 @@ export type PastedImage = {
   path: string | null
   /** Its size in pixels, from the PNG header; null when that couldn't be read. */
   size: { width: number; height: number } | null
+  /**
+   * The image scaled down to a mosaic, one string of hex per pixel row, six digits a
+   * pixel; null where the terminal draws pictures itself or the scaling failed.
+   */
+  pixels: string[] | null
 }
 
 export type PastedText = {

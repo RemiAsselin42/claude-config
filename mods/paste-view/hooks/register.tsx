@@ -5,11 +5,15 @@
 // for under %TEMP%\claude, the clipboard is read and an image opened through
 // PowerShell, and CRLF line ends are folded to LF. On every platform: a clipboard
 // read that fails is not remembered, and a session with nobody at the prompt is not
-// polled. tags.ts and thumbnails.ts are upstream's, untouched.
+// polled. Shown with no key pressed (inline.ts, local): the first lines of a text and,
+// on Windows where no picture is drawn, an image as a mosaic of half blocks; the hint
+// names the click under the fullscreen layout alone. tags.ts and thumbnails.ts are
+// upstream's, untouched.
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { PastedImage, PastedText } from '../types'
+import { MOSAIC_COLUMNS, MOSAIC_COMMAND, MOSAIC_ROWS, mosaicCells, parseMosaic, previewLines } from './inline'
 import { charCount, draftTags, firstLine, lineBreaks, matchesTag } from './tags'
 import type { TextTag } from './tags'
 import { drawsImages, pngDimensions, thumbnailBoxes } from './thumbnails'
@@ -46,6 +50,12 @@ let clipboardCommand: readonly string[] | undefined
 let viewerCommand: string | undefined
 let imagesDir: { session: string; path: string } | undefined
 const dimensions = new Map<string, Dimensions | null>()
+// The mosaic of each image, by path, scaled once.
+const grids = new Map<string, string[] | null>()
+// The cells a mosaic may take: the band's room when it was last drawn.
+let room = { columns: MOSAIC_COLUMNS, rows: MOSAIC_ROWS }
+// A text shows at most this many of its lines in the band.
+const PREVIEW_LINES = 5
 // Pasted texts by tag number, each read once, when its tag first shows up.
 const pastes = new Map<number, string | null>()
 // What the draft held at the last refresh; undefined forces the next one to redo the work.
@@ -100,16 +110,29 @@ async function findImage($: EngineInterface, dir: string, n: number): Promise<st
 
 const isPng = (path: string) => path.endsWith('.png')
 
+// Where the terminal draws no pictures, the band draws the image itself, as half blocks.
+// Windows only: PowerShell's System.Drawing does the scaling.
+async function mosaicOf($: EngineInterface, path: string): Promise<string[] | null> {
+  if (hasGraphics || !(await isWindows($))) return null
+  if (!grids.has(path)) {
+    const env = { PASTE_VIEW_PATH: path, PASTE_VIEW_COLUMNS: String(room.columns), PASTE_VIEW_ROWS: String(room.rows) }
+    const ran = await $.process.run([...POWERSHELL, MOSAIC_COMMAND], { env, timeoutMs: 5000 }).catch(() => undefined)
+    grids.set(path, ran?.exitCode === 0 ? parseMosaic(ran.stdout) : null)
+  }
+  return grids.get(path) ?? null
+}
+
 async function describeImage($: EngineInterface, dir: string | undefined, n: number): Promise<PastedImage> {
   const path = dir === undefined ? undefined : await findImage($, dir, n)
-  if (path === undefined) return { n, path: null, size: null }
-  if (!isPng(path)) return { n, path, size: null }
+  if (path === undefined) return { n, path: null, size: null, pixels: null }
+  const pixels = await mosaicOf($, path)
+  if (!isPng(path)) return { n, path, size: null, pixels }
   if (!dimensions.has(path)) {
     // A file past the read cap is still drawn, in a default shape.
     const head = await $.fs.read(path, { as: 'bytes' }).catch(() => undefined)
     dimensions.set(path, head === undefined ? null : pngDimensions(head.base64))
   }
-  return { n, path, size: dimensions.get(path) ?? null }
+  return { n, path, size: dimensions.get(path) ?? null, pixels }
 }
 
 async function readClipboard($: EngineInterface): Promise<string | null> {
@@ -240,6 +263,11 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.surface !== 'terminal' || e.props.hasSurvey) return next(e)
+    // Kept for the next image to be scaled: four rows are left to the lines below it.
+    room = {
+      columns: Math.min(MOSAIC_COLUMNS, e.props.bodyColumns),
+      rows: Math.max(2, Math.min(MOSAIC_ROWS, e.props.maxRows - 4)),
+    }
     const imageList = await read($, images)
     const textList = await read($, texts)
     if (imageList.length === 0 && textList.length === 0) return next(e)
@@ -255,6 +283,14 @@ export const register: Register = on => {
     const boxes = thumbnailBoxes(pictures.map(image => image.size), e.props.maxRows - lineRows, width)
     // Number keys run down the lines that open something, images first.
     const hotkey = (i: number) => (i >= 0 && i < 9 ? { hotkey: String(i + 1) } : {})
+    // Where no picture is drawn, each image scaled to a mosaic sits above the lines.
+    const mosaics = imageLines.flatMap(image => (image.pixels == null ? [] : [{ n: image.n, rows: mosaicCells(image.pixels) }]))
+    const mosaicRows = mosaics.length === 0 ? 0 : Math.max(...mosaics.map(mosaic => mosaic.rows.length)) + 1
+    // The rows left once every line has its own are shared by the texts that can be read:
+    // each shows that many of its lines, less the one that says how many are left.
+    const readable = textList.filter(paste => paste.text !== null).length
+    const spare = e.props.maxRows - mosaicRows - lineRows
+    const previewCount = readable === 0 ? 0 : Math.max(0, Math.min(PREVIEW_LINES, Math.floor(spare / readable) - 1))
     const below = await next(e)
 
     return (
@@ -273,6 +309,24 @@ export const register: Register = on => {
                   />
                 </Box>
                 <Text dimColor>#{image.n}</Text>
+              </Box>
+            ))}
+          </Box>
+        )}
+        {mosaics.length > 0 && (
+          <Box flexDirection="row" columnGap={1} alignItems="flex-end">
+            {mosaics.map(mosaic => (
+              <Box flexDirection="column" alignItems="center">
+                {mosaic.rows.map(runs => (
+                  <Box flexDirection="row">
+                    {runs.map(run => (
+                      <Text color={run.top} backgroundColor={run.bottom}>
+                        {'▀'.repeat(run.cells)}
+                      </Text>
+                    ))}
+                  </Box>
+                ))}
+                <Text dimColor>#{mosaic.n}</Text>
               </Box>
             ))}
           </Box>
@@ -297,20 +351,40 @@ export const register: Register = on => {
           if (paste.text === null) {
             return <Text dimColor wrap="truncate">{`${head} · no preview (clipboard changed)`}</Text>
           }
-          const label = `${head} · ${charCount(paste.text.length)} — `
-          // The hotkey prefix (`1: `) takes three cells.
+          const label = `${head} · ${charCount(paste.text.length)}`
+          // The hotkey prefix (`1: `) takes three cells: the lines of the text sit under the label.
+          const lines = previewLines(paste.text, previewCount, width - 3)
+          if (lines.length < 2) {
+            // One line, or no room for more: the first line follows the label.
+            return (
+              <Button
+                key={`text-${paste.n}`}
+                plain
+                {...hotkey(openable.length + i)}
+                label={`${label} — ${firstLine(paste.text, width - label.length - 6)}`}
+                onPress={() => openPane($, paste)}
+              />
+            )
+          }
+          const left = shownLines(paste) - lines.length
           return (
-            <Button
-              key={`text-${paste.n}`}
-              plain
-              {...hotkey(openable.length + i)}
-              label={`${label}${firstLine(paste.text, width - label.length - 3)}`}
-              onPress={() => openPane($, paste)}
-            />
+            <Box flexDirection="column">
+              <Button key={`text-${paste.n}`} plain {...hotkey(openable.length + i)} label={label} onPress={() => openPane($, paste)} />
+              {lines.map(line => (
+                <Text dimColor wrap="truncate">{`   ${line}`}</Text>
+              ))}
+              {left > 0 && <Text dimColor wrap="truncate">{`   … ${left} more ${left === 1 ? 'line' : 'lines'}`}</Text>}
+            </Box>
           )
         })}
         {(openable.length > 0 || textList.some(paste => paste.text !== null)) && (
-          <Text dimColor wrap="truncate">click a line, or ctrl+x tab then its number, to see it whole</Text>
+          // A click reaches a line under the fullscreen layout alone: on the main screen
+          // naming it sent people clicking at nothing.
+          <Text dimColor wrap="truncate">
+            {e.viewport?.isFullscreen === true
+              ? 'to open one: click its line, or press Ctrl+X, then Tab, then its number'
+              : 'to open one: press Ctrl+X, then Tab, then its number'}
+          </Text>
         )}
         {below}
       </Box>
