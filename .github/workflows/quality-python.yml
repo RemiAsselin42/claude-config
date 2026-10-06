@@ -1,0 +1,86 @@
+# quality-python — reusable workflow: cyclomatic complexity (ruff C901) and duplication
+# (jscpd) of a Python package may only shrink.
+#
+# The tools run with the rule imposed on the command line, the repo's own ruff
+# configuration is not touched (--isolated) and no noqa is needed: the gate script
+# reads the JSON reports and ratchets them against complexity-baseline.json and
+# duplication-baseline.json in the project directory. The script comes from
+# claude-config at the pinned tag (checked out at this workflow's own commit, never
+# from the branch under test); the repo keeps only the two baselines and this caller,
+# protected by hooks/protect-gates.js and the baseline-ratchet workflow.
+#
+# Caller (see templates/gates/quality-gates.yml):
+#
+#   jobs:
+#     quality-python:
+#       uses: RemiAsselin42/claude-config/.github/workflows/quality-python.yml@v5
+#       with:
+#         dir: backend
+#         package: app
+#
+# Check reported: "quality-python / python". Make it required on main. First run with
+# no baseline: red, with the lists to commit.
+name: quality-python
+on:
+  workflow_call:
+    inputs:
+      dir:
+        description: directory holding pyproject.toml and the two baselines
+        type: string
+        required: true
+      package:
+        description: what ruff and jscpd scan, relative to dir
+        type: string
+        required: false
+        default: .
+      max-complexity:
+        description: cyclomatic complexity above which a function is a violation
+        type: number
+        required: false
+        default: 10
+      jscpd-ignore:
+        description: comma-separated globs jscpd skips
+        type: string
+        required: false
+        default: "**/test/**,**/tests/**,**/*.test.*,**/conftest.py"
+      jscpd-formats:
+        description: comma-separated jscpd formats
+        type: string
+        required: false
+        default: python
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .arch-gates
+          sparse-checkout: gates/python/check_quality.py
+          sparse-checkout-cone-mode: false
+      - uses: astral-sh/setup-uv@v4
+      # --exit-zero: the violations are the gate's to judge, not ruff's.
+      - name: Complexity (ruff C901)
+        working-directory: ${{ inputs.dir }}
+        env:
+          MAX: ${{ inputs.max-complexity }}
+          TARGET: ${{ inputs.package }}
+        run: uv run --no-project --python 3.12 --with ruff==0.16.10 ruff check --select C901 --config "lint.mccabe.max-complexity=$MAX" --output-format json --isolated --exit-zero "$TARGET" > .quality-ruff.json
+      - name: Duplication (jscpd)
+        working-directory: ${{ inputs.dir }}
+        env:
+          TARGET: ${{ inputs.package }}
+          IGNORE: ${{ inputs.jscpd-ignore }}
+          FORMATS: ${{ inputs.jscpd-formats }}
+        run: npx --yes jscpd@5.4.0 "$TARGET" --format "$FORMATS" --ignore "$IGNORE" --reporters json --output .quality-jscpd --silent
+      - name: Complexity against the baseline
+        working-directory: ${{ inputs.dir }}
+        run: uv run --no-project --python 3.12 python "$GITHUB_WORKSPACE/.arch-gates/gates/python/check_quality.py" complexity --tool ruff --report .quality-ruff.json
+      - name: Duplication against the baseline
+        if: success() || failure()
+        working-directory: ${{ inputs.dir }}
+        run: uv run --no-project --python 3.12 python "$GITHUB_WORKSPACE/.arch-gates/gates/python/check_quality.py" duplication --report .quality-jscpd/jscpd-report.json
