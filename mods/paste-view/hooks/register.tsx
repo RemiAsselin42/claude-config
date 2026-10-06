@@ -7,8 +7,9 @@
 // read that fails is not remembered, and a session with nobody at the prompt is not
 // polled. Shown with no key pressed (inline.ts, local): the first lines of a text and,
 // on Windows where no picture is drawn, an image as a mosaic of half blocks; the hint
-// names the click under the fullscreen layout alone. tags.ts and thumbnails.ts are
-// upstream's, untouched.
+// names the click under the fullscreen layout alone. The pane of a text never gets
+// the keyboard when it opens, so the band carries the keys that scroll and close it.
+// tags.ts and thumbnails.ts are upstream's, untouched.
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
@@ -218,9 +219,34 @@ async function openImage($: EngineInterface, path: string) {
   if (ran?.exitCode !== 0) $.ui.toast(`paste-view: couldn't open the image with ${viewerCommand}`)
 }
 
+// The pane draws a text this many lines a part, each part a place the band can scroll to.
+const PART_LINES = 10
+// The part the band last brought to the top of the pane.
+// ponytail: counts its own moves, so a wheel scroll in between is not seen; read the
+// window's offset from the pane's props if that ever matters.
+let panePart = 0
+
+const paneParts = (text: string) => {
+  const lines = text.split(/\r\n|\r|\n/)
+  return Array.from({ length: Math.ceil(lines.length / PART_LINES) }, (_, i) => lines.slice(i * PART_LINES, (i + 1) * PART_LINES).join('\n'))
+}
+
 async function openPane($: EngineInterface, paste: PastedText) {
+  panePart = 0
   await update($, viewing, () => paste.n)
+  // `focus` is a request the engine refuses while the prompt holds text or the band holds
+  // the keyboard, which is every time here: the pane opens without the keys, the arrows
+  // never reach it, and the band's own keys move it instead (scrollPane).
   await $.ui.open({ id: PANE, title: `Pasted text #${paste.n}`, focus: true, closeOnEscape: true })
+}
+
+async function scrollPane($: EngineInterface, by: -1 | 1) {
+  const shown = await read($, viewing)
+  const paste = (await read($, texts)).find(one => one.n === shown)
+  if (paste?.text == null) return
+  panePart = Math.max(0, Math.min(paneParts(paste.text).length - 1, panePart + by))
+  // A move the engine refuses or cannot make leaves the pane where it is, no more.
+  await $.ui.scroll({ in: PANE, to: { key: `part-${panePart}` }, block: 'start' }).catch(() => undefined)
 }
 
 async function closePane($: EngineInterface) {
@@ -271,6 +297,8 @@ export const register: Register = on => {
     const imageList = await read($, images)
     const textList = await read($, texts)
     if (imageList.length === 0 && textList.length === 0) return next(e)
+    // The text open in the pane, if any: the band then carries the keys that move it.
+    const shown = await read($, viewing)
 
     const { Box, Button, Image, Text } = $.ui.resolve(e)
     const width = e.props.bodyColumns
@@ -278,8 +306,9 @@ export const register: Register = on => {
     const pictures = hasGraphics ? imageList.filter(image => image.path !== null && isPng(image.path)) : []
     const imageLines = imageList.filter(image => !pictures.includes(image))
     const openable = imageLines.filter(image => image.path !== null)
-    // One row per line below the thumbnails, plus the hint; the thumbnails get the rest.
-    const lineRows = imageLines.length + textList.length + 1
+    // One row per line below the thumbnails, plus the hint and the pane's keys while it
+    // is open; the thumbnails get the rest.
+    const lineRows = imageLines.length + textList.length + 1 + (shown === null ? 0 : 1)
     const boxes = thumbnailBoxes(pictures.map(image => image.size), e.props.maxRows - lineRows, width)
     // Number keys run down the lines that open something, images first.
     const hotkey = (i: number) => (i >= 0 && i < 9 ? { hotkey: String(i + 1) } : {})
@@ -386,6 +415,14 @@ export const register: Register = on => {
               : 'to open one: press Ctrl+X, then Tab, then its number'}
           </Text>
         )}
+        {shown !== null && (
+          <Box flexDirection="row" columnGap={2}>
+            <Text dimColor>{`pasted text #${shown}:`}</Text>
+            <Button key="pane-down" plain hotkey="j" label="down" onPress={() => scrollPane($, 1)} />
+            <Button key="pane-up" plain hotkey="k" label="up" onPress={() => scrollPane($, -1)} />
+            <Button key="pane-close" plain hotkey="x" label="close" onPress={() => closePane($)} />
+          </Box>
+        )}
         {below}
       </Box>
     )
@@ -397,12 +434,17 @@ export const register: Register = on => {
     const paste = (await read($, texts)).find(one => one.n === shown)
     if (paste?.text == null) return <Text dimColor>This paste is no longer in the prompt.</Text>
 
+    // The arrows and Escape are the pane's only while it holds the keyboard; otherwise
+    // the keys are the band's.
+    const keys = e.props.isFocused ? '↑↓ scroll · esc close' : 'j k scroll · x close'
     return (
       <Box flexDirection="column">
-        <Text dimColor wrap="truncate">
-          {`${shownLines(paste)} lines · ${charCount(paste.text.length)} · ↑↓ scroll · esc close`}
-        </Text>
-        <Text>{paste.text}</Text>
+        <Text dimColor wrap="truncate">{`${shownLines(paste)} lines · ${charCount(paste.text.length)} · ${keys}`}</Text>
+        {paneParts(paste.text).map((part, i) => (
+          <Box key={`part-${i}`}>
+            <Text>{part}</Text>
+          </Box>
+        ))}
       </Box>
     )
   })

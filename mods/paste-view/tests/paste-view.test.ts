@@ -502,3 +502,57 @@ test('the hint names the click under the fullscreen layout alone', async ($, on)
   const fullscreen = await $.ui.mount({ ...BAND, viewport: { ...BAND.viewport, isFullscreen: true }, surface: 'terminal' })
   expect(await fullscreen.find({ type: 'Text', text: 'to open one: click its line, or press Ctrl+X, then Tab, then its number' })).toBeDefined()
 })
+
+test('a text open in the pane is scrolled and closed from the band, which holds the keyboard', async ($, on) => {
+  const { clock, state } = harness(on)
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+
+  state.clipboard = Array.from({ length: 25 }, (_, i) => `line ${i + 1}`).join('\n')
+  state.draft = '[Pasted text #1 +24 lines]'
+  await clock.advance(200)
+
+  const closed = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  // Nothing is open: no key moves a pane.
+  expect(await closed.find({ type: 'Button', key: 'pane-down' })).toBeUndefined()
+  await $.ui.press({ plugin: 'paste-view', key: 'text-1' })
+  await closed.unmount()
+
+  // The pane opens without the keyboard, since the prompt holds text: the band has it.
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await band.find({ type: 'Button', key: 'pane-down' }))?.props).toMatchObject({ hotkey: 'j', label: 'down' })
+  expect((await band.find({ type: 'Button', key: 'pane-up' }))?.props).toMatchObject({ hotkey: 'k', label: 'up' })
+  expect((await band.find({ type: 'Button', key: 'pane-close' }))?.props).toMatchObject({ hotkey: 'x', label: 'close' })
+
+  // The text is drawn ten lines a part: down shows the next part from its first line.
+  expect(await pane.find({ type: 'Box', key: 'part-2' })).toBeDefined()
+  await $.ui.press({ plugin: 'paste-view', key: 'pane-down' })
+  await $.ui.press({ plugin: 'paste-view', key: 'pane-down' })
+  await $.ui.press({ plugin: 'paste-view', key: 'pane-down' }) // already at the last part
+  await $.ui.press({ plugin: 'paste-view', key: 'pane-up' })
+  // What each press asks of the pane's window is checked on screen: the kit (2.1.291) hands a
+  // plugin's scroll to no hook of the test, so here the presses only have to be taken.
+
+  await $.ui.press({ plugin: 'paste-view', key: 'pane-close' })
+  expect(state.closed).toEqual(['paste-view'])
+})
+
+test('the pane promises the arrows only while it holds the keyboard', async ($, on) => {
+  const { clock, state } = harness(on)
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+
+  state.clipboard = LOREM
+  state.draft = '[Pasted text #2 +2 lines]'
+  await clock.advance(200)
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await $.ui.press({ plugin: 'paste-view', key: 'text-2' })
+  await band.unmount()
+
+  const without = await $.ui.mount({ ...PANE, props: { ...PANE.props, isFocused: false }, surface: 'terminal' })
+  expect(await without.find({ type: 'Text', text: '3 lines · 79 chars · j k scroll · x close' })).toBeDefined()
+  expect(await without.find({ type: 'Text', text: '↑↓' })).toBeUndefined()
+  await without.unmount()
+
+  const held = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await held.find({ type: 'Text', text: '3 lines · 79 chars · ↑↓ scroll · esc close' })).toBeDefined()
+})
