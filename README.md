@@ -57,8 +57,8 @@ Your private repo stays in sync with this one automatically — see [Minimal set
 9. Copies **`settings.json`** — this pins the default model/effort (`fable` · `xhigh`) and points the statusline at `scripts/statusline.sh` on every machine
 10. Activates **RTK** via `setup-rtk.sh`
 11. Removes the five **cc-safe-setup** hooks that earlier installs left behind (`comment-strip`, `syntax-check`, `context-monitor`, `cd-git-allow`, `api-error-alert`) and fails if one is still on disk or in the deployed `settings.json`; then checks that the four guards (`hooks/*.sh`, `protect-gates.js`) are on disk and registered there, since a registered hook whose file is missing guards nothing. The blocking hooks now ship in `hooks/` (see **Quality harness** below) and are registered by `settings.json`; `comment-strip` was the real cause of the "heredoc bug" (`docs/pitfall.md`)
-12. Installs **pinned plugins** via the `claude` CLI (`ponytail`, upstream `caveman`, official `context7` + `frontend-design`, `hono`)
-13. Checks the **statusline** prerequisite (`jq`) — `scripts/statusline.sh` renders model, context, 5h/7d rate limits and git from the payload Claude Code pipes in, plus the active terse-mode badge; no network, no login
+12. Installs **pinned plugins** via the `claude` CLI (`ponytail`, upstream `caveman`, official `context7` + `frontend-design`, `hono`, `vibe-wise`), and warns when `python3` does not run (the vibe-wise hook calls it)
+13. Checks the **statusline** prerequisite (`jq`) — `scripts/statusline.sh` renders model, context, 5h/7d rate limits and git from the payload Claude Code pipes in, plus the active terse-mode badge and the project's VibeWise learning mode; no network, no login
 14. Enables **ponytail** by default (terse-mode plugin) when no mode flag exists on this machine — `style-toggle.sh` switches between ponytail and caveman
 15. Updates `.gitignore` in target repos (graphify block + `CLAUDE.md` + `mempalace.yaml` + `context/`) using `templates/gitignore.append`
 16. Interactively selects sibling git repos to index. Per repo: graphify hooks + graph, LLM **community naming**, vault sync (report + file tree + canvas + one note per node), `mempalace.yaml` generation and mining into the repo's own wing, and a local `CLAUDE.md` **re-rendered** from `templates/CLAUDE.project.md` on every run — so a machine still holding an older generation catches up. Anything written below the template's last line is kept, and a `CLAUDE.md` install.sh never generated is left untouched (`tests/claude-md-refresh.sh` covers all four cases)
@@ -159,8 +159,9 @@ claude-config/
 │   ├── repo-identity.sh         # Shared lib: canonical_repo_name()
 │   ├── session-start.sh         # SessionStart hook: starts the MemPalace daemon, diary + TODO.md head, one line when MemPalace is down
 │   ├── session-stop.sh          # Stop hook: graphify update + wing mine + vault sync
-│   ├── statusline.sh            # Statusline: model, context, rate limits, mode, git
+│   ├── statusline.sh            # Statusline: model, context, rate limits, mode, VibeWise, git
 │   ├── style-toggle.sh          # Switch terse mode: ponytail ⇄ caveman ⇄ off
+│   ├── vibe-toggle.sh           # VibeWise learning mode of the current project: on ⇄ off, status
 │   ├── setup-rtk.sh             # Install RTK
 │   ├── sync-upstream.sh         # Sync shared files from upstream remote
 │   ├── sync-graph-to-vault.sh   # Sync Graphify → Obsidian vault
@@ -176,6 +177,7 @@ claude-config/
 └── tests/
     ├── claude-md-refresh.sh     # Self-check for the per-repo CLAUDE.md refresh
     ├── statusline.sh            # Pins the statusline line format against a fixture payload
+    ├── vibe-toggle.sh           # vibe-toggle.sh on throwaway projects (lookup, on/off, CRLF, symlinks), the VibeWise statusline line, the plugin's wiring
     ├── legacy-hooks.sh          # install.sh must remove the dropped cc-safe-setup hooks and notice a leftover
     ├── install-scope.sh         # install.sh --only: usage names both halves, bad values are refused, the guard answers right
     ├── sync-upstream.sh         # The upstream sync on two throwaway repos: dirty or unreachable = exit 3 (skipped), clean = pulled and committed, a path added to the list = brought by install.sh's second pass
@@ -218,6 +220,7 @@ claude-config/
 | `/update-agents`        | Update AGENTS.md                                                                      |
 | `/update-documentation` | Update documentation                                                                  |
 | `/update-prompts`       | Adapt prompt examples to the current project                                          |
+| `/vibe-toggle`          | Turn VibeWise learning mode on or off for the current project (empty = status)        |
 
 </details>
 
@@ -240,6 +243,22 @@ Persistent state is each plugin's user config (`defaultMode` in `%APPDATA%\<plug
 
 </details>
 
+<details>
+<summary><strong>Learning mode (VibeWise)</strong></summary>
+
+The pinned **vibe-wise** plugin turns work on a project into a learning session: Claude asks for your design first, explains what is unfamiliar, and writes the code once you approve the step. Unlike the terse modes it is **per project**: its state lives in `<project>/.vibe-wise/` (learner notes, to keep out of git), and installing the plugin changes nothing until a project is started.
+
+- First time in a project: type `/vibe-wise:learn`, the plugin's onboarding (only a human can start it).
+- After that: `/vibe-toggle off` pauses it, `/vibe-toggle on` resumes it, `/vibe-toggle` shows the state. From a shell:
+
+```bash
+bash ~/.claude/scripts/vibe-toggle.sh [on|off|status] [dir]
+```
+
+`vibe-toggle.sh` rewrites the `Learning mode:` line of the project's `profile.md`, which the plugin's SessionStart hook reads at every session start, `/clear` and compaction: a switch fully applies from the next of those (`/vibe-wise:learn` starts it at once). The statusline shows `VibeWise │ On · Normal` (the checkpoint frequency), `VibeWise │ Off` when paused, and no line in a project without notes. The hook needs a `python3` that runs; `install.sh` warns when it does not.
+
+</details>
+
 ---
 
 <details>
@@ -254,6 +273,7 @@ Persistent state is each plugin's user config (`defaultMode` in `%APPDATA%\<plug
 | `context7` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) | Remote MCP (2 tools) — current docs for any library, on demand                     |
 | `frontend-design` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) | Skill — opinionated visual direction, away from the generic "AI aesthetic"    |
 | `hono` | [honojs/skills](https://github.com/honojs/skills)     | Skill — inline Hono API reference (routing, middleware, validators, JSX) + `npx hono request` |
+| `vibe-wise` | [nykooi1/vibe-wise](https://github.com/nykooi1/vibe-wise) | Learning mode, per project — you design, Claude explains and writes the agreed code; `/vibe-toggle` switches it, the statusline shows it |
 
 If the `claude` CLI is not in PATH, the step is skipped with a warning; install manually with `claude plugin marketplace add <repo> && claude plugin install <name>@<marketplace>`.
 

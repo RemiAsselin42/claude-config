@@ -57,8 +57,8 @@ Le repo privé se synchronise automatiquement avec celui-ci — voir [Installati
 9. Copie **`settings.json`** — épingle le modèle/effort par défaut (`fable` · `xhigh`) et pointe la statusline vers `scripts/statusline.sh` sur chaque machine
 10. Active **RTK** via `setup-rtk.sh`
 11. Supprime les cinq hooks **cc-safe-setup** laissés par les installs précédentes (`comment-strip`, `syntax-check`, `context-monitor`, `cd-git-allow`, `api-error-alert`) et échoue s'il en reste un sur disque ou dans le `settings.json` déployé ; vérifie ensuite que les quatre gardes (`hooks/*.sh`, `protect-gates.js`) sont sur disque et enregistrées dedans, un hook enregistré sans son fichier ne garde rien. Les hooks bloquants vivent désormais dans `hooks/` (voir **Harnais qualité** plus bas) et sont enregistrés par `settings.json` ; `comment-strip` était la vraie cause du « bug heredoc » (`docs/pitfall.md`)
-12. Installe les **plugins épinglés** via le CLI `claude` (`ponytail`, `caveman` upstream, `context7` + `frontend-design` officiels, `hono`)
-13. Vérifie le prérequis de la **statusline** (`jq`) — `scripts/statusline.sh` affiche modèle, contexte, limites 5h/7j et git à partir du payload que Claude Code lui envoie, plus le badge du mode terse actif ; sans réseau, sans login
+12. Installe les **plugins épinglés** via le CLI `claude` (`ponytail`, `caveman` upstream, `context7` + `frontend-design` officiels, `hono`, `vibe-wise`), et prévient si `python3` ne s'exécute pas (le hook de vibe-wise l'appelle)
+13. Vérifie le prérequis de la **statusline** (`jq`) — `scripts/statusline.sh` affiche modèle, contexte, limites 5h/7j et git à partir du payload que Claude Code lui envoie, plus le badge du mode terse actif et le mode d'apprentissage VibeWise du projet ; sans réseau, sans login
 14. Active **ponytail** par défaut (plugin de mode terse) si aucun flag de mode n'existe sur la machine — `style-toggle.sh` bascule entre ponytail et caveman
 15. Met à jour `.gitignore` dans les repos cibles (bloc graphify + `CLAUDE.md` + `mempalace.yaml` + `context/`) via `templates/gitignore.append`
 16. Sélection interactive des repos git frères à indexer. Par repo : hooks + graphe graphify, **nommage LLM des communautés**, sync vault (rapport + arbre de fichiers + canvas + une note par nœud), génération de `mempalace.yaml`, mining dans le wing du repo, et un `CLAUDE.md` local **re-rendu** depuis `templates/CLAUDE.project.md` à chaque exécution — une machine restée sur une ancienne génération se met ainsi à jour toute seule. Ce qui est écrit sous la dernière ligne du template est conservé, et un `CLAUDE.md` qu'install.sh n'a jamais généré n'est pas touché (`tests/claude-md-refresh.sh` couvre les quatre cas)
@@ -159,8 +159,9 @@ claude-config/
 │   ├── repo-identity.sh         # Lib partagée : canonical_repo_name()
 │   ├── session-start.sh         # Hook SessionStart : démarre le daemon MemPalace, diary + tête de TODO.md, une ligne quand MemPalace est en panne
 │   ├── session-stop.sh          # Hook Stop : graphify update + mine du wing + sync vault
-│   ├── statusline.sh            # Statusline : modèle, contexte, limites, mode, git
+│   ├── statusline.sh            # Statusline : modèle, contexte, limites, mode, VibeWise, git
 │   ├── style-toggle.sh          # Bascule mode terse : ponytail ⇄ caveman ⇄ off
+│   ├── vibe-toggle.sh           # Mode d'apprentissage VibeWise du projet courant : on ⇄ off, état
 │   ├── setup-rtk.sh             # Installe RTK
 │   ├── sync-upstream.sh         # Sync des fichiers partagés depuis le remote upstream
 │   ├── sync-graph-to-vault.sh   # Sync graphify → vault Obsidian
@@ -176,6 +177,7 @@ claude-config/
 └── tests/
     ├── claude-md-refresh.sh     # Auto-test du re-rendu des CLAUDE.md par repo
     ├── statusline.sh            # Fige le format des lignes de la statusline sur un payload fixture
+    ├── vibe-toggle.sh           # vibe-toggle.sh sur des projets jetables (recherche, on/off, CRLF, liens symboliques), la ligne VibeWise de la statusline, le câblage du plugin
     ├── legacy-hooks.sh          # install.sh doit retirer les hooks cc-safe-setup abandonnés et voir un reliquat
     ├── install-scope.sh         # install.sh --only : l'usage nomme les deux moitiés, les valeurs invalides sont refusées, le garde répond juste
     ├── sync-upstream.sh         # La sync upstream sur deux repos jetables : sale ou injoignable = exit 3 (sautée), propre = tirée et commitée, un chemin ajouté à la liste = apporté par la deuxième passe d'install.sh
@@ -218,6 +220,7 @@ claude-config/
 | `/update-agents`        | Met à jour AGENTS.md                                                                 |
 | `/update-documentation` | Met à jour la documentation                                                          |
 | `/update-prompts`       | Adapte les exemples des prompts au projet courant                                    |
+| `/vibe-toggle`          | Active ou met en pause le mode d'apprentissage VibeWise du projet (vide = état)      |
 
 </details>
 
@@ -240,6 +243,22 @@ L'état persistant est la config utilisateur de chaque plugin (`defaultMode` dan
 
 </details>
 
+<details>
+<summary><strong>Mode d'apprentissage (VibeWise)</strong></summary>
+
+Le plugin épinglé **vibe-wise** fait du travail sur un projet une séance d'apprentissage : Claude demande d'abord votre conception, explique ce qui n'est pas familier, et écrit le code une fois l'étape approuvée. Contrairement aux modes terses, il est **par projet** : son état vit dans `<projet>/.vibe-wise/` (notes de l'apprenant, à garder hors de git), et installer le plugin ne change rien tant qu'un projet n'est pas démarré.
+
+- Première fois dans un projet : taper `/vibe-wise:learn`, l'onboarding du plugin (seul un humain peut le lancer).
+- Ensuite : `/vibe-toggle off` le met en pause, `/vibe-toggle on` le reprend, `/vibe-toggle` affiche l'état. Depuis un shell :
+
+```bash
+bash ~/.claude/scripts/vibe-toggle.sh [on|off|status] [dossier]
+```
+
+`vibe-toggle.sh` réécrit la ligne `Learning mode:` du `profile.md` du projet, que le hook SessionStart du plugin lit à chaque démarrage de session, `/clear` et compaction : une bascule s'applique pleinement à partir du prochain de ces moments (`/vibe-wise:learn` le démarre tout de suite). La statusline affiche `VibeWise │ On · Normal` (la fréquence des checkpoints), `VibeWise │ Off` en pause, et aucune ligne dans un projet sans notes. Le hook a besoin d'un `python3` qui s'exécute ; `install.sh` prévient quand ce n'est pas le cas.
+
+</details>
+
 ---
 
 <details>
@@ -254,6 +273,7 @@ L'état persistant est la config utilisateur de chaque plugin (`defaultMode` dan
 | `context7` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) | MCP distant (2 outils) — doc à jour de n'importe quelle lib, à la demande                          |
 | `frontend-design` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) | Skill — direction visuelle opinionée, loin de l'« esthétique IA » générique              |
 | `hono` | [honojs/skills](https://github.com/honojs/skills)     | Skill — référence API Hono inline (routing, middleware, validateurs, JSX) + `npx hono request`            |
+| `vibe-wise` | [nykooi1/vibe-wise](https://github.com/nykooi1/vibe-wise) | Mode d'apprentissage, par projet — vous concevez, Claude explique et écrit le code convenu ; `/vibe-toggle` le bascule, la statusline l'affiche |
 
 Si le CLI `claude` n'est pas dans le PATH, l'étape est sautée avec un avertissement ; installation manuelle : `claude plugin marketplace add <repo> && claude plugin install <nom>@<marketplace>`.
 

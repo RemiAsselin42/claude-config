@@ -45,6 +45,7 @@
       "Bash(rtk discover*)",
       "Bash(rtk git *)",
       "Bash(bash *style-toggle*)",
+      "Bash(bash *vibe-toggle*)",
 
       "Bash(gh auth status)",
       "Bash(gh repo create *)",
@@ -140,11 +141,15 @@
     },
     "hono": {
       "source": { "source": "github", "repo": "honojs/skills" }
+    },
+    "vibe-wise": {
+      "source": { "source": "github", "repo": "nykooi1/vibe-wise" }
     }
   },
   "enabledPlugins": {
     "ponytail@ponytail": true,
     "caveman@caveman": true,
+    "vibe-wise@vibe-wise": true,
     "context7@claude-plugins-official": true,
     "frontend-design@claude-plugins-official": true,
     "hono@hono": true
