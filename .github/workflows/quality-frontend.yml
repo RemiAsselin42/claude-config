@@ -1,0 +1,98 @@
+# quality-frontend — reusable workflow: cyclomatic complexity (eslint complexity) and
+# duplication (jscpd) under a frontend's src/ may only shrink.
+#
+# eslint runs with the project's own configuration and dependencies (installed from
+# its lockfile: pnpm, yarn or npm) plus the complexity rule imposed on the command
+# line, so nothing changes in the repo's eslint configuration and no eslint-disable is
+# needed: the gate script reads the JSON reports and ratchets them against
+# complexity-baseline.json and duplication-baseline.json in the project directory.
+# The script comes from claude-config at the pinned tag (checked out at this
+# workflow's own commit, never from the branch under test); the repo keeps only the
+# two baselines and this caller, protected by hooks/protect-gates.js and the
+# baseline-ratchet workflow.
+#
+# Caller (see templates/gates/quality-gates.yml):
+#
+#   jobs:
+#     quality-frontend:
+#       uses: RemiAsselin42/claude-config/.github/workflows/quality-frontend.yml@v5
+#       with:
+#         dir: frontend
+#
+# Check reported: "quality-frontend / frontend". Make it required on main. First run
+# with no baseline: red, with the lists to commit.
+name: quality-frontend
+on:
+  workflow_call:
+    inputs:
+      dir:
+        description: directory holding package.json, its lockfile, the eslint config and the two baselines
+        type: string
+        required: true
+      src:
+        description: what eslint and jscpd scan, relative to dir
+        type: string
+        required: false
+        default: src
+      max-complexity:
+        description: cyclomatic complexity above which a function is a violation
+        type: number
+        required: false
+        default: 10
+      jscpd-ignore:
+        description: comma-separated globs jscpd skips
+        type: string
+        required: false
+        default: "**/test/**,**/tests/**,**/*.test.*,**/*.spec.*"
+      jscpd-formats:
+        description: comma-separated jscpd formats
+        type: string
+        required: false
+        default: typescript,tsx,javascript,jsx,scss,css
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .arch-gates
+          sparse-checkout: gates/python/check_quality.py
+          sparse-checkout-cone-mode: false
+      - uses: astral-sh/setup-uv@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install the project's lint dependencies
+        working-directory: ${{ inputs.dir }}
+        run: |
+          if [ -f pnpm-lock.yaml ]; then corepack enable && pnpm install --frozen-lockfile
+          elif [ -f yarn.lock ]; then corepack enable && yarn install --immutable
+          else npm ci
+          fi
+      # eslint exits 1 on any error: the violations are the gate's to judge. A report
+      # that is not eslint's JSON (a configuration error) makes the gate exit 2.
+      - name: Complexity (eslint)
+        working-directory: ${{ inputs.dir }}
+        env:
+          MAX: ${{ inputs.max-complexity }}
+          SRC: ${{ inputs.src }}
+        run: npx eslint --rule "complexity: [2, $MAX]" --format json "$SRC" > .quality-eslint.json || true
+      - name: Duplication (jscpd)
+        working-directory: ${{ inputs.dir }}
+        env:
+          SRC: ${{ inputs.src }}
+          IGNORE: ${{ inputs.jscpd-ignore }}
+          FORMATS: ${{ inputs.jscpd-formats }}
+        run: npx --yes jscpd@5.4.0 "$SRC" --format "$FORMATS" --ignore "$IGNORE" --reporters json --output .quality-jscpd --silent
+      - name: Complexity against the baseline
+        working-directory: ${{ inputs.dir }}
+        run: uv run --no-project --python 3.12 python "$GITHUB_WORKSPACE/.arch-gates/gates/python/check_quality.py" complexity --tool eslint --report .quality-eslint.json
+      - name: Duplication against the baseline
+        if: success() || failure()
+        working-directory: ${{ inputs.dir }}
+        run: uv run --no-project --python 3.12 python "$GITHUB_WORKSPACE/.arch-gates/gates/python/check_quality.py" duplication --report .quality-jscpd/jscpd-report.json
