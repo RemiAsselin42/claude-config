@@ -58,9 +58,14 @@ function entries(ref, p) {
   try { text = git("show", `${ref}:${p}`); } catch { return null; } // absent on this side
   const json = JSON.parse(text);
   const isArray = Array.isArray(json);
-  return { isArray, set: new Set((isArray ? json : [json]).map(canon)) };
+  const items = isArray ? json : [json];
+  return { isArray, set: new Set(items.map(canon)), items };
 }
 const shape = (e) => (e.isArray ? "array" : "object");
+// An entry whose last field is a number is a measure under a key ([file, function, complexity]):
+// the same key with a lower number is a shrink, a higher one is growth. Other entries are opaque.
+const measured = (item) => (Array.isArray(item) && item.length > 1 && typeof item[item.length - 1] === "number" ? { key: canon(item.slice(0, -1)), value: item[item.length - 1] } : null);
+const measures = (items) => new Map(items.map(measured).filter(Boolean).map((m) => [m.key, m.value]));
 
 const paths = [...new Set([...baselinesIn(base), ...baselinesIn(head)])].sort();
 const lines = ["## baseline-ratchet", ""];
@@ -71,11 +76,24 @@ for (const p of paths) {
   if (!a) { grew = true; lines.push(`- GROWTH \`${p}\`: new baseline (${b.set.size} entries)`); continue; }
   if (!b) { grew = true; lines.push(`- GROWTH \`${p}\`: baseline deleted`); continue; }
   if (a.isArray !== b.isArray) { grew = true; lines.push(`- GROWTH \`${p}\`: format changed (${shape(a)} -> ${shape(b)})`); continue; }
-  const added = [...b.set].filter((e) => !a.set.has(e));
-  const removed = [...a.set].filter((e) => !b.set.has(e));
-  if (added.length) grew = true;
-  lines.push(`- ${added.length ? "GROWTH" : "ok"} \`${p}\`: +${added.length} / -${removed.length} (${a.set.size} -> ${b.set.size})`);
+  const ma = measures(a.items);
+  const mb = measures(b.items);
+  const added = [];
+  const raised = [];
+  let lowered = 0;
+  for (const item of b.items) {
+    const e = canon(item);
+    if (a.set.has(e)) continue;
+    const m = measured(item);
+    if (m && ma.has(m.key)) { if (m.value > ma.get(m.key)) raised.push(`${e} (was ${ma.get(m.key)})`); else lowered++; }
+    else added.push(e);
+  }
+  const removed = a.items.filter((item) => !b.set.has(canon(item)) && !(measured(item) && mb.has(measured(item).key))).length;
+  if (added.length || raised.length) grew = true;
+  const moved = raised.length || lowered ? `, raised ${raised.length} / lowered ${lowered}` : "";
+  lines.push(`- ${grew && (added.length || raised.length) ? "GROWTH" : "ok"} \`${p}\`: +${added.length} / -${removed}${moved} (${a.set.size} -> ${b.set.size})`);
   for (const e of added) lines.push(`  - added: \`${e}\``);
+  for (const e of raised) lines.push(`  - raised: \`${e}\``);
 }
 if (!paths.length) lines.push("- no baseline file on either side");
 lines.push("");
