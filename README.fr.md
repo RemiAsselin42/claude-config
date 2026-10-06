@@ -140,7 +140,8 @@ claude-config/
 │   └── ci.yml                   # La CI de ce repo : shellcheck + tous les tests de tests/, sur ubuntu et macos
 ├── gates/python/
 │   ├── check_imports.py         # Gate Python cycles + couches (grimp), lancé par arch-gates-python.yml au tag épinglé
-│   └── check_mutation.py        # Gate de mutation : les mutants que les tests ne tuent pas (mutmut) ne peuvent que diminuer, lancé par mutation-gate.yml
+│   ├── check_mutation.py        # Gate de mutation : les mutants que les tests ne tuent pas (mutmut) ne peuvent que diminuer, lancé par mutation-gate.yml
+│   └── check_quality.py         # Gates de complexité (ruff C901, eslint complexity) et de duplication (jscpd) : les deux ne peuvent que diminuer, lancés par quality-*.yml
 ├── agents/                      # Sous-agents → ~/.claude/agents/ (miroir), épinglés sur un autre modèle, lancés par /feature
 │   ├── plan-reviewer.md         # Relit le plan contre le spec avant tout code, lecture seule
 │   ├── spec-tester.md           # Écrit les tests d'acceptation depuis le spec, avant que le code existe
@@ -182,6 +183,7 @@ claude-config/
     ├── python/conftest.py       # load_gate(nom) : un script de gate chargé depuis gates/python par fichier, comme la CI le lance
     ├── python/test_check_imports.py # Les gates Python sur graphes jouets, arbres temporaires et de bout en bout (uv run --no-project --with grimp==3.14 --with pytest pytest tests/python)
     ├── python/test_check_mutation.py # Le gate de mutation sur des .meta écrits à la main, et sur un vrai run mutmut d'un paquet jouet (Linux et macOS : mutmut refuse Windows natif)
+    ├── python/test_check_quality.py # Les gates de complexité et de duplication sur des rapports extraits de vrais runs, et sur de vrais runs ruff, eslint et jscpd de projets jouets
     └── fixtures/                # Vrais baselines et pyproject.toml d'un repo pilote, anonymisés
 ```
 
@@ -483,6 +485,8 @@ uv run --no-project --with grimp==3.14 python "$gates" layers --config backend/a
 **Migrer un appelant `@v2`.** Passer l'appelant aux jobs `@v3` ci-dessus sur une branche et laisser sa PR tourner une fois, pour que les nouveaux noms de checks existent. Puis, dans la protection de branche de `main` : ajouter `arch-python / python` et/ou `arch-frontend / frontend`, et retirer `arch / python` et `arch / frontend` — un nom requis qui ne tourne plus reste « Expected » et bloque toutes les PR. Ne pas toucher aux autres checks requis (`ratchet / ratchet`, les jobs propres au repo). À faire avant de merger cette PR.
 
 **Gate de mutation (Python).** `mutmut` réécrit un mutant à la fois les fichiers que `[tool.mutmut]` nomme dans `pyproject.toml` et lance les tests sélectionnés contre chacun ; un mutant sur lequel les tests passent encore, ou qu'aucun test sélectionné n'atteint, est un trou dans les tests. `gates/python/check_mutation.py` lit les `mutants/*.meta` de mutmut et compare ces mutants non tués à `backend/mutation-baseline.json`, une liste de paires `[nom, hash de la fonction]` : un nouveau échoue (exit 1), un déjà listé est toléré tant que sa fonction n'a pas changé (les noms de mutants sont positionnels, une édition les renumérote), et le fichier ne peut que rétrécir (cliquet). mutmut refuse Windows natif, donc le gate ne tourne qu'en CI : l'appelant est `templates/gates/mutation-gate.yml` (`uses: …/mutation-gate.yml@v4`, `with: dir: backend`), check `mutation / mutation`. Le premier run n'a pas de baseline et sort rouge avec la liste à committer comme baseline ; `mutmut show <nom>` affiche le diff d'un mutant. Rendre le check requis une fois son temps de run connu : quelques minutes, sur chaque PR ; davantage, sur un déclencheur séparé.
+
+**Gates de complexité et de duplication.** `gates/python/check_quality.py` fait le cliquet sur deux rapports par côté : la complexité cyclomatique de chaque fonction au-dessus du seuil (ruff `C901` côté Python, la règle `complexity` d'eslint côté frontend, toutes deux imposées en ligne de commande, les configurations ruff et eslint du repo restent intactes) et les clones que jscpd trouve. `complexity-baseline.json` contient `[fichier, fonction, complexité]` : une nouvelle fonction au-dessus du seuil échoue, une connue échoue si elle s'est complexifiée, une qui a baissé est signalée pour que le baseline suive. Les fonctions anonymes (« Arrow function ») reçoivent un ordinal par ordre d'apparition dans le fichier. `duplication-baseline.json` contient `[empreinte, format, lignes, fichier A, fichier B]`, l'empreinte hachant le texte dupliqué, donc des lignes déplacées gardent leur entrée. Appelant : `templates/gates/quality-gates.yml`, un job par côté (`quality-python.yml@v5` avec `dir`, `package` ; `quality-frontend.yml@v5` avec `dir`, qui installe les dépendances de lint du projet depuis son lockfile), checks `quality-python / python` et `quality-frontend / frontend`. Seuils et périmètre jscpd sont des entrées (`max-complexity`, `jscpd-ignore`, `jscpd-formats`). Le premier run n'a pas de baseline et sort rouge avec les listes à committer.
 
 </details>
 
