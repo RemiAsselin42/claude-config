@@ -81,7 +81,8 @@ jobs:
         env:
           MAX: ${{ inputs.max-complexity }}
           SRC: ${{ inputs.src }}
-        run: npx eslint --rule "complexity: [2, $MAX]" --format json "$SRC" > .quality-eslint.json || true
+        run: |
+          npx eslint --rule "complexity: [2, $MAX]" --format json "$SRC" > .quality-eslint.json || true
       # --absolute: file names the gate makes relative to this directory, like eslint's.
       - name: Duplication (jscpd)
         working-directory: ${{ inputs.dir }}
