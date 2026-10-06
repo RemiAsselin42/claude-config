@@ -289,6 +289,10 @@ test("inside a /init-gates the human typed, a gate file that does not exist yet 
   fs.mkdirSync(path.join(dir, "frontend"));
   fs.writeFileSync(path.join(dir, "frontend", ".dependency-cruiser.cjs"), "module.exports = {};\n");
   fs.writeFileSync(path.join(dir, "frontend", "import-cycles-baseline.json"), "[]\n");
+  fs.mkdirSync(path.join(dir, "backend"));
+  fs.writeFileSync(path.join(dir, "backend", "pyproject.toml"), '[project]\nname = "x"\n\n[tool.ruff]\nline-length = 100\n');
+  fs.mkdirSync(path.join(dir, "mutated"));
+  fs.writeFileSync(path.join(dir, "mutated", "pyproject.toml"), '[project]\nname = "y"\n\n[tool.mutmut]\nsource_paths = ["app/a.py"]\n');
   const transcript = path.join(dir, "t.jsonl");
   const said = (content) => fs.writeFileSync(transcript, JSON.stringify({ type: "user", origin: { kind: "human" }, message: { content } }) + "\n");
   const typed = (name) => `<command-message>${name}</command-message>\n<command-name>/${name}</command-name>`;
@@ -307,9 +311,18 @@ test("inside a /init-gates the human typed, a gate file that does not exist yet 
     file("Write", { file_path: at(".github", "workflows", "quality-gates.yml"), content: "" }),
     file("Write", { file_path: at("backend", "complexity-baseline.json"), content: "[]" }),
     file("Write", { file_path: at("frontend", "duplication-baseline.json"), content: "[]" }),
-    file("Write", { file_path: at("backend", "mutation-baseline.json"), content: "[]" }),
+    // a [tool.mutmut] section added to a pyproject.toml that has none, the other gate sections untouched
+    file("Edit", { file_path: at("backend", "pyproject.toml"), old_string: 'name = "x"\n', new_string: 'name = "x"\n\n[tool.mutmut]\nsource_paths = ["app/x.py"]\nalso_copy = ["app"]\n' }),
+    file("Write", { file_path: at("backend", "pyproject.toml"), content: '[project]\nname = "x"\n\n[tool.ruff]\nline-length = 100\n\n[tool.mutmut]\nsource_paths = ["app/x.py"]\n' }),
   ];
   const changes = [
+    // the mutation baseline comes from the PR's first CI run, never from Claude, even here
+    file("Write", { file_path: at("backend", "mutation-baseline.json"), content: "[]" }),
+    // an existing [tool.mutmut] section, or another gate section riding along with the new one
+    file("Edit", { file_path: at("mutated", "pyproject.toml"), old_string: 'source_paths = ["app/a.py"]', new_string: 'source_paths = ["app/b.py"]' }),
+    file("Edit", { file_path: at("mutated", "pyproject.toml"), old_string: 'name = "y"\n', new_string: 'name = "y"\n\n[tool.mutmut.extra]\nx = 1\n' }),
+    file("Edit", { file_path: at("backend", "pyproject.toml"), old_string: 'line-length = 100\n', new_string: 'line-length = 120\n\n[tool.mutmut]\nsource_paths = ["app/x.py"]\n' }),
+    file("Edit", { file_path: at("backend", "pyproject.toml"), old_string: 'name = "x"\n', new_string: 'name = "x"\n\n[tool.pytest.ini_options]\naddopts = "-p no:cacheprovider"\n' }),
     file("Write", { file_path: at("frontend", ".dependency-cruiser.cjs"), content: "" }),
     file("Edit", { file_path: at("frontend", ".dependency-cruiser.cjs"), old_string: "{}", new_string: "{ forbidden: [] }" }),
     file("Write", { file_path: at("frontend", "import-cycles-baseline.json"), content: "[]" }),
