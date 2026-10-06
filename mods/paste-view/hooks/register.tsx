@@ -1,10 +1,11 @@
 // Vendored from github.com/Amorfx/claude-paste-view at a71ba10 (MIT, see ../LICENSE)
 // on 2026-10-06: claude-config ships the mod itself instead of installing it from
 // a third-party marketplace at whatever commit that holds on install day.
-// Local change: Windows, which upstream does not cover. The image cache is looked
+// Local changes. Windows, which upstream does not cover: the image cache is looked
 // for under %TEMP%\claude, the clipboard is read and an image opened through
-// PowerShell, and CRLF line ends are folded to LF. tags.ts and thumbnails.ts are
-// upstream's, untouched; the tests compare paths by their end so they run there too.
+// PowerShell, and CRLF line ends are folded to LF. On every platform: a clipboard
+// read that fails is not remembered, and a session with nobody at the prompt is not
+// polled. tags.ts and thumbnails.ts are upstream's, untouched.
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
@@ -37,12 +38,11 @@ const CLIPBOARD_COMMANDS: readonly (readonly string[])[] = [
   ['pbpaste'],
   ['wl-paste', '--no-newline'],
   ['xclip', '-selection', 'clipboard', '-o'],
-  WINDOWS_CLIPBOARD,
 ]
 
 let cwd = ''
 let hasGraphics = false
-let clipboardCommand: readonly string[] | null | undefined
+let clipboardCommand: readonly string[] | undefined
 let viewerCommand: string | undefined
 let imagesDir: { session: string; path: string } | undefined
 const dimensions = new Map<string, Dimensions | null>()
@@ -113,11 +113,13 @@ async function describeImage($: EngineInterface, dir: string | undefined, n: num
 }
 
 async function readClipboard($: EngineInterface): Promise<string | null> {
-  if (clipboardCommand === null) return null
-  for (const argv of clipboardCommand === undefined ? CLIPBOARD_COMMANDS : [clipboardCommand]) {
-    // PowerShell starts in 0.3 to 0.4s once warm (measured 2026-10) and a cold start can
-    // pass a second: timing out there would leave the whole session without previews.
-    const timeoutMs = argv === WINDOWS_CLIPBOARD ? 5000 : 1000
+  const onWindows = await isWindows($)
+  // Windows is asked through PowerShell alone: a pbpaste or xclip left on its PATH by
+  // MSYS2 or Cygwin must not be the one that answers.
+  const firstUse = onWindows ? [WINDOWS_CLIPBOARD] : CLIPBOARD_COMMANDS
+  // PowerShell starts in 0.3 to 0.4s once warm (measured 2026-10); a cold start can pass a second.
+  const timeoutMs = onWindows ? 5000 : 1000
+  for (const argv of clipboardCommand === undefined ? firstUse : [clipboardCommand]) {
     // pbpaste decodes by the locale, which a bare child process may lack.
     const ran = await $.process.run(argv, { env: { LANG: 'en_US.UTF-8' }, timeoutMs }).catch(() => undefined)
     if (ran?.exitCode === 0 && !ran.isStdoutTruncated) {
@@ -126,7 +128,8 @@ async function readClipboard($: EngineInterface): Promise<string | null> {
       return ran.stdout.replace(/\r\n?/g, '\n')
     }
   }
-  clipboardCommand ??= null
+  // A read that failed is that paste's alone (a timeout, a clipboard past the read cap):
+  // nothing is remembered of it, and the next paste is read again.
   return null
 }
 
@@ -182,12 +185,13 @@ async function openImage($: EngineInterface, path: string) {
     : (await $.process.run(['uname'])).stdout.trim() === 'Darwin'
       ? 'open'
       : 'xdg-open'
-  // Invoke-Item is PowerShell's: the path goes in a quoted string, a quote in it doubled.
-  const argv =
-    viewerCommand === 'Invoke-Item'
-      ? [...POWERSHELL, `Invoke-Item -LiteralPath '${path.replace(/'/g, "''")}'`]
-      : [viewerCommand, path]
-  const ran = await $.process.run(argv, { timeoutMs: 5000 }).catch(() => undefined)
+  // Invoke-Item is PowerShell's. The path travels in the environment, never in the command:
+  // PowerShell ends a quoted string at ' and at the typographic ‘ ’ ‚ ‛ alike, and runs
+  // what follows (seen with a path holding ’, 2026-10).
+  const ran = await (viewerCommand === 'Invoke-Item'
+    ? $.process.run([...POWERSHELL, 'Invoke-Item -LiteralPath $env:PASTE_VIEW_PATH'], { env: { PASTE_VIEW_PATH: path }, timeoutMs: 5000 })
+    : $.process.run([viewerCommand, path], { timeoutMs: 5000 })
+  ).catch(() => undefined)
   if (ran?.exitCode !== 0) $.ui.toast(`paste-view: couldn't open the image with ${viewerCommand}`)
 }
 
@@ -212,6 +216,8 @@ const imageLabel = (image: PastedImage, path: string) => {
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
+    // A `-p` run or the SDK has no prompt box: nothing to watch, so no timer.
+    if (!e.isInteractive) return next(e)
     cwd = e.cwd
     hasGraphics = drawsImages({
       term: await $.env.get('TERM'),
