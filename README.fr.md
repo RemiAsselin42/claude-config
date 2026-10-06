@@ -179,6 +179,7 @@ claude-config/
     ├── install-scope.sh         # install.sh --only : l'usage nomme les deux moitiés, les valeurs invalides sont refusées, le garde répond juste
     ├── sync-upstream.sh         # La sync upstream sur deux repos jetables : sale ou injoignable = exit 3 (sautée), propre = tirée et commitée
     ├── readme-structure.sh      # Les deux READMEs contre git ls-files : chaque entrée de l'arbre versionnée, chaque fichier versionné dans l'arbre, tableau des commandes = commands/
+    ├── workflows-yaml.sh        # Chaque workflow et modèle de gate parse en YAML (js-yaml) : un fichier cassé ne lance rien et n'atteint aucune PR
     ├── hooks.test.js            # Chaque garde de hooks/, nourrie de payloads Bash et PowerShell (node --test "tests/*.test.js")
     ├── baseline-ratchet.test.js # Le ratchet sur de vrais baselines d'un repo pilote
     ├── gates-template.test.js   # Le modèle dependency-cruiser sur un projet jouet : couches, cycle, module sans couche, alias de chemin
