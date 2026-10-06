@@ -46,7 +46,7 @@ Le repo privé se synchronise automatiquement avec celui-ci — voir [Installati
 
 ## Ce que fait `install.sh`
 
-1. Synchronise depuis `upstream` **en premier** si le remote existe (les repos privés récupèrent automatiquement la dernière config partagée) ; si la sync apporte des changements, le script se relance automatiquement pour que la suite s'exécute avec la version à jour. Ignorée, avec un message, tant que le repo a des modifications non commitées
+1. Synchronise depuis `upstream` **en premier** si le remote existe (les repos privés récupèrent automatiquement la dernière config partagée) ; si la sync apporte des changements, le script se relance automatiquement pour que la suite s'exécute avec la version à jour, et resynchronise une fois quand ces changements touchent le script de sync : un chemin ajouté à sa liste arrive dans la même exécution. Ignorée, avec un message, tant que le repo a des modifications non commitées
 2. Vérifie **Node.js**, installe **uv** si absent, puis installe/met à jour **Graphify**, **MemPalace**, **chromadb**, **RTK**, **jq**, **shellcheck** et **context-mode** (plus le serveur MCP Zilliz si `MILVUS_ADDRESS` est défini)
 3. Demande une seule confirmation si `~/.local/bin` doit être ajouté au PATH persistant (`-y` accepte automatiquement)
 4. Copie les **commandes**, **scripts** et **templates** vers `~/.claude/` — `commands/` et `agents/` sont en miroir (les fichiers déployés sans source dans le repo sont purgés), `scripts/` et `templates/` sont additifs. `agents/` contient les trois sous-agents que `/feature` lance, épinglés sur un autre modèle ; un sous-agent retiré du repo disparaît de chaque machine à l'install suivante. `mods/` va dans `~/.claude/mods/`, additif lui aussi : `settings.json` nomme le `paste-view` déployé dans `CLAUDE_CODE_PLUGIN_DIRS`, donc chaque nouvelle session affiche un aperçu de ce qui est collé (une ligne qui ouvre l'image collée dans la visionneuse du système, une vignette à la place là où le terminal dessine le protocole graphique kitty, ce que Windows Terminal ne fait pas, et la première ligne d'un long texte) sans rien télécharger d'un marketplace
@@ -178,7 +178,7 @@ claude-config/
     ├── statusline.sh            # Fige le format des lignes de la statusline sur un payload fixture
     ├── legacy-hooks.sh          # install.sh doit retirer les hooks cc-safe-setup abandonnés et voir un reliquat
     ├── install-scope.sh         # install.sh --only : l'usage nomme les deux moitiés, les valeurs invalides sont refusées, le garde répond juste
-    ├── sync-upstream.sh         # La sync upstream sur deux repos jetables : sale ou injoignable = exit 3 (sautée), propre = tirée et commitée
+    ├── sync-upstream.sh         # La sync upstream sur deux repos jetables : sale ou injoignable = exit 3 (sautée), propre = tirée et commitée, un chemin ajouté à la liste = apporté par la deuxième passe d'install.sh
     ├── readme-structure.sh      # Les deux READMEs contre git ls-files : chaque entrée de l'arbre versionnée, chaque fichier versionné dans l'arbre, tableau des commandes = commands/
     ├── workflows-yaml.sh        # Chaque workflow et modèle de gate parse en YAML (js-yaml) : un fichier cassé ne lance rien et n'atteint aucune PR
     ├── hooks.test.js            # Chaque garde de hooks/, nourrie de payloads Bash et PowerShell (node --test "tests/*.test.js")

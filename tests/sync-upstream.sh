@@ -98,5 +98,57 @@ else
   done
 fi
 
+# 6. upstream adds a path to the list and the path itself in one change. The fork's
+# first pass runs the script it had before, whose list does not name that path: the
+# new script arrives, the path does not. install.sh, restarted by that pass, has to
+# make a second one. mods/ arrived this way (2026-10): the fork got the settings.json
+# naming ~/.claude/mods/paste-view and not the folder. _sync_pass_due is taken out of
+# install.sh by name and run against the fork.
+git -C "$FORK" remote set-url upstream "$UP"
+mkdir -p "$UP/newdir" && echo "new" > "$UP/newdir/file"
+sed -i.bak 's|^_UPSTREAM_PATHS=(|_UPSTREAM_PATHS=( newdir/|' "$UP/scripts/sync-upstream.sh" && rm -f "$UP/scripts/sync-upstream.sh.bak"
+git -C "$UP" add -A && git -C "$UP" commit -q -m "newdir, and its place in the list"
+body="$(awk '$0 == "_sync_pass_due() {" {f=1} f{print} f&&/^}/{exit}' "$REPO_DIR/install.sh")"
+if [[ -z "$body" ]]; then
+  ko "_sync_pass_due not found in install.sh"
+else
+  eval "$body"
+  real_repo="$REPO_DIR"
+  REPO_DIR="$FORK"   # the function reads the repo install.sh runs in
+
+  unset CLAUDE_CONFIG_SYNCED
+  if _sync_pass_due; then ok "first run: a pass is due"; else ko "first run: no pass due"; fi
+  sync
+  if [[ ! -e "$FORK/newdir/file" ]] && grep -q 'newdir/' "$FORK/scripts/sync-upstream.sh"; then
+    ok "first pass: the new script arrives, the path it adds does not"
+  else
+    ko "first pass: newdir/file present=$([[ -e "$FORK/newdir/file" ]] && echo yes || echo no), stderr: $(cat "$T/err")"
+  fi
+
+  export CLAUDE_CONFIG_SYNCED=1   # what the first pass leaves for the restarted install.sh
+  if _sync_pass_due; then sync; fi
+  if [[ "$(cat "$FORK/newdir/file" 2>/dev/null)" == "new" ]]; then
+    ok "restarted after a pass that changed the sync script: a second pass brings the new path"
+  else
+    ko "restarted after a pass that changed the sync script: newdir/file still missing"
+  fi
+
+  export CLAUDE_CONFIG_SYNCED=2
+  if _sync_pass_due; then ko "two passes made: a third is due"; else ok "two passes made: no third"; fi
+
+  # a pass that changed anything but the sync script calls for no second one
+  echo "v3" > "$UP/CLAUDE.md" && git -C "$UP" commit -q -am "v3"
+  unset CLAUDE_CONFIG_SYNCED
+  sync
+  export CLAUDE_CONFIG_SYNCED=1
+  if [[ "$(cat "$FORK/CLAUDE.md")" == "v3" ]] && ! _sync_pass_due; then
+    ok "restarted after a pass that left the sync script alone: no second pass"
+  else
+    ko "restarted after a pass that left the sync script alone: CLAUDE.md=$(cat "$FORK/CLAUDE.md"), second pass due"
+  fi
+  unset CLAUDE_CONFIG_SYNCED
+  REPO_DIR="$real_repo"
+fi
+
 echo "$pass passed, $fail failed"
 [[ $fail -eq 0 ]]

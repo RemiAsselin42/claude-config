@@ -46,7 +46,7 @@ Your private repo stays in sync with this one automatically — see [Minimal set
 
 ## What `install.sh` does
 
-1. Syncs from `upstream` remote **first** if present (private repos get latest shared config automatically); if the sync brings changes, the script re-executes itself so the rest of the run uses the updated version. Skipped, with a message, while the repo has uncommitted changes
+1. Syncs from `upstream` remote **first** if present (private repos get latest shared config automatically); if the sync brings changes, the script re-executes itself so the rest of the run uses the updated version, and syncs once more when those changes touched the sync script: a path added to its list arrives in the same run. Skipped, with a message, while the repo has uncommitted changes
 2. Checks **Node.js**, installs **uv** if missing, then installs/upgrades **Graphify**, **MemPalace**, **chromadb**, **RTK**, **jq**, **shellcheck** and **context-mode** (plus the Zilliz MCP server when `MILVUS_ADDRESS` is set)
 3. Asks once to add `~/.local/bin` to persistent PATH (`-y` skips)
 4. Copies **commands**, **scripts**, **templates** to `~/.claude/` — `commands/` and `agents/` are mirrored (deployed files with no source in the repo are pruned), `scripts/` and `templates/` are additive. `agents/` holds the three subagents `/feature` spawns, pinned to another model; a subagent dropped from the repo disappears from every machine at the next install. `mods/` goes to `~/.claude/mods/` the same additive way: `settings.json` names the deployed `paste-view` in `CLAUDE_CODE_PLUGIN_DIRS`, so every new session shows a preview of what is pasted (a line that opens a pasted image in the system viewer, a thumbnail instead where the terminal draws kitty graphics, which Windows Terminal does not, and the first line of a long text) with nothing fetched from a marketplace
@@ -178,7 +178,7 @@ claude-config/
     ├── statusline.sh            # Pins the statusline line format against a fixture payload
     ├── legacy-hooks.sh          # install.sh must remove the dropped cc-safe-setup hooks and notice a leftover
     ├── install-scope.sh         # install.sh --only: usage names both halves, bad values are refused, the guard answers right
-    ├── sync-upstream.sh         # The upstream sync on two throwaway repos: dirty or unreachable = exit 3 (skipped), clean = pulled and committed
+    ├── sync-upstream.sh         # The upstream sync on two throwaway repos: dirty or unreachable = exit 3 (skipped), clean = pulled and committed, a path added to the list = brought by install.sh's second pass
     ├── readme-structure.sh      # Both READMEs against git ls-files: every tree entry tracked, every tracked entry in the tree, command table = commands/
     ├── workflows-yaml.sh        # Every workflow and gate template parses as YAML (js-yaml): a broken one runs nothing and reaches no PR
     ├── hooks.test.js            # Every guard in hooks/, fed Bash and PowerShell payloads (node --test "tests/*.test.js")
