@@ -7,7 +7,7 @@ Shared Claude Code configuration: slash-commands, scripts and hooks, persistent 
 >
 > `install.sh` performs persistent, potentially destructive operations:
 >
-> - **Writes** to `~/.claude/` (commands, scripts, templates, settings, CLAUDE.md)
+> - **Writes** to `~/.claude/` (commands, scripts, templates, mods, settings, CLAUDE.md)
 > - **Prunes** `~/.claude/commands/` and `~/.claude/agents/`: anything there without a source file in the repo is deleted on every run — `~/.claude/agents/` ends up holding exactly the three subagents of `agents/`
 > - **Installs** global packages (`graphify`, `mempalace`, `rtk`)
 > - **Modifies PATH** — adds `~/.local/bin` to `~/.bashrc` / `~/.bash_profile` / `~/.profile` (with confirmation, or silently with `-y`)
@@ -49,7 +49,7 @@ Your private repo stays in sync with this one automatically — see [Minimal set
 1. Syncs from `upstream` remote **first** if present (private repos get latest shared config automatically); if the sync brings changes, the script re-executes itself so the rest of the run uses the updated version. Skipped, with a message, while the repo has uncommitted changes
 2. Checks **Node.js**, installs **uv** if missing, then installs/upgrades **Graphify**, **MemPalace**, **chromadb**, **RTK**, **jq**, **shellcheck** and **context-mode** (plus the Zilliz MCP server when `MILVUS_ADDRESS` is set)
 3. Asks once to add `~/.local/bin` to persistent PATH (`-y` skips)
-4. Copies **commands**, **scripts**, **templates** to `~/.claude/` — `commands/` and `agents/` are mirrored (deployed files with no source in the repo are pruned), `scripts/` and `templates/` are additive. `agents/` holds the three subagents `/feature` spawns, pinned to another model; a subagent dropped from the repo disappears from every machine at the next install
+4. Copies **commands**, **scripts**, **templates** to `~/.claude/` — `commands/` and `agents/` are mirrored (deployed files with no source in the repo are pruned), `scripts/` and `templates/` are additive. `agents/` holds the three subagents `/feature` spawns, pinned to another model; a subagent dropped from the repo disappears from every machine at the next install. `mods/` goes to `~/.claude/mods/` the same additive way: `settings.json` names the deployed `paste-view` in `CLAUDE_CODE_PLUGIN_DIRS`, so every new session shows a preview of what is pasted (a line that opens a pasted image in the system viewer, a thumbnail instead where the terminal draws kitty graphics, which Windows Terminal does not, and the first line of a long text) with nothing fetched from a marketplace
 5. Records the repo location in `~/.claude/claude-config.path`; hooks, `scripts/session-start.sh` (SessionStart hook: newest MemPalace diary entries for the repo + head of `TODO.md`, ~200 tokens) and `scripts/session-stop.sh` (Stop hook: `graphify update` + mining the repo into its MemPalace wing + vault sync, run detached) resolve the repo through this pointer instead of hardcoded absolute paths
 6. Initializes **MemPalace**: creates the palace, selects the embedding model, checks index health. Repos are _not_ mined here — each one is mined into its own wing during step 16
 7. Copies **CLAUDE.md** to `~/.claude/CLAUDE.md` (substitutes `${VAULT_DIR}`)
@@ -170,6 +170,7 @@ claude-config/
 │   ├── CLAUDE.project.md        # Per-repo CLAUDE.md, re-rendered on every install
 │   ├── gitignore.append         # .gitignore entries appended by install.sh
 │   └── gates/                   # What /init-gates creates in a repo: dependency-cruiser config, the CI callers of the three gate families
+├── mods/paste-view/             # Claude Code mod → ~/.claude/mods/: pasted images and long texts previewed above the prompt (vendored, Amorfx/claude-paste-view, Windows added); claude plugin test mods/paste-view
 ├── docs/
 │   └── pitfall.md               # Append-only log of traps Claude Code hit in this repo
 └── tests/

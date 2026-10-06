@@ -7,7 +7,7 @@ Configuration partagée pour Claude Code : slash-commands, scripts et hooks, mé
 >
 > `install.sh` et les scripts utilitaires effectuent des opérations destructives et persistantes :
 >
-> - **Écritures** dans `~/.claude/` (commandes, scripts, templates, settings, CLAUDE.md)
+> - **Écritures** dans `~/.claude/` (commandes, scripts, templates, mods, settings, CLAUDE.md)
 > - **Purge** de `~/.claude/commands/` et `~/.claude/agents/` : tout ce qui s'y trouve sans fichier source dans le repo est supprimé à chaque exécution — `~/.claude/agents/` contient au final exactement les trois sous-agents d'`agents/`
 > - **Installation de paquets** globaux (`graphify`, `mempalace`, `rtk`)
 > - **Modification du PATH** : ajoute `~/.local/bin` dans `~/.bashrc`, `~/.bash_profile` et `~/.profile`, après confirmation sauf en mode `-y`
@@ -49,7 +49,7 @@ Le repo privé se synchronise automatiquement avec celui-ci — voir [Installati
 1. Synchronise depuis `upstream` **en premier** si le remote existe (les repos privés récupèrent automatiquement la dernière config partagée) ; si la sync apporte des changements, le script se relance automatiquement pour que la suite s'exécute avec la version à jour. Ignorée, avec un message, tant que le repo a des modifications non commitées
 2. Vérifie **Node.js**, installe **uv** si absent, puis installe/met à jour **Graphify**, **MemPalace**, **chromadb**, **RTK**, **jq**, **shellcheck** et **context-mode** (plus le serveur MCP Zilliz si `MILVUS_ADDRESS` est défini)
 3. Demande une seule confirmation si `~/.local/bin` doit être ajouté au PATH persistant (`-y` accepte automatiquement)
-4. Copie les **commandes**, **scripts** et **templates** vers `~/.claude/` — `commands/` et `agents/` sont en miroir (les fichiers déployés sans source dans le repo sont purgés), `scripts/` et `templates/` sont additifs. `agents/` contient les trois sous-agents que `/feature` lance, épinglés sur un autre modèle ; un sous-agent retiré du repo disparaît de chaque machine à l'install suivante
+4. Copie les **commandes**, **scripts** et **templates** vers `~/.claude/` — `commands/` et `agents/` sont en miroir (les fichiers déployés sans source dans le repo sont purgés), `scripts/` et `templates/` sont additifs. `agents/` contient les trois sous-agents que `/feature` lance, épinglés sur un autre modèle ; un sous-agent retiré du repo disparaît de chaque machine à l'install suivante. `mods/` va dans `~/.claude/mods/`, additif lui aussi : `settings.json` nomme le `paste-view` déployé dans `CLAUDE_CODE_PLUGIN_DIRS`, donc chaque nouvelle session affiche un aperçu de ce qui est collé (une ligne qui ouvre l'image collée dans la visionneuse du système, une vignette à la place là où le terminal dessine le protocole graphique kitty, ce que Windows Terminal ne fait pas, et la première ligne d'un long texte) sans rien télécharger d'un marketplace
 5. Enregistre l'emplacement du repo dans `~/.claude/claude-config.path` ; les hooks, `scripts/session-start.sh` (hook SessionStart : dernières entrées du diary MemPalace du repo + tête de `TODO.md`, ~200 tokens) et `scripts/session-stop.sh` (hook Stop : `graphify update` + mining du repo dans son wing MemPalace + sync vault, exécuté détaché) résolvent le repo via ce pointeur plutôt que par chemin absolu en dur
 6. Initialise **MemPalace** : création du palace, choix du modèle d'embedding, vérification de l'index. Les repos ne sont _pas_ minés ici — chacun l'est dans son propre wing à l'étape 16
 7. Copie **CLAUDE.md** vers `~/.claude/CLAUDE.md` (substitution `${VAULT_DIR}`)
@@ -170,6 +170,7 @@ claude-config/
 │   ├── CLAUDE.project.md        # CLAUDE.md par repo, re-rendu à chaque install
 │   ├── gitignore.append         # Entrées .gitignore ajoutées par install.sh
 │   └── gates/                   # Ce que /init-gates crée dans un repo : config dependency-cruiser, les appelants CI des trois familles de gates
+├── mods/paste-view/             # Mod Claude Code → ~/.claude/mods/ : aperçu des images et longs textes collés au-dessus du prompt (vendorisé, Amorfx/claude-paste-view, Windows ajouté) ; claude plugin test mods/paste-view
 ├── docs/
 │   └── pitfall.md               # Journal append-only des pièges rencontrés par Claude Code dans ce repo
 └── tests/
