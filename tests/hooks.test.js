@@ -302,6 +302,12 @@ test("inside a /init-gates the human typed, a gate file that does not exist yet 
     shell("Bash", depcruiseBaseline), // reads the existing config, creates the baseline
     shell("Bash", "cd frontend && npx --yes depcruise src --output-type baseline > .dependency-cruiser-known-violations.json"),
     file("Write", { file_path: at(".github", "workflows", "baseline-ratchet.yml"), content: "" }),
+    // the mutation and quality gates /init-gates creates since 2026-10-06
+    file("Write", { file_path: at(".github", "workflows", "mutation-gate.yml"), content: "" }),
+    file("Write", { file_path: at(".github", "workflows", "quality-gates.yml"), content: "" }),
+    file("Write", { file_path: at("backend", "complexity-baseline.json"), content: "[]" }),
+    file("Write", { file_path: at("frontend", "duplication-baseline.json"), content: "[]" }),
+    file("Write", { file_path: at("backend", "mutation-baseline.json"), content: "[]" }),
   ];
   const changes = [
     file("Write", { file_path: at("frontend", ".dependency-cruiser.cjs"), content: "" }),

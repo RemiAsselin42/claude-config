@@ -76,7 +76,7 @@ function classify(p) {
 }
 
 // The only files /init-gates creates; any other absent gate file (a new workflow, ruff.toml...) stays blocked.
-const INIT_GATES_FILES = /(^|\/)(arch-gates\.json|import-(cycles|layers)-baseline\.json|\.dependency-cruiser\.cjs|\.dependency-cruiser-known-violations\.json|\.github\/workflows\/(arch-gates|baseline-ratchet)\.yml)$/;
+const INIT_GATES_FILES = /(^|\/)(arch-gates\.json|(import-cycles|import-layers|mutation|complexity|duplication)-baseline\.json|\.dependency-cruiser\.cjs|\.dependency-cruiser-known-violations\.json|\.github\/workflows\/(arch-gates|baseline-ratchet|mutation-gate|quality-gates)\.yml)$/;
 const creatable = (p) => INIT_GATES_FILES.test(String(p).replace(/\\/g, "/").toLowerCase());
 
 // Gate files a command redirects into, each with the directory its segment runs in
