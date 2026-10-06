@@ -876,6 +876,9 @@ PINNED_PLUGINS=(
   "anthropics/claude-plugins-official|frontend-design@claude-plugins-official"
   # yusukebe/hono-skill moved to honojs/skills on 2026-08-31 and now holds only a README.
   "honojs/skills|hono@hono"
+  # Learning mode, kept per project: scripts/vibe-toggle.sh turns it on and off,
+  # the statusline shows it.
+  "nykooi1/vibe-wise|vibe-wise@vibe-wise"
 )
 
 _install_pinned_plugins() {
@@ -902,6 +905,15 @@ _install_pinned_plugins() {
       echo "    claude plugin marketplace add ${marketplace} && claude plugin install ${plugin}"
     fi
   done
+}
+
+# vibe-wise's SessionStart hook runs `python3 …/session_start.py`, by that name.
+# On Windows python3 is often the Microsoft Store stub, which exits nonzero: the
+# hook then restores nothing, silently, while the statusline still reads the
+# project's notes and shows "VibeWise │ On".
+_warn_vibe_wise_python3() {
+  python3 -c pass >/dev/null 2>&1 && return 0
+  echo "  ${YELLOW}⚠ vibe-wise: python3 does not run here — its hook will not restore learning mode at session start (install Python 3 so that python3 answers)${RESET}"
 }
 
 # stdio MCP servers, as "<name> <command> [args...]".
@@ -1170,6 +1182,7 @@ _ok "shell guards (hooks/*.sh, protect-gates.js)"
 # --- Install pinned plugins (after settings.json copy — plugin state must survive it) ---
 _step "Installing pinned plugins..."
 _install_pinned_plugins
+_warn_vibe_wise_python3
 
 # --- Statusline: scripts/statusline.sh renders model, context, 5h/7d rate
 # limits and git from the payload Claude Code pipes in — no network, no login.

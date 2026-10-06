@@ -3,7 +3,8 @@
 # no OAuth token (this replaced a vendored fork of @allthingsclaude/bar, which
 # fetched the same numbers from a private endpoint with its own login).
 # Lines: Model · Cache (context window) · Usage (5h/7d rate limits, present on
-# subscription accounts) · active terse mode (ponytail/caveman badge) · Github.
+# subscription accounts) · active terse mode (ponytail/caveman badge) · VibeWise
+# (learning mode of the cwd's project, when it has notes) · Github.
 # Wired by install.sh via settings.json → "statusLine". Needs jq (install.sh
 # provides it); without it only a placeholder model line is printed.
 # Check: bash tests/statusline.sh
@@ -154,6 +155,23 @@ if [ -n "$badge" ]; then
   esac
 fi
 
+# ── VibeWise: learning mode of the cwd's project ─────────────────────────────
+# Per project, unlike the badge above: vibe-toggle.sh, deployed beside this
+# script, reads the project's .vibe-wise/profile.md by the plugin's own rules.
+# Only for a real cwd: with no dir the script would answer for this process's
+# own directory. No notes → no line.
+line_vibe=""
+if [ -n "$cwd" ] && [ -d "$cwd" ]; then
+  here=${BASH_SOURCE[0]%/*}; [ "$here" = "${BASH_SOURCE[0]}" ] && here=.
+  vibe=$(bash "$here/vibe-toggle.sh" status "$cwd" 2>/dev/null | tr -d '\r')
+  case "$vibe" in
+    "vibe-wise: on ["*) vibe=${vibe#*[}; vibe=${vibe%]}
+                        line_vibe="$(label VibeWise)${D}On · ${vibe^}${R}" ;;
+    "vibe-wise: on")    line_vibe="$(label VibeWise)${D}On${R}" ;;
+    "vibe-wise: off")   line_vibe="$(label VibeWise)${D}Off${R}" ;;
+  esac
+fi
+
 # ── Github: branch + live diff vs HEAD, cached 5 s per cwd ───────────────────
 # Generated dirs are excluded: graphify background rebuilds keep them dirty
 # mid-session until the Stop hook commits them, which would drown the real diff.
@@ -177,7 +195,7 @@ if [ -n "$cwd" ] && [ -d "$cwd" ]; then
   fi
 fi
 
-for l in "$line_model" "$line_cache" "$line_usage" "$line_mode" "$line_git"; do
+for l in "$line_model" "$line_cache" "$line_usage" "$line_mode" "$line_vibe" "$line_git"; do
   [ -n "$l" ] && printf '%s\n' "$l"
 done
 exit 0
