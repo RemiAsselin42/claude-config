@@ -68,7 +68,8 @@
   "model": "fable",
   "effortLevel": "xhigh",
   "env": {
-    "HF_HUB_OFFLINE": "1"
+    "HF_HUB_OFFLINE": "1",
+    "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/paste-view"
   },
   "autoUpdatesChannel": "latest",
   "attribution": {

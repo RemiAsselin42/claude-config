@@ -1019,11 +1019,15 @@ done
 
 # --- Copy agents, commands and scripts ---
 _step "Copying agents, commands and scripts..."
-mkdir -p "$CLAUDE_DIR/agents" "$CLAUDE_DIR/commands" "$CLAUDE_DIR/scripts" "$CLAUDE_DIR/hooks" "$CLAUDE_DIR/templates"
+mkdir -p "$CLAUDE_DIR/agents" "$CLAUDE_DIR/commands" "$CLAUDE_DIR/scripts" "$CLAUDE_DIR/hooks" "$CLAUDE_DIR/templates" "$CLAUDE_DIR/mods"
+# mods/ holds Claude Code mods vendored in the repo (paste-view). They are loaded
+# from the deployed copy, which settings.json names in CLAUDE_CODE_PLUGIN_DIRS,
+# never from the checkout: Claude Code writes its generated typings into the
+# folder it loads, and a checkout with work in progress would run live.
 # Use nullglob to avoid glob failure if a source directory is empty
 (
   shopt -s nullglob
-  for dir in agents commands scripts hooks templates; do
+  for dir in agents commands scripts hooks templates mods; do
     files=("$REPO_DIR/$dir/"*)
     if [[ ${#files[@]} -gt 0 ]]; then
       cp -r "${files[@]}" "$CLAUDE_DIR/$dir/"
