@@ -32,6 +32,8 @@ git("config", "user.name", "t");
 write("backend/import-cycles-baseline.json", fs.readFileSync(path.join(FIXTURES, "import-cycles-baseline.json"), "utf8"));
 write("backend/import-layers-baseline.json", fs.readFileSync(path.join(FIXTURES, "import-layers-baseline.json"), "utf8"));
 write(DC, fs.readFileSync(path.join(FIXTURES, ".dependency-cruiser-known-violations.json"), "utf8"));
+const CX = "backend/complexity-baseline.json";
+write(CX, JSON.stringify([["app/a.py", "f", 13], ["app/a.py", "g", 11]], null, 2));
 git("add", "-A");
 git("commit", "-q", "-m", "base");
 const BASE = git("rev-parse", "HEAD");
@@ -78,6 +80,24 @@ test("reordered entries are not a change", () => {
   const r = ratchet(BASE, head);
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /known-violations.json`: \+0 \/ -0/);
+});
+
+test("a measured entry lowered under the same key is a shrink, not an add", () => {
+  const head = commitOn(BASE, "lower", () => write(CX, JSON.stringify([["app/a.py", "f", 12], ["app/a.py", "g", 11]])));
+  const r = ratchet(BASE, head);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(r.grew, "grew=false");
+  assert.match(r.out, /ok `backend\/complexity-baseline.json`: \+0 \/ -0, raised 0 \/ lowered 1 \(2 -> 2\)/);
+});
+
+test("a measured entry raised under the same key is growth, and a new key is an add", () => {
+  const head = commitOn(BASE, "raise", () => write(CX, JSON.stringify([["app/a.py", "f", 13], ["app/a.py", "g", 12], ["app/b.py", "h", 11]])));
+  const r = ratchet(BASE, head);
+  assert.equal(r.code, 1, r.err);
+  assert.equal(r.grew, "grew=true");
+  assert.match(r.out, /GROWTH `backend\/complexity-baseline.json`: \+1 \/ -0, raised 1 \/ lowered 0 \(2 -> 3\)/);
+  assert.match(r.out, /raised: `\["app\/a\.py","g",12\] \(was 11\)`/);
+  assert.match(r.out, /added: `\["app\/b\.py","h",11\]`/);
 });
 
 test("a growing baseline fails and names the new entry", () => {
