@@ -23,8 +23,9 @@
 //   - one exemption: while the latest message the human typed is /init-gates,
 //     Claude may create one of the files that command creates (INIT_GATES_FILES)
 //     when it does not exist yet (Write to an absent file, or a redirect to one,
-//     resolved after any "cd"); changing or deleting an existing one, or creating
-//     any other gate file, stays blocked;
+//     resolved after any "cd"), and may add a [tool.mutmut] section to a
+//     pyproject.toml that has none, the other tool sections untouched; changing
+//     or deleting an existing one, or creating any other gate file, stays blocked;
 //   - the harness itself: ~/.claude/settings.json, ~/.claude/hooks/*, any
 //     .claude/settings*.json, and the session transcripts that carry the
 //     /create-commit marker. These stay blocked even with PROTECT_GATES=off.
@@ -76,7 +77,8 @@ function classify(p) {
 }
 
 // The only files /init-gates creates; any other absent gate file (a new workflow, ruff.toml...) stays blocked.
-const INIT_GATES_FILES = /(^|\/)(arch-gates\.json|(import-cycles|import-layers|mutation|complexity|duplication)-baseline\.json|\.dependency-cruiser\.cjs|\.dependency-cruiser-known-violations\.json|\.github\/workflows\/(arch-gates|baseline-ratchet|mutation-gate|quality-gates)\.yml)$/;
+// mutation-baseline.json is not here on purpose: it comes from the PR's first CI run, never from Claude.
+const INIT_GATES_FILES = /(^|\/)(arch-gates\.json|(import-cycles|import-layers|complexity|duplication)-baseline\.json|\.dependency-cruiser\.cjs|\.dependency-cruiser-known-violations\.json|\.github\/workflows\/(arch-gates|baseline-ratchet|mutation-gate|quality-gates)\.yml)$/;
 const creatable = (p) => INIT_GATES_FILES.test(String(p).replace(/\\/g, "/").toLowerCase());
 
 // Gate files a command redirects into, each with the directory its segment runs in
@@ -205,19 +207,26 @@ function pyprojectDecision(tool, input, p) {
   else if (tool === "MultiEdit") after = (input.edits || []).reduce(applyEdit, before);
   else return null;
   if (after === null) return null; // old_string not found: the tool fails on its own
-  return toolSections(before) === toolSections(after) ? null : { why: `${p}: a [tool.ruff|mypy|mutmut|pytest] section changed` };
+  if (toolSections(before) === toolSections(after)) return null;
+  // A [tool.mutmut] section added to a file that has none is a creation, like an
+  // absent gate file: /init-gates may do it (main checks the marker) as long as the
+  // other gate sections read exactly as before. Changing an existing one never passes.
+  const create = !hasSection(before, MUTMUT_SECTION) && hasSection(after, MUTMUT_SECTION) && toolSections(after, (l) => !MUTMUT_SECTION.test(l)) === toolSections(before);
+  return { why: `${p}: a [tool.ruff|mypy|mutmut|pytest] section changed`, create };
 }
+const MUTMUT_SECTION = /^\[\[?tool\.mutmut\b/;
+const hasSection = (text, re) => text.split(/\r?\n/).some((raw) => re.test(raw.trim()));
 function applyEdit(text, e) {
   if (text === null || !e.old_string || !text.includes(e.old_string)) return null;
   const repl = e.new_string ?? "";
   return e.replace_all ? text.split(e.old_string).join(repl) : text.replace(e.old_string, () => repl);
 }
-function toolSections(text) {
+function toolSections(text, also = () => true) {
   const kept = [];
   let inside = false;
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim();
-    if (line.startsWith("[")) inside = TOOL_SECTION.test(line);
+    if (line.startsWith("[")) inside = TOOL_SECTION.test(line) && also(line);
     if (inside && line) kept.push(line);
   }
   return kept.join("\n");
