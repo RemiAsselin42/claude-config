@@ -42,7 +42,7 @@ on:
         description: comma-separated globs jscpd skips
         type: string
         required: false
-        default: "**/test/**,**/tests/**,**/*.test.*,**/conftest.py"
+        default: "**/test/**,**/tests/**,**/test_*.py,**/*_test.py,**/conftest.py"
       jscpd-formats:
         description: comma-separated jscpd formats
         type: string
@@ -63,20 +63,23 @@ jobs:
           sparse-checkout: gates/python/check_quality.py
           sparse-checkout-cone-mode: false
       - uses: astral-sh/setup-uv@v4
-      # --exit-zero: the violations are the gate's to judge, not ruff's.
+      # The project's own ruff configuration applies (its exclude keeps generated code
+      # out); only the rule and the threshold are imposed. --exit-zero: the violations
+      # are the gate's to judge, not ruff's.
       - name: Complexity (ruff C901)
         working-directory: ${{ inputs.dir }}
         env:
           MAX: ${{ inputs.max-complexity }}
           TARGET: ${{ inputs.package }}
-        run: uv run --no-project --python 3.12 --with ruff==0.16.10 ruff check --select C901 --config "lint.mccabe.max-complexity=$MAX" --output-format json --isolated --exit-zero "$TARGET" > .quality-ruff.json
+        run: uv run --no-project --python 3.12 --with ruff==0.16.10 ruff check --select C901 --config "lint.mccabe.max-complexity=$MAX" --output-format json --exit-zero "$TARGET" > .quality-ruff.json
+      # --absolute: file names the gate makes relative to this directory, like ruff's.
       - name: Duplication (jscpd)
         working-directory: ${{ inputs.dir }}
         env:
           TARGET: ${{ inputs.package }}
           IGNORE: ${{ inputs.jscpd-ignore }}
           FORMATS: ${{ inputs.jscpd-formats }}
-        run: npx --yes jscpd@5.4.0 "$TARGET" --format "$FORMATS" --ignore "$IGNORE" --reporters json --output .quality-jscpd --silent
+        run: npx --yes jscpd@5.4.0 "$TARGET" --format "$FORMATS" --ignore "$IGNORE" --reporters json --output .quality-jscpd --absolute --silent
       - name: Complexity against the baseline
         working-directory: ${{ inputs.dir }}
         run: uv run --no-project --python 3.12 python "$GITHUB_WORKSPACE/.arch-gates/gates/python/check_quality.py" complexity --tool ruff --report .quality-ruff.json

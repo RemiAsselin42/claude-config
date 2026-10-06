@@ -82,13 +82,14 @@ jobs:
           MAX: ${{ inputs.max-complexity }}
           SRC: ${{ inputs.src }}
         run: npx eslint --rule "complexity: [2, $MAX]" --format json "$SRC" > .quality-eslint.json || true
+      # --absolute: file names the gate makes relative to this directory, like eslint's.
       - name: Duplication (jscpd)
         working-directory: ${{ inputs.dir }}
         env:
           SRC: ${{ inputs.src }}
           IGNORE: ${{ inputs.jscpd-ignore }}
           FORMATS: ${{ inputs.jscpd-formats }}
-        run: npx --yes jscpd@5.4.0 "$SRC" --format "$FORMATS" --ignore "$IGNORE" --reporters json --output .quality-jscpd --silent
+        run: npx --yes jscpd@5.4.0 "$SRC" --format "$FORMATS" --ignore "$IGNORE" --reporters json --output .quality-jscpd --absolute --silent
       - name: Complexity against the baseline
         working-directory: ${{ inputs.dir }}
         run: uv run --no-project --python 3.12 python "$GITHUB_WORKSPACE/.arch-gates/gates/python/check_quality.py" complexity --tool eslint --report .quality-eslint.json
