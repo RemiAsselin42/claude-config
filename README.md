@@ -157,7 +157,7 @@ claude-config/
 ├── scripts/                     # Utility scripts → ~/.claude/scripts/
 │   ├── baseline-ratchet.cjs     # Compares baselines between two refs; run by the workflow above (.cjs: callers may be ESM packages)
 │   ├── repo-identity.sh         # Shared lib: canonical_repo_name()
-│   ├── session-start.sh         # SessionStart hook: MemPalace diary + TODO.md head
+│   ├── session-start.sh         # SessionStart hook: starts the MemPalace daemon, diary + TODO.md head, one line when MemPalace is down
 │   ├── session-stop.sh          # Stop hook: graphify update + wing mine + vault sync
 │   ├── statusline.sh            # Statusline: model, context, rate limits, mode, git
 │   ├── style-toggle.sh          # Switch terse mode: ponytail ⇄ caveman ⇄ off
@@ -181,6 +181,7 @@ claude-config/
     ├── sync-upstream.sh         # The upstream sync on two throwaway repos: dirty or unreachable = exit 3 (skipped), clean = pulled and committed, a path added to the list = brought by install.sh's second pass
     ├── readme-structure.sh      # Both READMEs against git ls-files: every tree entry tracked, every tracked entry in the tree, command table = commands/
     ├── workflows-yaml.sh        # Every workflow and gate template parses as YAML (js-yaml): a broken one runs nothing and reaches no PR
+    ├── mempalace-health.sh      # install.sh looks for venv holders before uv, trusts an import over a version, fails closed on a broken venv; session-start.sh starts the daemon and says when MemPalace is down
     ├── hooks.test.js            # Every guard in hooks/, fed Bash and PowerShell payloads (node --test "tests/*.test.js")
     ├── baseline-ratchet.test.js # The ratchet on real baselines from a pilot repository
     ├── gates-template.test.js   # The dependency-cruiser template on a toy project: layers, cycle, module in no layer, path alias
@@ -267,7 +268,7 @@ Configured in `settings.json`:
 
 | Hook          | Trigger           | Action                                                                                            |
 | ------------- | ----------------- | ------------------------------------------------------------------------------------------------- |
-| `SessionStart` | Session start / after compaction | `session-start.sh` — newest MemPalace diary entries for this repo + head of `TODO.md` |
+| `SessionStart` | Session start / after compaction | `session-start.sh` — starts the MemPalace daemon (hook writes are routed `require`: through the daemon or skipped, never beside it), newest diary entries for this repo + head of `TODO.md`, one line when MemPalace is down |
 | `PreToolUse`  | Every tool call   | `context-mode` hook; on `Bash` calls, `rtk hook claude` rewrites the command through RTK; on `Bash` and `PowerShell`, the three `hooks/*.sh` guards then `protect-gates.js`; on `Edit`/`Write`/`MultiEdit`/`NotebookEdit`, `protect-gates.js` |
 | `PostToolUse` | Every tool call   | `context-mode` hook                                                                               |
 | `Stop`        | End of session    | MemPalace save + `session-stop.sh`, detached (graphify update + wing mine + vault sync)           |

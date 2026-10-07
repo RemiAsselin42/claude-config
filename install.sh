@@ -425,15 +425,18 @@ _mempalace_configured_model() {
   printf '%s\n' "${model:-minilm}"
 }
 
-# Hook writes go direct by default, and a direct write is refused while the
-# daemon owns the palace (local backends are single-writer): once
-# _mine_repo_into_wing has started the daemon, every diary checkpoint and
-# transcript ingest fails with "held by PID <daemon>" in hook_state/hook.log.
-# `prefer` routes hook writes through the daemon when it is up and keeps the
-# direct path when it is not. MCP write tools have no such route — they stay
-# read-only beside the daemon (see CLAUDE.md).
+# Local backends are single-writer, and the daemon owns the palace once a mine
+# has started it. Upstream's policy (docs/write-routing-policy.md): direct CLI
+# and hook writes must not run beside it. `hooks: require` is what makes that
+# hold — a hook never writes directly, never cold-starts the daemon, and when
+# the daemon is down it skips the write with a visible systemMessage and keeps
+# its save marker for a later retry; `prefer` kept a direct fallback that failed
+# with "held by PID <daemon>" in hook_state/hook.log, or ran beside it. The
+# daemon is started at session start (scripts/session-start.sh), which hooks may
+# not do. `cli: prefer`: a mine submits to the daemon and may start it. MCP
+# write tools have no route — they stay read-only beside the daemon (CLAUDE.md).
 _mempalace_set_write_routing() {
-  _mempalace_config_set --arg p "$1" '.write_routing.default = $p'
+  _mempalace_config_set --arg p "$1" '.write_routing = {default: $p, hooks: "require", cli: $p}'
 }
 
 # No CLI subcommand writes this key (`palace set-embedder` only records identity
@@ -486,8 +489,11 @@ _mempalace_diverged() {
   mempalace repair-status 2>/dev/null | grep -q 'DIVERGED'
 }
 
-# missing | mismatch | diverged | ok
+# broken | missing | mismatch | diverged | ok
 _mempalace_state() {
+  # First: a venv that does not import answers nothing, and `repair-status`
+  # printing no DIVERGED then read as "ok" for two days (2026-10-04).
+  _tool_import_ok mempalace || { printf 'broken\n'; return; }
   # chroma.sqlite3, not the directory: `mempalace init` writes config.json but
   # never creates palace/, so "directory exists" is not "initialized".
   [[ -f "$MEMPALACE_PALACE/chroma.sqlite3" ]] || { printf 'missing\n'; return; }
@@ -529,6 +535,12 @@ _setup_mempalace() {
   current="$(_mempalace_configured_model)"
 
   case "$state" in
+    broken)
+      echo "  ${RED}✗ MemPalace does not import from its venv — memory is off: hooks, searches and the MCP server fail at import.${RESET}"
+      echo "  ${RED}  Close every Claude Code session, then: uv tool install \"mempalace$(_mempalace_accel_extra)\" --overrides \"$MEMPALACE_OVERRIDES\" --upgrade --reinstall${RESET}"
+      MEMPALACE_READY=false
+      return 0
+      ;;
     missing)
       mkdir -p "$HOME/.mempalace"
       # Set the model before init so the palace is built with it from the start
@@ -723,53 +735,114 @@ _setup_terminal_delegation() {
   fi
 }
 
-# On Windows, `uv tool install --upgrade` fails with "Accès refusé (os error 5)"
-# when a running process (e.g. an MCP server spawned by an open Claude Code
-# session) holds files open under the tool's venv — Windows cannot delete open
-# files. Kill the lockers and retry with --reinstall to recover the half-upgraded
-# venv the failed attempt leaves behind.
+# --- uv tool venvs: where they are, whether they import, who holds them ------
+# What happened on 2026-10-04 (uv 0.11.7, same code in 0.12.23): `uv tool
+# install --upgrade` on an installed tool updates the venv in place, then
+# replaces the ~/.local/bin shims. A shim that is running (a session's
+# mempalace-mcp.exe) cannot be replaced on Windows, and uv then "cleans up the
+# environment it created" — the existing venv, deleted file by file in
+# alphabetical order until the first .pyd a process has mapped. What is left
+# imports nothing, while `mempalace --version` still answers and uv, reading
+# the dist-info directories that survived, reports "Would make no changes".
+# So: look for holders before uv runs, and trust an import, never a version.
+
+# The interpreter of <pkg>'s tool venv, as uv lays it out; nothing when absent.
+_tool_venv_python() {
+  local root py
+  root="$(uv tool dir 2>/dev/null | tr -d '\r')"
+  [[ -n "$root" ]] || return 1
+  if _is_windows; then root="$(cygpath -u "$root")"; py="$root/$1/Scripts/python.exe"; else py="$root/$1/bin/python"; fi
+  [[ -x "$py" ]] || return 1
+  printf '%s\n' "$py"
+}
+
+# A tool is usable when its venv imports what it runs on. The outage left
+# `mempalace` importable and chromadb's dependencies gone, hence both names.
+_tool_import_ok() {
+  local py mods
+  py="$(_tool_venv_python "$1")" || return 1
+  case "$1" in mempalace) mods="chromadb, mempalace" ;; graphifyy) mods="graphify" ;; *) mods="$1" ;; esac
+  "$py" -c "import $mods" >/dev/null 2>&1
+}
+
+# Win32_Process, not Get-Process: enumerating Get-Process .Path aborts the
+# pipeline on the first process whose MainModule is inaccessible (PS 5.1).
+# Three things hold a venv: a process started from it (the daemon, an MCP
+# server, a mine — uv's venv python.exe is a trampoline onto the base
+# interpreter, so their executable is C:\Python313\python.exe and only their
+# command line names the venv), and the ~/.local/bin shim itself, which is the
+# file uv cannot replace. The query's own PowerShell carries the pattern in its
+# command line too — skip it, or a kill takes itself out mid-loop.
+_tool_venv_filter() {
+  local pat shims name
+  # shellcheck disable=SC1003  # literal backslashes, not an escaped quote
+  pat="${APPDATA:-}"'\uv\tools\'"$1"'\*'
+  # The shims are named after the command, not the package: graphify*.exe for
+  # graphifyy, mempalace*.exe (mempalace, mempalace-mcp, mempalace-light-mcp).
+  case "$1" in graphifyy) name=graphify ;; *) name="$1" ;; esac
+  shims="$(cygpath -w "$TOOL_BIN_DIR" 2>/dev/null)"'\'"$name"'*'
+  printf '%s' "Get-CimInstance Win32_Process | Where-Object { \$_.ProcessId -ne \$PID -and (\$_.ExecutablePath -like '$pat' -or \$_.CommandLine -like '*$pat' -or \$_.ExecutablePath -like '$shims') }"
+}
+
+_tool_venv_holders() {
+  _is_windows || return 0
+  powershell.exe -NoProfile -Command "$(_tool_venv_filter "$1") | ForEach-Object { '{0,7}  {1}' -f \$_.ProcessId, \$_.CommandLine }" 2>/dev/null | tr -d '\r'
+}
+
+_tool_venv_kill_holders() {
+  powershell.exe -NoProfile -Command "$(_tool_venv_filter "$1") | ForEach-Object { Stop-Process -Id \$_.ProcessId -Force }; Start-Sleep 2" >/dev/null 2>&1 || true
+}
+
+# Install or upgrade a uv tool, and come out with a venv that imports.
+# A holder found first: the owner chooses to kill it or to keep the installed
+# version for this run (default no, -y included: a chroma writer killed
+# mid-write is a diverged index, and a declined kill used to abort the whole
+# install). A venv that does not import after uv ran, with nothing holding it
+# now, gets one --reinstall; still broken, the install stops here rather than
+# print "✓" over a memory that is off.
 _uv_tool_install() {
   local pkg="$1" spec="$1${2:-}"
   local -a args=("${@:3}")
-  _run_quiet uv tool install "$spec" ${args[@]+"${args[@]}"} --upgrade && return 0
-  _is_windows || return 1
-  echo "  ${DIM}· $pkg: upgrade failed — the venv is probably held by a running process${RESET}"
-  # The failed attempt leaves dist-info dirs without RECORD; uv cannot uninstall
-  # those and warns "missing RECORD file" on every later run. Drop them — the
-  # reinstall (this run's or the next one's) lays the package down again.
-  local site d
-  site="$(cygpath -u "${APPDATA:-}")/uv/tools/$pkg/Lib/site-packages"
-  for d in "$site"/*.dist-info; do [[ -e "$d/RECORD" ]] || rm -rf "$d"; done
-  # Win32_Process, not Get-Process: enumerating Get-Process .Path aborts the
-  # pipeline on the first process whose MainModule is inaccessible (PS 5.1).
-  # Match the command line as well as ExecutablePath: uv's venv python.exe is a
-  # trampoline onto the base interpreter, so the daemon, the MCP server and
-  # every mine report C:\Python313\python.exe as their executable and only
-  # their command line names the venv. The query's own PowerShell carries the
-  # pattern in its command line too — skip it, or it kills itself mid-loop.
-  local pat holders filter
-  # shellcheck disable=SC1003  # literal backslashes, not an escaped quote
-  pat="${APPDATA:-}"'\uv\tools\'"$pkg"'\*'
-  filter="Get-CimInstance Win32_Process | Where-Object { \$_.ProcessId -ne \$PID -and (\$_.ExecutablePath -like '$pat' -or \$_.CommandLine -like '*$pat') }"
-  holders="$(powershell.exe -NoProfile -Command "$filter | ForEach-Object { '{0,7}  {1}' -f \$_.ProcessId, \$_.CommandLine }" 2>/dev/null | tr -d '\r')"
+  local holders
+  holders="$(_tool_venv_holders "$pkg")"
   if [[ -n "$holders" ]]; then
-    # The daemon was stopped cleanly before the upgrade, so what still holds
-    # the venv is an open session's MCP server, a Stop-hook mine in flight or
-    # a daemon that hook restarted meanwhile. Windows has no clean stop for a
-    # console process, and a chroma writer killed mid-write is exactly the
-    # HNSW/SQLite divergence `repair rebuild-index` then has to fix — so never
-    # kill unasked, and default to no even under -y.
     echo "  ${YELLOW}Processes holding the $pkg venv:${RESET}"
     printf '%s\n' "$holders" | sed 's/^/    /'
-    if ! _ask "  Kill them and retry the upgrade ${CYAN}[y/N]${RESET}?" "n"; then
-      echo "  ${RED}$pkg upgrade aborted — close the Claude Code sessions (or let the mine finish) and re-run install.sh.${RESET}"
+    if _ask "  Kill them and upgrade ${CYAN}[y/N]${RESET}?" "n"; then
+      _tool_venv_kill_holders "$pkg"
+    else
+      echo "  ${YELLOW}⚠ $pkg: upgrade skipped — the venv is in use. Close the Claude Code sessions and re-run install.sh to upgrade.${RESET}"
+      _tool_import_ok "$pkg" && return 0
+      echo "  ${RED}✗ $pkg: the installed copy does not import either — close the sessions and re-run install.sh.${RESET}"
       return 1
     fi
-    powershell.exe -NoProfile -Command "$filter | ForEach-Object { Stop-Process -Id \$_.ProcessId -Force }; Start-Sleep 2" >/dev/null 2>&1 || true
   fi
-  # A failed retry here is not free: uv drops the ~/.local/bin shims before it
-  # syncs, and a stale `pip install --user mempalace` then answers instead.
-  _run_quiet uv tool install "$spec" ${args[@]+"${args[@]}"} --upgrade --reinstall
+  if _run_quiet uv tool install "$spec" ${args[@]+"${args[@]}"} --upgrade && _tool_import_ok "$pkg"; then
+    return 0
+  fi
+  echo "  ${DIM}· $pkg: the upgrade failed or left a venv that does not import — reinstalling${RESET}"
+  # A process that appeared while uv ran (a Stop hook, a post-commit graphify
+  # of another repo) is what breaks a venv mid-upgrade; with one still there
+  # the reinstall would break it again.
+  holders="$(_tool_venv_holders "$pkg")"
+  if [[ -n "$holders" ]]; then
+    echo "  ${RED}✗ $pkg: the venv is held by:${RESET}"
+    printf '%s\n' "$holders" | sed 's/^/    /'
+    echo "  ${RED}  close the Claude Code sessions and re-run install.sh.${RESET}"
+    return 1
+  fi
+  # A half-deleted venv can hold dist-info dirs without RECORD; uv cannot
+  # uninstall those and warns "missing RECORD file" on every later run.
+  if _is_windows; then
+    local site d
+    site="$(cygpath -u "${APPDATA:-}")/uv/tools/$pkg/Lib/site-packages"
+    for d in "$site"/*.dist-info; do [[ -e "$d/RECORD" ]] || rm -rf "$d"; done
+  fi
+  _run_quiet uv tool install "$spec" ${args[@]+"${args[@]}"} --upgrade --reinstall && _tool_import_ok "$pkg" && return 0
+  local shown="$spec"
+  [[ ${#args[@]} -gt 0 ]] && shown+=" ${args[*]}"
+  echo "  ${RED}✗ $pkg: still does not import after a reinstall — run by hand, with every session closed: uv tool install $shown --upgrade --reinstall${RESET}"
+  return 1
 }
 
 _prepare_dependencies() {
@@ -788,10 +861,10 @@ _prepare_dependencies() {
   _run_quiet graphify install --platform claude || true
   _ok "Graphify"
 
-  # The daemon runs from the tool venv and holds its .pyd files open; on Windows
-  # the upgrade then dies mid-uninstall with "Accès refusé", leaving packages
-  # without their dist-info. Stop it cleanly first — the next `mine --daemon`
-  # restarts it — rather than letting the retry force-kill it, maybe mid-write.
+  # The daemon runs from the tool venv: a holder, which makes uv delete the venv
+  # on its way out (see _uv_tool_install). Stop it cleanly first — the next
+  # session start or `mine --daemon` restarts it — rather than be asked to kill
+  # it, maybe mid-write.
   command -v mempalace >/dev/null && mempalace daemon stop >/dev/null 2>&1 || true
   local accel
   accel="$(_mempalace_accel_extra)"
