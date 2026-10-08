@@ -42,6 +42,16 @@
 # on WSL2 environments.
 # ================================================================
 
+# Local change (2026-10-08): without jq the guard cannot read the command, so it
+# refuses every call instead of letting every call through. Before cat: with no
+# PATH there is no cat either.
+if ! command -v jq >/dev/null 2>&1; then
+    me=${0##*/}; me=${me##*\\} # the hook's own file name, whichever slash the path uses
+    echo "BLOCKED: jq is not installed, so $me cannot read the command it has to check." >&2
+    echo "Install jq (winget install jqlang.jq, brew install jq, apt install jq) and start a new session." >&2
+    exit 2
+fi
+
 INPUT=$(cat)
 COMMAND=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
 

@@ -9,22 +9,27 @@
 // Blocked:
 //   - edits to gate configs (.dependency-cruiser.*, eslint.config.*, ruff.toml,
 //     mypy.ini, arch-gates.json, .github/workflows/*), to baselines (*-baseline.json,
-//     .dependency-cruiser-known-violations.json) and, in pyproject.toml, to the
-//     [tool.ruff*] [tool.mypy*] [tool.mutmut*] [tool.pytest*] sections only —
-//     [project] and [dependency-groups] stay editable;
+//     .dependency-cruiser-known-violations.json), to the pre-commit hook scripts
+//     themselves (.git/hooks/*, .husky/*, .pre-commit-config.yaml) and .git/config,
+//     and, in pyproject.toml, to the [tool.ruff*] [tool.mypy*] [tool.mutmut*]
+//     [tool.pytest*] sections only — [project] and [dependency-groups] stay editable;
 //   - shell commands that skip or regenerate a gate (git commit --no-verify,
-//     a core.hooksPath set or passed with -c, HUSKY=0, --update-baseline,
-//     lint:arch:baseline), that merge or label a PR (gh pr merge, gh pr edit
-//     --add-label, the REST endpoints behind them), that post a commit status
-//     (the /statuses/ endpoint), or that write one of the files above from the
-//     shell (>, sed -i, tee, cp, mv, rm, Set-Content, Out-File, Add-Content,
-//     Copy-Item, Move-Item, Remove-Item);
+//     a core.hooksPath set or passed with -c, HUSKY=0 set for the command,
+//     --update-baseline, lint:arch:baseline), that merge or label a PR (gh pr
+//     merge, gh pr edit --add-label, the REST endpoints behind them), that post a
+//     commit status (the /statuses/ endpoint), or that write one of the files
+//     above from the shell (>, sed -i, tee, cp, mv, rm, Set-Content, Out-File,
+//     Add-Content, Copy-Item, Move-Item, Remove-Item); git takes any unique
+//     prefix of a long option (--no-veri, --del) and bundles short flags (-anm),
+//     so those spellings are matched too;
 //   - git merge and any push that lands on main/master (explicit refspec, HEAD,
 //     --all/--mirror, or a bare push from main), unless the latest message the
 //     human typed is /create-commit (see typedCommand);
 //   - any push that deletes a remote ref (--delete, -d, ":ref") or rewrites one
-//     ("+ref"): release tags never move, and a remote branch is deleted by a
-//     human; no exemption, the tag ruleset on GitHub refuses it either way;
+//     ("+ref", --force, -f, --force-with-lease), main included, and the REST
+//     twins (DELETE or PATCH /git/refs/<ref>, gh release delete): release tags
+//     never move, and a remote branch is deleted by a human; no exemption, the
+//     rules on GitHub refuse it either way;
 //   - one exemption: while the latest message the human typed is /init-gates,
 //     Claude may create one of the files that command creates (INIT_GATES_FILES)
 //     when it does not exist yet (Write to an absent file, or a redirect to one,
@@ -53,16 +58,23 @@ const GATE_BASENAMES = [
   /^arch-gates\.json$/, // layer declarations read by gates/python/check_imports.py
   /-baseline\.json$/,
   /^pyproject\.toml$/, // content-aware for Edit/Write (see pyprojectDecision), whole-file for shell writes
+  /^\.pre-commit-config\.ya?ml$/,
 ];
-const GATE_PATHS = [/\/\.github\/workflows\/[^/]+$/];
+// the pre-commit hook scripts and the config that points at them: pointing elsewhere (core.hooksPath, HUSKY=0) is a shell rule below
+const GATE_PATHS = [/\/\.github\/workflows\/[^/]+$/, /\/\.git\/hooks\/[^/]+$/, /\/\.husky\//, /\/\.git\/config$/];
 const SELF_PATHS = [/\/\.claude\/settings(\.local)?\.json$/, /\/\.claude\/hooks\//, /\/\.claude\/projects\/.*\.jsonl$/];
 const TOOL_SECTION = /^\[\[?tool\.(ruff|mypy|mutmut|pytest)\b/; // [tool.x] and [[tool.x.y]] array tables alike
 
 const SHELL_RULES = [
-  [/\bgit\b[^;&|]*\bcommit\b[^;&|]*\s(--no-verify|-n)(\s|$)/, "git commit --no-verify skips the pre-commit gates"],
-  [/\bcore\.hookspath(\s*=|\s+\S)/i, "core.hooksPath moves the git hooks away from the pre-commit gates"], // -c, --config-env, git config, GIT_CONFIG_*; a read or --unset passes
-  [/\bHUSKY\s*=\s*["']?0\b|\bHUSKY_SKIP_HOOKS\s*=\s*["']?1\b/i, "HUSKY=0 skips the husky pre-commit hooks"],
-  [/\/statuses\/\S/, "commit status endpoint: a check result is posted by CI, never by hand"], // POST /repos/o/r/statuses/<sha>; GET is /commits/<sha>/statuses
+  // --no-veri… is the shortest unique prefix (--no-verbose exists); -n may be bundled (-anm)
+  [/\bgit\b[^;&|]*\bcommit\b[^;&|]*\s(--no-veri[a-z]*|-[a-zA-Z]*n[a-zA-Z]*)(\s|$)/, "git commit --no-verify skips the pre-commit gates"],
+  // the forms that set core.hooksPath: git -c / --config-env, git config <key> <value> (not --get, --unset, --list), GIT_CONFIG_PARAMETERS, GIT_CONFIG_KEY_n; a read or a mention passes
+  [/\bgit\b[^;&|]*\s(-c\s*|--config-env[=\s]+)["']?core\.hookspath\b|\bgit\b[^;&|]*\bconfig\b(?![^;&|]*--(get|unset|list))[^;&|]*\bcore\.hookspath\s+\S|\bGIT_CONFIG_(PARAMETERS\s*=[^;&|]*core\.hookspath|KEY_\d+\s*=\s*["']?core\.hookspath)/i, "core.hooksPath moves the git hooks away from the pre-commit gates"],
+  // HUSKY=0 set for the command (segment start, export/env/set, $env:, Set-Item env:, SetEnvironmentVariable), not mentioned in a message or a grep
+  [/(^|[;&|(\n]\s*|\b(export|env|set)\s+)(\w+=\S*\s+)*(HUSKY\s*=\s*["']?0|HUSKY_SKIP_HOOKS\s*=\s*["']?1)\b|\$env:HUSKY\s*=\s*["']?0\b|\bSet-Item\b[^;&|]*\benv:HUSKY\b[^;&|]*\b0\b|SetEnvironmentVariable\(\s*["']HUSKY["']\s*,\s*["']?0\b/i, "HUSKY=0 skips the husky pre-commit hooks"],
+  [/\/statuses\/\S/, "commit status endpoint: a check result is posted by CI, never by hand"], // POST /repos/o/r/statuses/<sha>; the legacy GET alias of /commits/<sha>/statuses goes with it, like GET /pulls/N/merge above
+  // the REST twins of a deleted or rewritten ref; POST /git/refs creates one, like git push origin v6
+  [/(?=[^;&|]*\/git\/refs\/\S)(?=[^;&|]*(-X|--method|--request|-Method)[\s=]*["']?(delete|patch)\b)|\bgh\s+release\s+delete\b/i, "a remote ref deleted or rewritten through the API: release tags never move, and a remote branch is deleted by a human"],
   [/--update-baseline\b/, "--update-baseline rewrites a gate baseline"],
   [/\blint:arch:baseline\b/, "lint:arch:baseline rewrites the dependency-cruiser baseline"],
   [/\bgh\s+pr\s+merge\b/, "gh pr merge: merging is a human gesture, not Claude's"],
@@ -152,22 +164,27 @@ function humanOnlyGit(cmd, cwd) {
     if (sub !== "push") continue;
     const positional = [];
     let tags = false;
-    let del = false;
+    let del = false; // --delete, any unique prefix of it (--de…), -d, bundled or not
+    let force = false; // --force, --force-with-lease[=…], --force-if-includes, -f, bundled or not
     for (let k = 0; k < args.length; k++) {
       const a = args[k];
       if (/^--(all|mirror)$/.test(a)) return human("git push --all/--mirror reaches main");
-      if (a === "--tags") tags = true;
-      else if (a === "--delete" || a === "-d") del = true;
-      else if (PUSH_OPT_WITH_VALUE.has(a)) k++;
+      if (PUSH_OPT_WITH_VALUE.has(a)) k++;
+      else if (a === "--tags") tags = true;
+      else if (/^--de[a-z]*$/.test(a)) del = true;
+      else if (/^--force(-|$)/.test(a)) force = true;
+      else if (/^-[a-zA-Z]+$/.test(a)) { if (a.includes("d")) del = true; if (a.includes("f")) force = true; }
       else if (!a.startsWith("-")) positional.push(a);
     }
     const refs = positional.slice(1); // first positional is the remote
+    // a ref deleted (--delete, ":ref") or rewritten (--force, "+ref") comes first: main included, no exemption
+    const rewrite = del ? "--delete" : force ? "--force" : refs.find((r) => /^[+:]/.test(r));
+    if (rewrite) return { why: `git push ${rewrite} deletes or rewrites a remote ref: release tags never move, and a remote branch is deleted by a human` };
     if (!refs.length && tags) continue; // --tags alone pushes refs/tags/* only
     for (const ref of refs.length ? refs : ["HEAD"]) {
-      let dest = ref.split(":").pop().replace(/^\+/, "").replace(/^refs\/heads\//, "");
+      let dest = ref.split(":").pop().replace(/^refs\/heads\//, "");
       if (dest === "HEAD") dest = repo === null ? "main" : switchedTo.get(repo) || currentBranch(repo); // an unresolvable directory is not trusted
       if (PROTECTED_BRANCH.test(dest)) return human(`git push to ${dest}`);
-      if (del || /^[+:]/.test(ref)) return { why: `git push ${del ? "--delete " : ""}${ref} deletes or rewrites a remote ref: release tags never move, and a remote branch is deleted by a human` };
     }
   }
   return null;
