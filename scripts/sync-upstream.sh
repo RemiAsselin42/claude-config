@@ -25,16 +25,23 @@ if [[ "$FORCE" == "false" && -f "$STAMP" ]]; then
 fi
 
 # The sync checks upstream's files out into the checked-out branch and commits
-# them there: anywhere but main, that would bury the branch's own work under
-# main's files. Checked before the fetch; also what keeps a checkout of the public
-# repo that was handed an upstream remote by mistake from overwriting its branches
-# (code review of PR #29, 2026-10-08).
+# them there: anywhere but the fork's default branch, that would bury the branch's
+# own work under upstream's files. The default branch is what origin/HEAD names
+# when the clone recorded it, else main or master: the first version allowed main
+# alone and skipped every install of a fork born on master (2026-10-08). Checked
+# before the fetch; also what keeps a checkout of the public repo that was handed
+# an upstream remote by mistake from overwriting its branches (review of PR #29).
 _branch="$(git -C "$REPO_DIR" branch --show-current 2>/dev/null)"
-if [[ "$_branch" != main ]]; then
-  echo "sync-upstream: on branch '${_branch:-detached HEAD}', not main — sync skipped." >&2
-  exit 3
-fi
-unset _branch
+_default="$(git -C "$REPO_DIR" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null)"
+_default="${_default#origin/}"
+case "$_branch" in
+  main|master|"${_default:-main}") ;;
+  *)
+    echo "sync-upstream: on branch '${_branch:-detached HEAD}', not the default branch (${_default:-main or master}) — sync skipped." >&2
+    exit 3
+    ;;
+esac
+unset _branch _default
 
 git -C "$REPO_DIR" fetch upstream --quiet 2>/dev/null || {
   echo "sync-upstream: upstream unreachable — sync skipped." >&2

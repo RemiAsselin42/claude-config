@@ -221,7 +221,7 @@ git -C "$FORK" switch -q -c topic
 echo "v4" > "$UP/CLAUDE.md" && git -C "$UP" commit -q -am "v4"
 before="$(git -C "$FORK" rev-parse HEAD)"
 sync; rc=$?
-if [[ $rc -eq 3 && "$(cat "$T/err")" == *"not main"* && "$(git -C "$FORK" rev-parse HEAD)" == "$before" && "$(cat "$FORK/CLAUDE.md")" == "v3" ]]; then
+if [[ $rc -eq 3 && "$(cat "$T/err")" == *"sync skipped"* && "$(git -C "$FORK" rev-parse HEAD)" == "$before" && "$(cat "$FORK/CLAUDE.md")" == "v3" ]]; then
   ok "on a branch other than main: exit 3 with the reason, nothing committed"
 else
   ko "on a branch other than main: exit $rc, stderr: $(cat "$T/err"), CLAUDE.md=$(cat "$FORK/CLAUDE.md")"
@@ -232,6 +232,27 @@ if [[ $rc -eq 0 && "$(cat "$FORK/CLAUDE.md")" == "v4" ]]; then
   ok "back on main: pulled"
 else
   ko "back on main: exit $rc, CLAUDE.md=$(cat "$FORK/CLAUDE.md"), stderr: $(cat "$T/err")"
+fi
+# The guard allows the fork's default branch, not the literal name main: a fork
+# born on master was skipped at every install (2026-10-08, first run on such a
+# machine). When the clone recorded origin/HEAD, that is the branch, whatever its name.
+git -C "$FORK" branch -m main master
+echo "v5" > "$UP/CLAUDE.md" && git -C "$UP" commit -q -am "v5"
+sync; rc=$?
+if [[ $rc -eq 0 && "$(cat "$FORK/CLAUDE.md")" == "v5" ]]; then
+  ok "on master: pulled"
+else
+  ko "on master: exit $rc, CLAUDE.md=$(cat "$FORK/CLAUDE.md"), stderr: $(cat "$T/err")"
+fi
+git -C "$FORK" remote add origin "$UP"
+git -C "$FORK" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/trunk
+git -C "$FORK" branch -m master trunk
+echo "v6" > "$UP/CLAUDE.md" && git -C "$UP" commit -q -am "v6"
+sync; rc=$?
+if [[ $rc -eq 0 && "$(cat "$FORK/CLAUDE.md")" == "v6" ]]; then
+  ok "on the branch origin/HEAD names (trunk): pulled"
+else
+  ko "on the branch origin/HEAD names (trunk): exit $rc, CLAUDE.md=$(cat "$FORK/CLAUDE.md"), stderr: $(cat "$T/err")"
 fi
 
 echo "$pass passed, $fail failed"
