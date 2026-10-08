@@ -14,9 +14,11 @@ if command -v mempalace >/dev/null 2>&1 && command -v timeout >/dev/null 2>&1; t
   # Hook writes are routed `require` (install.sh): a hook goes through the
   # daemon or skips its write, and may not start the daemon itself (latency
   # budget, upstream's rule). So the daemon starts here, once per session:
-  # ~1 s to ask, ~2 s to start and be ready (measured 2026-10-07).
-  timeout 20 mempalace daemon status >/dev/null 2>&1 \
-    || timeout 30 mempalace daemon start >/dev/null 2>&1 || true
+  # `daemon start` is a no-op on a running daemon (1.3 s), 1.9 s otherwise
+  # (measured 2026-10-07). Without HF_HUB_OFFLINE, which settings.json sets for
+  # the hooks: a daemon that inherits it can never download the embedding
+  # model, and every job it takes then fails inside it, out of sight.
+  env -u HF_HUB_OFFLINE timeout 30 mempalace daemon start >/dev/null 2>&1 || true
   # Diary wing: wing_ + directory name, lowercased, '-' and ' ' → '_'. Mirrors
   # _diary_wing_for_repo in install.sh — this script runs standalone from
   # ~/.claude/scripts and cannot source it.
