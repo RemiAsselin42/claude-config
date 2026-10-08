@@ -2,9 +2,9 @@
 # Auto-sync shared files from upstream — debounced to once per 8h
 # Usage: sync-upstream.sh [--force]
 # Exit 0: synced, or nothing to do (no upstream remote, debounce). Exit 3: skipped —
-# a branch other than main checked out, uncommitted changes on a synced path, or
-# upstream unreachable — with the reason on stderr, so install.sh can warn instead
-# of claiming "synced (no changes)".
+# a branch other than the fork's default one checked out, uncommitted changes on a
+# synced path, or upstream unreachable — with the reason on stderr, so install.sh
+# can warn instead of claiming "synced (no changes)".
 
 FORCE=false
 [[ "${1:-}" == "--force" ]] && FORCE=true
@@ -34,14 +34,20 @@ fi
 _branch="$(git -C "$REPO_DIR" branch --show-current 2>/dev/null)"
 _default="$(git -C "$REPO_DIR" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null)"
 _default="${_default#origin/}"
-case "$_branch" in
-  main|master|"${_default:-main}") ;;
-  *)
-    echo "sync-upstream: on branch '${_branch:-detached HEAD}', not the default branch (${_default:-main or master}) — sync skipped." >&2
-    exit 3
-    ;;
-esac
-unset _branch _default
+if [[ -n "$_default" ]]; then
+  # Recorded: that branch alone. One merely named main or master is not it
+  # (review of PR #30: the first version took the union).
+  [[ "$_branch" == "$_default" ]]; _on_default=$?
+  _expected="$_default"
+else
+  [[ "$_branch" == main || "$_branch" == master ]]; _on_default=$?
+  _expected="main or master; origin/HEAD not set: git remote set-head origin -a"
+fi
+if [[ $_on_default -ne 0 ]]; then
+  echo "sync-upstream: on branch '${_branch:-detached HEAD}', not the default branch ($_expected) — sync skipped." >&2
+  exit 3
+fi
+unset _branch _default _on_default _expected
 
 git -C "$REPO_DIR" fetch upstream --quiet 2>/dev/null || {
   echo "sync-upstream: upstream unreachable — sync skipped." >&2
