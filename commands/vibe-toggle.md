@@ -18,6 +18,8 @@ bash ~/.claude/scripts/vibe-toggle.sh $ARGUMENTS
 - `off` — pause learning mode for this project.
 - `on` — resume it.
 
+The script acts on the session's current directory, the one the statusline shows. If the session has moved (a `cd` into a nested repository or a sibling), go back to the project first, or name it: `bash ~/.claude/scripts/vibe-toggle.sh off <project dir>`. A directory that does not exist is named back with exit 1; it is not "no notes".
+
 The mode belongs to the project, not to the machine: the vibe-wise plugin keeps it as the `Learning mode:` line of the project's `.vibe-wise/profile.md`. The script rewrites that line and the statusline reads it (`VibeWise │ On · Normal`, `VibeWise │ Off`, no line without notes).
 
 After `off`, stop the learning loop (checkpoints, questions before coding) for the rest of this session.
