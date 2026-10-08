@@ -17,8 +17,10 @@ shopt -s nocasematch   # the plugin reads its marker whatever the case
 cmd="${1:-status}"
 dir="${2:-.}"
 
+# nocasematch: this case also lowercases the command (OFF, On), so that the
+# branches below, which compare exact strings, do what was typed.
 case "$cmd" in
-  on|off|status) ;;
+  on) cmd=on ;; off) cmd=off ;; status) cmd=status ;;
   *) echo "Usage: vibe-toggle.sh [on|off|status] [dir]" >&2; exit 1 ;;
 esac
 
@@ -35,12 +37,13 @@ FREQ_RE='^checkpoint frequency:[[:space:]]*(light|normal|frequent)[[:space:]]*$'
 # a plain directory for Python's is_symlink(). The hook restores through it; this
 # script answers "none" and never writes through it (checked 2026-10-06).
 profile=""
+unreachable=0   # dir cannot be entered: not the same thing as a project without notes
 find_profile() {
   local d s
   [ "$dir" = - ] && dir=./-   # cd reads a lone "-" as $OLDPWD, even after --
   # CDPATH: cd looks there first for a relative name, and would answer for a
   # same-named directory of another project.
-  CDPATH='' cd -P -- "$dir" >/dev/null 2>&1 || return 0
+  CDPATH='' cd -P -- "$dir" >/dev/null 2>&1 || { unreachable=1; return 0; }
   d=$PWD
   while :; do
     # ${d%/}: at the root this gives "/.vibe-wise"; "//.vibe-wise" is a network
@@ -54,6 +57,9 @@ find_profile() {
     done
     [ -e "${d%/}/.git" ] && return 0
     [ "$d" = / ] && return 0
+    # A UNC path (//host/share/…) ends at its share, as Path.parents does:
+    # //host/.vibe-wise would be a network lookup of a share by that name.
+    [[ $d == //*/* && ${d#//*/} != */* ]] && return 0
     d=${d%/*}; d=${d:-/}
   done
 }
@@ -115,6 +121,10 @@ set_mode() {  # $1 = active | paused
 find_profile
 read_state
 
+if (( unreachable )); then
+  echo "vibe-wise: none — no such directory: $dir"
+  exit 1
+fi
 if [ "$state" = none ]; then
   echo "vibe-wise: none — no learning notes for this project; type /vibe-wise:learn to start"
   exit 0

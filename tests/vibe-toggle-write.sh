@@ -82,6 +82,25 @@ b=$(proj cd-b); printf 'Learning mode: paused\n' > "$b/.vibe-wise/profile.md"; m
 out=$( cd "$a" && CDPATH="$b" bash "$VT" status sub 2>/dev/null | tr -d '\r' )
 [ "$out" = "vibe-wise: on" ] && ok "status sub answers for ./sub, on one line" || ko "status sub answers for ./sub, on one line" "$out"
 
+echo "== a command in another case does what it says"
+# nocasematch lets the validator accept OFF and On; the branches must agree.
+p=$(proj upper); f="$p/.vibe-wise/profile.md"
+printf '# Learner Profile\n\nLearning mode: active\n' > "$f"
+out=$(bash "$VT" OFF "$p" 2>/dev/null | tr -d '\r')
+if [[ $out == "vibe-wise OFF"* ]] && grep -qxF 'Learning mode: paused' "$f"; then ok "OFF pauses and says OFF"; else ko "OFF pauses and says OFF" "out: $out" "$(grep -i '^learning mode' "$f")"; fi
+out=$(bash "$VT" On "$p" 2>/dev/null | tr -d '\r')
+if [[ $out == "vibe-wise ON"* ]] && grep -qxF 'Learning mode: active' "$f"; then ok "On activates and says ON"; else ko "On activates and says ON" "out: $out" "$(grep -i '^learning mode' "$f")"; fi
+[ "$(status_of "$p")" = "vibe-wise: on" ] && ok "status after On: on" || ko "status after On: on" "$(status_of "$p")"
+
+echo "== a dir that cannot be entered is named, and is not 'no notes'"
+p=$(proj typo); printf 'Learning mode: active\n' > "$p/.vibe-wise/profile.md"
+for c in status on off; do
+  out=$( cd "$p" && bash "$VT" "$c" "$p-misspelt" 2>/dev/null | tr -d '\r' ); rc=$?
+  if [[ $out == "vibe-wise: none"* && $out == *"$p-misspelt"* && $out != *"/vibe-wise:learn"* ]]; then ok "$c on a missing dir names the dir, not /vibe-wise:learn"; else ko "$c on a missing dir names the dir, not /vibe-wise:learn" "out: $out"; fi
+  [ "$rc" -eq 1 ] && ok "$c on a missing dir exits 1" || ko "$c on a missing dir exits 1" "exit $rc"
+done
+grep -qxF 'Learning mode: active' "$p/.vibe-wise/profile.md" && ok "the cwd's own profile is untouched" || ko "the cwd's own profile is untouched"
+
 echo
 if (( fails )); then echo "$fails failure(s)"; exit 1; fi
 echo "all vibe-toggle write checks passed"
