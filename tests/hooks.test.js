@@ -14,13 +14,21 @@ const path = require("node:path");
 
 const HOOKS = path.join(__dirname, "..", "hooks");
 const hasBashAndJq = spawnSync("bash", ["-c", "command -v jq"], { encoding: "utf8" }).status === 0;
+const hasBash = spawnSync("bash", ["-c", "true"]).status === 0;
+// bash by absolute path (native spelling on Windows), so a test may empty PATH and still start a guard
+const BASH = (() => {
+  const r = spawnSync("bash", ["-c", process.platform === "win32" ? 'cygpath -w "$(command -v bash)"' : "command -v bash"], { encoding: "utf8" });
+  return r.status === 0 && r.stdout.trim() ? r.stdout.trim() : "bash";
+})();
 
 function run(hook, payload, env = {}) {
   const js = hook.endsWith(".js");
-  const r = spawnSync(js ? process.execPath : "bash", [path.join(HOOKS, hook)], {
+  const e = { ...process.env, PROTECT_GATES: "", ...env }; // the machine's own PROTECT_GATES must not leak in
+  if ("PATH" in env) for (const k of Object.keys(e)) if (k !== "PATH" && /^path$/i.test(k)) delete e[k]; // Windows spells it Path
+  const r = spawnSync(js ? process.execPath : BASH, [path.join(HOOKS, hook)], {
     input: JSON.stringify(payload),
     encoding: "utf8",
-    env: { ...process.env, PROTECT_GATES: "", ...env }, // the machine's own PROTECT_GATES must not leak in
+    env: e,
   });
   return { code: r.status, out: r.stdout, err: r.stderr };
 }
@@ -75,6 +83,31 @@ const BLOCKED_SHELL = [
   "git push origin +v6",
   "git push origin +refs/tags/v6:refs/tags/v6",
   "cd backend && git push origin --delete feat",
+  // review of PR #31: git takes any unique prefix of a long option and bundles short flags; --force is a rewrite too
+  "git commit --no-veri -m x",
+  "git commit -anm x",
+  "git push --del origin v1",
+  "git push --force origin v6",
+  "git push -f origin v6",
+  "git push --force-with-lease origin v6",
+  "git push -fu origin v6",
+  "git push --force --tags origin",
+  // the REST twins of a deleted or rewritten ref
+  "gh api -X DELETE repos/o/r/git/refs/tags/v1",
+  "gh api --method PATCH repos/o/r/git/refs/tags/v6 -f sha=0123abc -F force=true",
+  "Invoke-RestMethod -Method Delete -Uri https://api.github.com/repos/o/r/git/refs/tags/v1",
+  "gh release delete v1 --cleanup-tag",
+  // the hook scripts themselves and .git/config are gate files
+  "rm .git/hooks/pre-commit && git commit -m x",
+  "printf '[core]\\n\\thooksPath = /dev/null\\n' >> .git/config",
+  "echo '' > .husky/pre-commit",
+  "Set-Content .pre-commit-config.yaml ''",
+  // HUSKY=0 set for the command, in every spelling the two shells have
+  "cd x && FOO=1 HUSKY=0 git commit -m x",
+  "HUSKY_SKIP_HOOKS=1 git commit -m x",
+  "Set-Item env:HUSKY 0; git commit -m x",
+  "Set-Item -Path env:HUSKY -Value '0'; git commit -m x",
+  "[Environment]::SetEnvironmentVariable('HUSKY','0'); git commit -m x",
 ];
 const ALLOWED_SHELL = [
   "git commit -m 'fix: nothing to verify here'",
@@ -95,6 +128,23 @@ const ALLOWED_SHELL = [
   "gh api repos/o/r/commits/0123abc/status",
   "git tag -a v6 -m 'release v6' && git push origin v6",
   "git push origin refs/tags/v6",
+  // review of PR #31: a read, a mention in a message or a grep, a creation, an ordinary config write
+  "git config --get core.hooksPath 2>/dev/null",
+  "git config --unset core.hooksPath && git commit -m x",
+  "grep -rn core.hooksPath .",
+  "git commit -m 'docs: explain core.hooksPath handling'",
+  "git commit -m 'docs: HUSKY=0 is no longer honoured'",
+  "grep -rn HUSKY=0 docs/",
+  "HUSKY=1 git commit -m x",
+  "git commit --amend --no-edit",
+  "git push -n origin feat",
+  "gh api repos/o/r/git/refs/tags/v1",
+  "gh api -X POST repos/o/r/git/refs -f ref=refs/tags/v6 -f sha=0123abc",
+  "gh release create v6 --notes x",
+  "cat .git/config",
+  "git remote add upstream https://github.com/o/r.git",
+  "git config user.name 'Remi'",
+  "git branch -u origin/feat",
 ];
 
 for (const tool of ["Bash", "PowerShell"]) {
@@ -131,6 +181,11 @@ test("protect-gates blocks edits to gate configs, baselines and workflows (both 
     file("Write", { file_path: "C:\\repo\\backend\\ARCH-GATES.JSON", content: "" }),
     file("Write", { file_path: "C:\\repo\\backend\\Import-Cycles-Baseline.json", content: "" }),
     file("Write", { file_path: "C:\\repo\\.GitHub\\Workflows\\backend.yml", content: "" }),
+    // review of PR #31: the pre-commit hook scripts themselves and .git/config
+    file("Write", { file_path: "/repo/.husky/pre-commit", content: "" }),
+    file("Edit", { file_path: "C:\\repo\\.git\\hooks\\pre-commit", old_string: "shellcheck", new_string: "true" }),
+    file("Write", { file_path: "/repo/.pre-commit-config.yaml", content: "" }),
+    file("Edit", { file_path: "/repo/.git/config", old_string: "[core]", new_string: "[core]\n\thooksPath = /dev/null" }),
   ];
   for (const c of cases) {
     const r = run("protect-gates.js", c);
@@ -253,17 +308,18 @@ test("git merge and pushes to main pass only inside a /create-commit the human t
     "git push origin HEAD",
     "git push -u origin HEAD:main",
     "git push origin feat:refs/heads/master",
-    "git push origin +feat:main",
-    "git push origin :main",
     "git push --all origin",
     "git switch feat && git merge main",
   ];
+  // a ref deleted or rewritten, main included, has no exemption at all: GitHub's rules refuse it either way (review of PR #31)
+  const never = ["git push origin +feat:main", "git push origin :main", "git push --delete origin main", "git push --delete origin v1", "git push origin :v1", "git push origin +v6", "git push --force origin v6"];
   const free = ["git merge-base main feat", "git log --merges", "git push -u origin feat", "git push origin feat:feat"];
 
   // red: Claude alone (plain human turn, or the human's answer coming back as a tool_result)
   said([turn("human", "pousse sur main"), turn(null, [{ type: "tool_result", content: "/create-commit" }])]);
   for (const tool of ["Bash", "PowerShell"]) {
     for (const c of humanOnly) assert.equal(gate(c, tool).code, 2, `${tool}: ${c}`);
+    for (const c of never) assert.equal(gate(c, tool).code, 2, `${tool}: ${c}`);
     for (const c of free) assert.equal(gate(c, tool).code, 0, `${tool}: ${c}`);
   }
   // red: the marker is only valid in the *latest* human turn
@@ -272,8 +328,7 @@ test("git merge and pushes to main pass only inside a /create-commit the human t
   // green: /create-commit typed by the human, tool results after it do not reset it
   said([turn("human", "x"), typed, turn(null, [{ type: "tool_result", content: "" }])]);
   for (const c of humanOnly) assert.equal(gate(c).code, 0, c);
-  // ... but a tag or branch deleted or rewritten has no exemption: GitHub's tag ruleset says the same (audit 2026-10-08)
-  for (const tool of ["Bash", "PowerShell"]) for (const c of ["git push --delete origin v1", "git push origin :v1", "git push origin +v6"]) assert.equal(gate(c, tool).code, 2, `${tool}: ${c}`);
+  for (const tool of ["Bash", "PowerShell"]) for (const c of never) assert.equal(gate(c, tool).code, 2, `${tool}: ${c}`);
   // no transcript at all: blocked
   assert.equal(run("protect-gates.js", { ...shell("Bash", "git merge feat"), cwd: dir }).code, 2);
   // review of PR #7: git global options, push options with a value, tag-only pushes
@@ -383,6 +438,14 @@ test("inside a /init-gates the human typed, a gate file that does not exist yet 
 
 // ------------------------------------------------- vendored cc-safe-setup guards
 const skip = hasBashAndJq ? false : "bash + jq not available";
+
+test("the three bash guards refuse everything when jq is missing, instead of reading an empty command", { skip: hasBash ? false : "bash not available" }, () => {
+  for (const hook of ["branch-guard.sh", "destructive-guard.sh", "secret-guard.sh"]) {
+    const r = run(hook, shell("Bash", "git push origin main"), { PATH: "" });
+    assert.equal(r.code, 2, `${hook}\n${r.err}`);
+    assert.match(r.err, /jq/);
+  }
+});
 const guard = (hook, tool, command) => run(hook, shell(tool, command)).code;
 
 test("branch-guard: push to main or force push blocked, also behind rtk or a cd; feature pushes pass", { skip }, () => {
