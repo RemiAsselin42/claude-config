@@ -155,7 +155,9 @@ fi
 # from itself would check main's files out over whatever branch is checked out.
 # Until 2026-10-08 only a fork whose origin was named claude-config-private got the
 # remote; any other fork was never synced and nothing said so. The two functions
-# and the URL are taken out of install.sh by name.
+# and the URL are taken out of install.sh by name. Code review of PR #29: the
+# function answers whether an upstream remote exists afterwards, an origin over ssh
+# gets its upstream over ssh too, and a refused `remote add` is said, not swallowed.
 body="$(awk '$0 == "_ensure_upstream_remote() {" {f=1} f{print} f&&/^}/{exit}' "$REPO_DIR/install.sh")"
 slug="$(awk '$0 == "_repo_slug() {" {f=1} f{print} f&&/^}/{exit}' "$REPO_DIR/install.sh")"
 url="$(sed -n 's/^CLAUDE_CONFIG_UPSTREAM_URL="\(.*\)"$/\1/p' "$REPO_DIR/install.sh" | tr -d '\r')"
@@ -164,34 +166,72 @@ if [[ -z "$body" || -z "$slug" || -z "$url" ]]; then
 else
   eval "$slug"; eval "$body"
   export CLAUDE_CONFIG_UPSTREAM_URL="$url"   # read by the eval'd function
+  # shellcheck disable=SC2034  # the colour variables the eval'd function expands
+  GREEN="" YELLOW="" RESET=""
   real_repo="$REPO_DIR"
-  remote_case() {  # remote_case <name> <origin url> <added|absent>
-    local r="$T/remote-$1" got
-    git init -q -b main "$r" && git -C "$r" remote add origin "$2"
-    REPO_DIR="$r"; _ensure_upstream_remote >/dev/null
+  public="$(_repo_slug "$url")"                 # owner/repo of the public repo, lowercased
+  ssh_url="git@github.com:${url#*github.com/}"   # the public repo over ssh
+  remote_case() {  # remote_case <name> <origin url> <expected upstream url, or absent>
+    local r="$T/remote-$1" got rc
+    git init -q -b main "$r" && git -C "$r" remote add origin "$2" || { ko "$1: the throwaway repo could not be made"; return; }
+    REPO_DIR="$r"; _ensure_upstream_remote >/dev/null; rc=$?
     got="$(git -C "$r" remote get-url upstream 2>/dev/null || echo absent)"
-    if [[ $3 == added && "$got" == "$url" ]]; then ok "origin $2: upstream added, pointing at the public repo"
-    elif [[ $3 == absent && "$got" == absent ]]; then ok "origin $2: the upstream itself, no remote added"
-    else ko "origin $2: expected $3, upstream=$got"; fi
+    if [[ "$got" == "$3" && ( ( "$3" != absent && $rc -eq 0 ) || ( "$3" == absent && $rc -ne 0 ) ) ]]; then
+      ok "origin $2: upstream=$got, returns $rc"
+    else
+      ko "origin $2: expected upstream=$3, got $got, returned $rc"
+    fi
   }
-  path="${url#https://github.com/}"   # owner/repo.git of the public URL
-  remote_case other   "https://github.com/someone/my-claude-config.git" added
-  remote_case private "https://github.com/someone/claude-config-private.git" added
-  remote_case local   "$UP" added
-  remote_case self    "$url" absent
-  remote_case nogit   "${url%.git}" absent
-  remote_case ssh     "git@github.com:$path" absent
-  remote_case case    "https://github.com/$(printf '%s' "$path" | tr '[:lower:]' '[:upper:]')" absent
+  remote_case other   "https://github.com/someone/my-claude-config.git"      "$url"
+  remote_case private "https://github.com/someone/claude-config-private.git" "$url"
+  remote_case local   "$UP"                                                  "$url"
+  remote_case sshfork "git@github.com:someone/claude-config-private.git"     "$ssh_url"
+  remote_case self    "$url"                                                 absent
+  remote_case nogit   "${url%.git}"                                          absent
+  remote_case ssh     "$ssh_url"                                             absent
+  remote_case port    "ssh://git@ssh.github.com:443/$public.git"             absent
+  remote_case upper   "https://github.com/${public^^}.GIT"                   absent
   r="$T/remote-kept"; git init -q -b main "$r"
   git -C "$r" remote add origin "https://github.com/someone/x.git"
   git -C "$r" remote add upstream "https://example.invalid/custom.git"
-  REPO_DIR="$r"; _ensure_upstream_remote >/dev/null
-  if [[ "$(git -C "$r" remote get-url upstream)" == "https://example.invalid/custom.git" ]]; then
-    ok "an upstream remote already set is left alone"
+  REPO_DIR="$r"; _ensure_upstream_remote >/dev/null; rc=$?
+  if [[ $rc -eq 0 && "$(git -C "$r" remote get-url upstream)" == "https://example.invalid/custom.git" ]]; then
+    ok "an upstream remote already set is left alone, returns 0"
   else
-    ko "an upstream remote already set was changed: $(git -C "$r" remote get-url upstream)"
+    ko "an upstream remote already set: rc=$rc, upstream=$(git -C "$r" remote get-url upstream)"
+  fi
+  # git refuses the remote add (a stub in front of the real git): said, answered with 1
+  r="$T/remote-refused"; git init -q -b main "$r"; git -C "$r" remote add origin "https://github.com/someone/y.git"
+  real_git="$(command -v git)"; mkdir -p "$T/stubbin"
+  printf '#!/usr/bin/env bash\ncase " $* " in *" remote add "*) echo "stub: refused" >&2; exit 1 ;; esac\nexec "%s" "$@"\n' "$real_git" > "$T/stubbin/git"
+  chmod +x "$T/stubbin/git"
+  REPO_DIR="$r"; out="$(PATH="$T/stubbin:$PATH" _ensure_upstream_remote 2>&1)"; rc=$?
+  if [[ $rc -ne 0 && "$out" == *"⚠"* && "$out" == *upstream* ]] && ! git -C "$r" remote get-url upstream &>/dev/null; then
+    ok "a refused remote add is said and answered with 1"
+  else
+    ko "a refused remote add: rc=$rc, out: $out"
   fi
   REPO_DIR="$real_repo"
+fi
+
+# 8. the fork on a branch other than main: skipped, exit 3, nothing committed. The
+# sync checks upstream's files out into the current branch and commits them there,
+# which would bury a branch's own work under main's (code review of PR #29, 2026-10-08).
+git -C "$FORK" switch -q -c topic
+echo "v4" > "$UP/CLAUDE.md" && git -C "$UP" commit -q -am "v4"
+before="$(git -C "$FORK" rev-parse HEAD)"
+sync; rc=$?
+if [[ $rc -eq 3 && "$(cat "$T/err")" == *"not main"* && "$(git -C "$FORK" rev-parse HEAD)" == "$before" && "$(cat "$FORK/CLAUDE.md")" == "v3" ]]; then
+  ok "on a branch other than main: exit 3 with the reason, nothing committed"
+else
+  ko "on a branch other than main: exit $rc, stderr: $(cat "$T/err"), CLAUDE.md=$(cat "$FORK/CLAUDE.md")"
+fi
+git -C "$FORK" switch -q main
+sync; rc=$?
+if [[ $rc -eq 0 && "$(cat "$FORK/CLAUDE.md")" == "v4" ]]; then
+  ok "back on main: pulled"
+else
+  ko "back on main: exit $rc, CLAUDE.md=$(cat "$FORK/CLAUDE.md"), stderr: $(cat "$T/err")"
 fi
 
 echo "$pass passed, $fail failed"

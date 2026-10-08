@@ -2,8 +2,9 @@
 # Auto-sync shared files from upstream — debounced to once per 8h
 # Usage: sync-upstream.sh [--force]
 # Exit 0: synced, or nothing to do (no upstream remote, debounce). Exit 3: skipped —
-# uncommitted changes on a synced path, or upstream unreachable — with the reason on
-# stderr, so install.sh can warn instead of claiming "synced (no changes)".
+# a branch other than main checked out, uncommitted changes on a synced path, or
+# upstream unreachable — with the reason on stderr, so install.sh can warn instead
+# of claiming "synced (no changes)".
 
 FORCE=false
 [[ "${1:-}" == "--force" ]] && FORCE=true
@@ -22,6 +23,18 @@ if [[ "$FORCE" == "false" && -f "$STAMP" ]]; then
   LAST=$(cat "$STAMP")
   (( NOW - LAST < 28800 )) && exit 0
 fi
+
+# The sync checks upstream's files out into the checked-out branch and commits
+# them there: anywhere but main, that would bury the branch's own work under
+# main's files. Checked before the fetch; also what keeps a checkout of the public
+# repo that was handed an upstream remote by mistake from overwriting its branches
+# (code review of PR #29, 2026-10-08).
+_branch="$(git -C "$REPO_DIR" branch --show-current 2>/dev/null)"
+if [[ "$_branch" != main ]]; then
+  echo "sync-upstream: on branch '${_branch:-detached HEAD}', not main — sync skipped." >&2
+  exit 3
+fi
+unset _branch
 
 git -C "$REPO_DIR" fetch upstream --quiet 2>/dev/null || {
   echo "sync-upstream: upstream unreachable — sync skipped." >&2
