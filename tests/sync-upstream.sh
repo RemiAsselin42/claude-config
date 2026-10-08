@@ -221,8 +221,8 @@ git -C "$FORK" switch -q -c topic
 echo "v4" > "$UP/CLAUDE.md" && git -C "$UP" commit -q -am "v4"
 before="$(git -C "$FORK" rev-parse HEAD)"
 sync; rc=$?
-if [[ $rc -eq 3 && "$(cat "$T/err")" == *"sync skipped"* && "$(git -C "$FORK" rev-parse HEAD)" == "$before" && "$(cat "$FORK/CLAUDE.md")" == "v3" ]]; then
-  ok "on a branch other than main: exit 3 with the reason, nothing committed"
+if [[ $rc -eq 3 && "$(cat "$T/err")" == *"not the default branch"* && "$(cat "$T/err")" == *"set-head"* && "$(git -C "$FORK" rev-parse HEAD)" == "$before" && "$(cat "$FORK/CLAUDE.md")" == "v3" ]]; then
+  ok "on a branch other than main, origin/HEAD unset: exit 3 with the reason and the set-head hint, nothing committed"
 else
   ko "on a branch other than main: exit $rc, stderr: $(cat "$T/err"), CLAUDE.md=$(cat "$FORK/CLAUDE.md")"
 fi
@@ -254,6 +254,18 @@ if [[ $rc -eq 0 && "$(cat "$FORK/CLAUDE.md")" == "v6" ]]; then
 else
   ko "on the branch origin/HEAD names (trunk): exit $rc, CLAUDE.md=$(cat "$FORK/CLAUDE.md"), stderr: $(cat "$T/err")"
 fi
+# Once origin/HEAD names the default, it is the only branch allowed: a branch
+# merely named master is not (review of PR #30: the first version took the union).
+for other in topic2 master; do
+  git -C "$FORK" switch -q -c "$other"
+  echo "v7-$other" > "$UP/CLAUDE.md" && git -C "$UP" commit -q -am "v7-$other"
+  sync; rc=$?
+  if [[ $rc -eq 3 && "$(cat "$T/err")" == *"not the default branch (trunk)"* && "$(cat "$FORK/CLAUDE.md")" == "v6" ]]; then
+    ok "origin/HEAD names trunk, on $other: exit 3 naming trunk, nothing pulled"
+  else
+    ko "origin/HEAD names trunk, on $other: exit $rc, CLAUDE.md=$(cat "$FORK/CLAUDE.md"), stderr: $(cat "$T/err")"
+  fi
+done
 
 echo "$pass passed, $fail failed"
 [[ $fail -eq 0 ]]

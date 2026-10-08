@@ -97,8 +97,9 @@ PATH_PERSIST_DECIDED=false
 PATH_PERSIST_APPROVED=false
 
 # --- Sync from upstream FIRST so the rest of the script runs the latest version ---
-# Exit status of scripts/sync-upstream.sh -> one line. 3 = skipped (dirty synced
-# path, upstream unreachable; the script printed the reason). Saying "synced" on a
+# Exit status of scripts/sync-upstream.sh -> one line. 3 = skipped (off the fork's
+# default branch, dirty synced path, upstream unreachable; the script printed the
+# reason). Saying "synced" on a
 # skip once hid a fork three merges behind, which then deployed a stale
 # settings.json over the owner's /model choice. Pulled out by name by
 # tests/sync-upstream.sh: keep the definition at column 0, closing brace included.
