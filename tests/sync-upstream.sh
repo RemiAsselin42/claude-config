@@ -150,5 +150,49 @@ else
   REPO_DIR="$real_repo"
 fi
 
+# 7. install.sh adds the upstream remote to any fork that lacks it, pointing at the
+# public repo, and never to a checkout of the public repo itself: syncing a repo
+# from itself would check main's files out over whatever branch is checked out.
+# Until 2026-10-08 only a fork whose origin was named claude-config-private got the
+# remote; any other fork was never synced and nothing said so. The two functions
+# and the URL are taken out of install.sh by name.
+body="$(awk '$0 == "_ensure_upstream_remote() {" {f=1} f{print} f&&/^}/{exit}' "$REPO_DIR/install.sh")"
+slug="$(awk '$0 == "_repo_slug() {" {f=1} f{print} f&&/^}/{exit}' "$REPO_DIR/install.sh")"
+url="$(sed -n 's/^CLAUDE_CONFIG_UPSTREAM_URL="\(.*\)"$/\1/p' "$REPO_DIR/install.sh" | tr -d '\r')"
+if [[ -z "$body" || -z "$slug" || -z "$url" ]]; then
+  ko "_ensure_upstream_remote, _repo_slug or CLAUDE_CONFIG_UPSTREAM_URL not found in install.sh"
+else
+  eval "$slug"; eval "$body"
+  export CLAUDE_CONFIG_UPSTREAM_URL="$url"   # read by the eval'd function
+  real_repo="$REPO_DIR"
+  remote_case() {  # remote_case <name> <origin url> <added|absent>
+    local r="$T/remote-$1" got
+    git init -q -b main "$r" && git -C "$r" remote add origin "$2"
+    REPO_DIR="$r"; _ensure_upstream_remote >/dev/null
+    got="$(git -C "$r" remote get-url upstream 2>/dev/null || echo absent)"
+    if [[ $3 == added && "$got" == "$url" ]]; then ok "origin $2: upstream added, pointing at the public repo"
+    elif [[ $3 == absent && "$got" == absent ]]; then ok "origin $2: the upstream itself, no remote added"
+    else ko "origin $2: expected $3, upstream=$got"; fi
+  }
+  path="${url#https://github.com/}"   # owner/repo.git of the public URL
+  remote_case other   "https://github.com/someone/my-claude-config.git" added
+  remote_case private "https://github.com/someone/claude-config-private.git" added
+  remote_case local   "$UP" added
+  remote_case self    "$url" absent
+  remote_case nogit   "${url%.git}" absent
+  remote_case ssh     "git@github.com:$path" absent
+  remote_case case    "https://github.com/$(printf '%s' "$path" | tr '[:lower:]' '[:upper:]')" absent
+  r="$T/remote-kept"; git init -q -b main "$r"
+  git -C "$r" remote add origin "https://github.com/someone/x.git"
+  git -C "$r" remote add upstream "https://example.invalid/custom.git"
+  REPO_DIR="$r"; _ensure_upstream_remote >/dev/null
+  if [[ "$(git -C "$r" remote get-url upstream)" == "https://example.invalid/custom.git" ]]; then
+    ok "an upstream remote already set is left alone"
+  else
+    ko "an upstream remote already set was changed: $(git -C "$r" remote get-url upstream)"
+  fi
+  REPO_DIR="$real_repo"
+fi
+
 echo "$pass passed, $fail failed"
 [[ $fail -eq 0 ]]
