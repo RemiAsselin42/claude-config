@@ -132,18 +132,40 @@ _sync_pass_due() {
   esac
 }
 
+# The public repo every fork syncs from.
+CLAUDE_CONFIG_UPSTREAM_URL="https://github.com/RemiAsselin42/claude-config.git"
+
+# owner/repo of a git URL, lowercased, without .git: the https, ssh:// and
+# git@host:owner/repo spellings of one repo compare equal. Pulled out by name by
+# tests/sync-upstream.sh: keep the definition at column 0, closing brace included.
+_repo_slug() {
+  local u
+  u="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"   # first: ".GIT" is ".git" too
+  u="${u%/}"; u="${u%.git}"
+  u="${u##*://}"; u="${u#*@}"   # scheme, then user@
+  u="${u#*[:/]}"                # host, up to the first : or /
+  printf '%s\n' "$u"
+}
+
+# Adds the upstream remote to a fork that lacks it, whatever the fork is named.
+# Until 2026-10-08 only an origin named claude-config-private got it: any other
+# fork was never synced, and nothing said so. A checkout of the public repo itself
+# gets none: syncing a repo from itself would check main's files out over
+# whatever branch is checked out. Pulled out by name by tests/sync-upstream.sh:
+# keep the definition at column 0, closing brace included.
+_ensure_upstream_remote() {
+  git -C "$REPO_DIR" remote get-url upstream &>/dev/null && return 0
+  local origin
+  origin="$(git -C "$REPO_DIR" remote get-url origin 2>/dev/null)" || return 0
+  [[ "$(_repo_slug "$origin")" == "$(_repo_slug "$CLAUDE_CONFIG_UPSTREAM_URL")" ]] && return 0
+  git -C "$REPO_DIR" remote add upstream "$CLAUDE_CONFIG_UPSTREAM_URL" 2>/dev/null || return 0
+  echo "  ${GREEN}✓ upstream remote added: $CLAUDE_CONFIG_UPSTREAM_URL${RESET}"
+}
+
 # If the sync brings changes, re-exec the updated install.sh and abandon this run.
 # CLAUDE_CONFIG_SYNCED guards against re-exec loops: two passes at most.
 if _sync_pass_due; then
-  # Auto-add the upstream remote on private forks (origin = claude-config-private)
-  if ! git -C "$REPO_DIR" remote get-url upstream &>/dev/null; then
-    _origin_url="$(git -C "$REPO_DIR" remote get-url origin 2>/dev/null)"
-    if [[ "$_origin_url" == *claude-config-private* ]]; then
-      git -C "$REPO_DIR" remote add upstream "${_origin_url/claude-config-private/claude-config}"
-      echo "  ${GREEN}✓ upstream remote added${RESET}"
-    fi
-    unset _origin_url
-  fi
+  _ensure_upstream_remote
   if git -C "$REPO_DIR" remote get-url upstream &>/dev/null; then
     echo "${BOLD}${CYAN}Syncing from upstream...${RESET}"
     _head_before="$(git -C "$REPO_DIR" rev-parse HEAD)"
