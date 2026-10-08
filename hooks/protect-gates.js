@@ -13,13 +13,18 @@
 //     [tool.ruff*] [tool.mypy*] [tool.mutmut*] [tool.pytest*] sections only —
 //     [project] and [dependency-groups] stay editable;
 //   - shell commands that skip or regenerate a gate (git commit --no-verify,
-//     --update-baseline, lint:arch:baseline), that merge or label a PR (gh pr
-//     merge, gh pr edit --add-label, the REST endpoints behind them), or that
-//     write one of the files above from the shell (>, sed -i, tee, cp, mv, rm,
-//     Set-Content, Out-File, Add-Content, Copy-Item, Move-Item, Remove-Item);
+//     a core.hooksPath set or passed with -c, HUSKY=0, --update-baseline,
+//     lint:arch:baseline), that merge or label a PR (gh pr merge, gh pr edit
+//     --add-label, the REST endpoints behind them), that post a commit status
+//     (the /statuses/ endpoint), or that write one of the files above from the
+//     shell (>, sed -i, tee, cp, mv, rm, Set-Content, Out-File, Add-Content,
+//     Copy-Item, Move-Item, Remove-Item);
 //   - git merge and any push that lands on main/master (explicit refspec, HEAD,
 //     --all/--mirror, or a bare push from main), unless the latest message the
 //     human typed is /create-commit (see typedCommand);
+//   - any push that deletes a remote ref (--delete, -d, ":ref") or rewrites one
+//     ("+ref"): release tags never move, and a remote branch is deleted by a
+//     human; no exemption, the tag ruleset on GitHub refuses it either way;
 //   - one exemption: while the latest message the human typed is /init-gates,
 //     Claude may create one of the files that command creates (INIT_GATES_FILES)
 //     when it does not exist yet (Write to an absent file, or a redirect to one,
@@ -55,6 +60,9 @@ const TOOL_SECTION = /^\[\[?tool\.(ruff|mypy|mutmut|pytest)\b/; // [tool.x] and 
 
 const SHELL_RULES = [
   [/\bgit\b[^;&|]*\bcommit\b[^;&|]*\s(--no-verify|-n)(\s|$)/, "git commit --no-verify skips the pre-commit gates"],
+  [/\bcore\.hookspath(\s*=|\s+\S)/i, "core.hooksPath moves the git hooks away from the pre-commit gates"], // -c, --config-env, git config, GIT_CONFIG_*; a read or --unset passes
+  [/\bHUSKY\s*=\s*["']?0\b|\bHUSKY_SKIP_HOOKS\s*=\s*["']?1\b/i, "HUSKY=0 skips the husky pre-commit hooks"],
+  [/\/statuses\/\S/, "commit status endpoint: a check result is posted by CI, never by hand"], // POST /repos/o/r/statuses/<sha>; GET is /commits/<sha>/statuses
   [/--update-baseline\b/, "--update-baseline rewrites a gate baseline"],
   [/\blint:arch:baseline\b/, "lint:arch:baseline rewrites the dependency-cruiser baseline"],
   [/\bgh\s+pr\s+merge\b/, "gh pr merge: merging is a human gesture, not Claude's"],
@@ -115,7 +123,9 @@ function shellDecision(cmd, cwd) {
 }
 
 // Merging and pushing to main are the human's gesture: allowed only inside a
-// /create-commit they typed. Feature-branch pushes (what /create-pr does) stay free.
+// /create-commit they typed ({ human: true }). Feature-branch pushes (what /create-pr
+// does) stay free. Deleting or rewriting a remote ref has no exemption at all.
+const human = (what) => ({ why: `${what}: merging and pushing to main are the human's gesture, through a /create-commit they type`, human: true });
 const PROTECTED_BRANCH = /^(main|master)$/;
 const GIT_GLOBAL_WITH_VALUE = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env"]);
 const PUSH_OPT_WITH_VALUE = new Set(["-o", "--push-option", "--repo", "--receive-pack", "--exec"]);
@@ -137,15 +147,17 @@ function humanOnlyGit(cmd, cwd) {
       i++;
     }
     const [sub, ...args] = t.slice(i);
-    if (sub === "merge") return "git merge";
+    if (sub === "merge") return human("git merge");
     if ((sub === "switch" || sub === "checkout") && PROTECTED_BRANCH.test(args[args.length - 1] || "")) switchedTo.set(repo, args[args.length - 1]);
     if (sub !== "push") continue;
     const positional = [];
     let tags = false;
+    let del = false;
     for (let k = 0; k < args.length; k++) {
       const a = args[k];
-      if (/^--(all|mirror)$/.test(a)) return "git push --all/--mirror reaches main";
+      if (/^--(all|mirror)$/.test(a)) return human("git push --all/--mirror reaches main");
       if (a === "--tags") tags = true;
+      else if (a === "--delete" || a === "-d") del = true;
       else if (PUSH_OPT_WITH_VALUE.has(a)) k++;
       else if (!a.startsWith("-")) positional.push(a);
     }
@@ -154,7 +166,8 @@ function humanOnlyGit(cmd, cwd) {
     for (const ref of refs.length ? refs : ["HEAD"]) {
       let dest = ref.split(":").pop().replace(/^\+/, "").replace(/^refs\/heads\//, "");
       if (dest === "HEAD") dest = repo === null ? "main" : switchedTo.get(repo) || currentBranch(repo); // an unresolvable directory is not trusted
-      if (PROTECTED_BRANCH.test(dest)) return `git push to ${dest}`;
+      if (PROTECTED_BRANCH.test(dest)) return human(`git push to ${dest}`);
+      if (del || /^[+:]/.test(ref)) return { why: `git push ${del ? "--delete " : ""}${ref} deletes or rewrites a remote ref: release tags never move, and a remote branch is deleted by a human` };
     }
   }
   return null;
@@ -241,7 +254,7 @@ function main() {
     const cmd = String(ti.command || "");
     d = shellDecision(cmd, input.cwd);
     const git = !d && humanOnlyGit(cmd, input.cwd);
-    if (git && !typedCommand(input.transcript_path, "create-commit")) d = { why: `${git}: merging and pushing to main are the human's gesture, through a /create-commit they type` };
+    if (git && !(git.human && typedCommand(input.transcript_path, "create-commit"))) d = git;
   }
   else if (/^(Edit|Write|MultiEdit|NotebookEdit)$/.test(tool)) d = fileDecision(tool, ti);
   // /init-gates may create the gate files a repo does not have yet; changing an existing one stays blocked
