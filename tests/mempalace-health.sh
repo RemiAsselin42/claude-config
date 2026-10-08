@@ -5,7 +5,8 @@
 # environment when it cannot replace a shim in use), the import of chromadb then
 # failed for two days while install.sh kept printing "✓ MemPalace", and every
 # hook hid the error. The functions are taken out of install.sh by name and run
-# with stubs; nothing here touches a real venv or palace.
+# with stubs; every path they could touch (uv's tool dir, APPDATA, the config)
+# points into the temp dir, so nothing here reaches a real venv or palace.
 #
 #   bash tests/mempalace-health.sh
 set -uo pipefail
@@ -19,18 +20,19 @@ fail=0
 ok() { echo "  PASS  $1"; pass=$((pass + 1)); }
 ko() { echo "  FAIL  $1"; fail=$((fail + 1)); }
 
-# Read by the functions eval'd in below, which shellcheck cannot see.
-# shellcheck disable=SC2034
-{ RED='' GREEN='' YELLOW='' CYAN='' DIM='' BOLD='' RESET=''; AUTO_YES=false; VERBOSE=true; OK_ITEMS=()
-  TOOL_BIN_DIR="$T/bin"; MEMPALACE_CONFIG="$T/config.json"; MEMPALACE_PALACE="$T/palace"
-  MEMPALACE_MODEL="embeddinggemma"; MEMPALACE_OVERRIDES="$T/overrides.txt"; }
-mkdir -p "$TOOL_BIN_DIR" "$MEMPALACE_PALACE" "$T/stubs"
+# Read by the functions eval'd in below: exported so that shellcheck sees them
+# used, and so that the stubs on PATH see the same values.
+export RED='' GREEN='' YELLOW='' CYAN='' DIM='' BOLD='' RESET='' AUTO_YES=false VERBOSE=true
+export TOOL_BIN_DIR="$T/bin" MEMPALACE_CONFIG="$T/config.json" MEMPALACE_PALACE="$T/palace"
+export MEMPALACE_MODEL="embeddinggemma" MEMPALACE_OVERRIDES="$T/overrides.txt" MEMPALACE_STOP_WAIT=5
+export APPDATA="$T/appdata"   # never the real one: the first version of test 5d ran a cleanup against it
+mkdir -p "$TOOL_BIN_DIR" "$MEMPALACE_PALACE" "$T/stubs" "$APPDATA"
 
 missing=0
 for fn in _run_quiet _ok _ok_flush _detail _ask _is_yes _mempalace_config_set _mempalace_configured_model \
           _mempalace_set_write_routing _mempalace_diverged _mempalace_state _mempalace_set_palace_path \
-          _mempalace_repair_divergence _mempalace_accel_extra _setup_mempalace _uv_tool_install \
-          _tool_venv_python _tool_import_ok _tool_venv_filter _tool_venv_holders _tool_venv_kill_holders; do
+          _mempalace_repair_divergence _mempalace_accel_extra _mempalace_daemon_stop _setup_mempalace _uv_tool_install \
+          _tool_venv_root _tool_venv_python _tool_import_ok _tool_venv_filter _tool_venv_holders _tool_venv_kill_holders; do
   body="$(awk -v n="$fn" '$0 == n"() {" {f=1} f{print} f&&/^}/{exit}' "$REPO_DIR/install.sh")"
   if [[ -z "$body" ]]; then echo "  FAIL  $fn not found in install.sh"; fail=$((fail + 1)); missing=1; continue; fi
   eval "$body"
@@ -83,6 +85,7 @@ out="$(_setup_mempalace 2>&1)"
 [[ "$out" == *"✗"*"MemPalace"* ]] && ok "a red line names MemPalace" || ko "a red line names MemPalace: $out"
 [[ "$out" != *"✓ MemPalace"* ]] && ok "no '✓ MemPalace'" || ko "no '✓ MemPalace': $out"
 [[ "$out" == *"--reinstall"* ]] && ok "the line names the repair command" || ko "the line names the repair command: $out"
+[[ "$out" != *"--overrides"* ]] && ok "no --overrides in it off Windows (the file exists for an accelerated build only)" || ko "no --overrides in it off Windows: $out"
 # The function runs in this shell, so the gate it sets is visible here.
 _setup_mempalace >/dev/null 2>&1
 [[ "$MEMPALACE_READY" == false ]] && ok "MEMPALACE_READY=false" || ko "MEMPALACE_READY=false (got $MEMPALACE_READY)"
@@ -95,7 +98,37 @@ _mempalace_set_write_routing prefer
 [[ "$(jq -r '.write_routing.cli' "$MEMPALACE_CONFIG" | tr -d '\r')" == prefer ]] && ok "cli: prefer (mines may start the daemon)" || ko "cli: prefer (got $(jq -c .write_routing "$MEMPALACE_CONFIG"))"
 [[ "$(jq -r '.write_routing.default' "$MEMPALACE_CONFIG" | tr -d '\r')" == prefer ]] && ok "default: prefer" || ko "default: prefer"
 
-# ── 5. _uv_tool_install looks for holders before it calls uv ─────────────────
+# ── 5. _setup_mempalace on a healthy palace brings the daemon back ───────────
+echo "== _setup_mempalace on a healthy palace"
+touch "$T/import-ok"; printf '{"embedding_model": "embeddinggemma"}\n' > "$MEMPALACE_CONFIG"
+stub mempalace "echo \"\$*\" >> '$T/mp.log'; case \"\$1\" in repair-status) printf '  [drawers]\\n    status:         OK\\n' ;; esac; exit 0"
+rm -f "$T/mp.log"; MEMPALACE_READY="unset"
+_setup_mempalace >/dev/null 2>&1
+[[ "$MEMPALACE_READY" == true ]] && ok "MEMPALACE_READY=true" || ko "MEMPALACE_READY=true (got $MEMPALACE_READY)"
+grep -q '^daemon start' "$T/mp.log" 2>/dev/null && ok "the daemon stopped for the upgrade is started again" || ko "the daemon stopped for the upgrade is started again: $(cat "$T/mp.log" 2>/dev/null)"
+
+# ── 6. _mempalace_daemon_stop waits for the daemon to let go, bounded ────────
+echo "== _mempalace_daemon_stop"
+# The holder list shows the daemon for the first two calls, then nothing.
+printf '0\n' > "$T/stop-calls"
+_tool_venv_holders() {
+  local n; n=$(cat "$T/stop-calls"); echo $((n + 1)) > "$T/stop-calls"
+  (( n < 2 )) && printf '  29820  C:\\Python313\\python.exe -m mempalace.daemon serve --palace x\n'
+  return 0
+}
+stub mempalace "echo \"\$*\" >> '$T/mp.log'"
+stub sleep ':'   # no real waiting
+rm -f "$T/mp.log"
+_mempalace_daemon_stop
+grep -q '^daemon stop' "$T/mp.log" && ok "daemon stop is sent" || ko "daemon stop is sent"
+[[ "$(cat "$T/stop-calls")" == 3 ]] && ok "it waits until the daemon is no longer a holder" || ko "it waits until the daemon is no longer a holder (holders asked $(cat "$T/stop-calls") times)"
+printf '0\n' > "$T/stop-calls"
+_tool_venv_holders() { local n; n=$(cat "$T/stop-calls"); echo $((n + 1)) > "$T/stop-calls"; printf '  1  python.exe -m mempalace.daemon serve\n'; }
+_mempalace_daemon_stop; rc=$?
+[[ $rc -eq 0 && "$(cat "$T/stop-calls")" == "$MEMPALACE_STOP_WAIT" ]] && ok "a daemon that never lets go: gives up after MEMPALACE_STOP_WAIT, returns 0" || ko "a daemon that never lets go: gives up after MEMPALACE_STOP_WAIT, returns 0 (rc=$rc, asked $(cat "$T/stop-calls"))"
+rm -f "$T/stubs/sleep"
+
+# ── 7. _uv_tool_install looks for holders before it calls uv ─────────────────
 echo "== _uv_tool_install"
 _is_windows() { return 0; }
 _tool_venv_python() { printf '%s\n' "$root/mempalace/bin/python"; }   # the probe above, whatever the tool
@@ -132,27 +165,33 @@ rm -f "$T/uv.log" "$T/import-ok"
 _uv_tool_install graphifyy >/dev/null 2>&1; rc=$?
 [[ "$(grep -c -- '--reinstall' "$T/uv.log" 2>/dev/null)" == 1 ]] && ok "a broken venv after the upgrade gets one --reinstall" || ko "a broken venv after the upgrade gets one --reinstall: $(cat "$T/uv.log" 2>/dev/null)"
 [[ $rc -ne 0 ]] && ok "still broken after it: non-zero" || ko "still broken after it: non-zero"
+[[ -d "$APPDATA" ]] && ok "the cleanup stayed inside the stubbed tool dir (APPDATA untouched)" || ko "the cleanup stayed inside the stubbed tool dir (APPDATA untouched)"
 
-# e. the holder query names the venv and the ~/.local/bin shims of the tool
+# e. the holder query names the venv (from `uv tool dir`) and the ~/.local/bin shims of the tool
 unset -f _tool_venv_holders
 body="$(awk -v n=_tool_venv_holders '$0 == n"() {" {f=1} f{print} f&&/^}/{exit}' "$REPO_DIR/install.sh")"; eval "$body"
+stub uv "case \"\$1 \$2\" in 'tool dir') printf '%s\\n' 'D:\\uv\\tools' ;; esac"   # not under APPDATA: UV_TOOL_DIR moved it
 stub powershell.exe "printf '%s\\n' \"\$*\" > '$T/ps.log'"
 stub cygpath "printf '%s\\n' 'C:\\Users\\u\\.local\\bin'"
-APPDATA='C:\Users\u\AppData\Roaming' _tool_venv_holders mempalace >/dev/null 2>&1
-if grep -qF 'uv\tools\mempalace\*' "$T/ps.log" 2>/dev/null; then ok "the query matches the venv path" ; else ko "the query matches the venv path: $(cat "$T/ps.log" 2>/dev/null)"; fi
+_tool_venv_holders mempalace >/dev/null 2>&1
+if grep -qF 'D:\uv\tools\mempalace\*' "$T/ps.log" 2>/dev/null; then ok "the query matches the venv path uv reports, not %APPDATA%" ; else ko "the query matches the venv path uv reports, not %APPDATA%: $(cat "$T/ps.log" 2>/dev/null)"; fi
 if grep -qF '.local\bin\mempalace*' "$T/ps.log" 2>/dev/null; then ok "the query matches the tool's shims under ~/.local/bin" ; else ko "the query matches the tool's shims under ~/.local/bin: $(cat "$T/ps.log" 2>/dev/null)"; fi
-APPDATA='C:\Users\u\AppData\Roaming' _tool_venv_holders graphifyy >/dev/null 2>&1
+_tool_venv_holders graphifyy >/dev/null 2>&1
 if grep -qF '.local\bin\graphify*' "$T/ps.log" 2>/dev/null; then ok "graphifyy's shims are graphify*" ; else ko "graphifyy's shims are graphify*: $(cat "$T/ps.log" 2>/dev/null)"; fi
+# f. a PowerShell that fails reads as no holder, and does not fail the caller
+stub powershell.exe "exit 1"
+out="$(_tool_venv_holders mempalace)"; rc=$?
+[[ $rc -eq 0 && -z "$out" ]] && ok "a failing PowerShell: no holder, status 0 (set -e in install.sh)" || ko "a failing PowerShell: no holder, status 0 (rc=$rc, out=$out)"
 
-# ── 6. session-start.sh: starts the daemon, says when MemPalace is down ──────
+# ── 8. session-start.sh: starts the daemon, says when MemPalace is down ──────
 echo "== session-start.sh"
 SS="$REPO_DIR/scripts/session-start.sh"
 stub timeout 'shift; exec "$@"'
 mkdir -p "$T/repo"; cd "$T/repo" || exit 1
+export HF_HUB_OFFLINE=1   # what settings.json gives every hook
 # a. daemon down, wake-up dies at import: one capped line, exit 0, daemon started once
-stub mempalace "echo \"\$*\" >> '$T/mp.log'
+stub mempalace "echo \"\$* HF=\${HF_HUB_OFFLINE:-unset}\" >> '$T/mp.log'
 case \"\$1 \$2\" in
-  'daemon status') exit 1 ;;
   'daemon start') exit 0 ;;
   'wake-up '*|'wake-up') printf 'Traceback (most recent call last):\\n  File x\\nModuleNotFoundError: No module named '\"'\"'dotenv'\"'\"' %0500d\\n' 0 >&2; exit 1 ;;
 esac"
@@ -164,15 +203,16 @@ line="$(printf '%s\n' "$out" | grep -A1 -m1 'MemPalace is down' | tail -1)"   # 
 [[ -n "$line" && ${#line} -le 200 ]] && ok "the detail line is capped (${#line} chars)" || ko "the detail line is capped (${#line} chars)"
 [[ "$line" == *"ModuleNotFoundError"* ]] && ok "the line quotes the error" || ko "the line quotes the error: $line"
 [[ "$line" == *"install.sh"* ]] && ok "the line says what to run" || ko "the line says what to run: $line"
-[[ "$(grep -c '^daemon start' "$T/mp.log")" == 1 ]] && ok "daemon started once" || ko "daemon started once: $(cat "$T/mp.log")"
-# b. daemon up, wake-up fine and empty: nothing about MemPalace, no start
-stub mempalace "echo \"\$*\" >> '$T/mp.log'; case \"\$1 \$2\" in 'daemon status') exit 0 ;; *) exit 0 ;; esac"
+[[ "$(grep -c '^daemon start' "$T/mp.log")" == 1 ]] && ok "daemon start asked once (a no-op when it already runs)" || ko "daemon start asked once: $(cat "$T/mp.log")"
+! grep -q '^daemon status' "$T/mp.log" && ok "no separate daemon status call" || ko "no separate daemon status call"
+grep -q '^daemon start HF=unset' "$T/mp.log" && ok "the daemon starts without HF_HUB_OFFLINE" || ko "the daemon starts without HF_HUB_OFFLINE: $(grep '^daemon start' "$T/mp.log")"
+# b. daemon up, wake-up fine and empty: nothing about MemPalace
+stub mempalace "echo \"\$*\" >> '$T/mp.log'; exit 0"
 rm -f "$T/mp.log"
 out="$(bash "$SS")"
 [[ "$out" != *"MemPalace"* ]] && ok "healthy and empty diary: silent" || ko "healthy and empty diary: silent: $out"
-! grep -q '^daemon start' "$T/mp.log" && ok "daemon not started when it answers" || ko "daemon not started when it answers"
 # c. wake-up times out (124): slow is not down
-stub mempalace "case \"\$1 \$2\" in 'daemon status') exit 0 ;; *) exit 124 ;; esac"
+stub mempalace "case \"\$1 \$2\" in 'daemon start') exit 0 ;; *) exit 124 ;; esac"
 out="$(bash "$SS")"
 [[ "$out" != *"MemPalace is down"* ]] && ok "a timeout is not reported as down" || ko "a timeout is not reported as down: $out"
 

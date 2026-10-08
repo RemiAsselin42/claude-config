@@ -536,8 +536,13 @@ _setup_mempalace() {
 
   case "$state" in
     broken)
+      # Unreachable on a normal run (_uv_tool_install stops the install first);
+      # kept so that nothing downstream can mine or mark ready on a dead venv.
+      local accel overrides=""
+      accel="$(_mempalace_accel_extra)"
+      [[ -n "$accel" ]] && overrides=" --overrides \"$MEMPALACE_OVERRIDES\""   # written for an accelerated build only
       echo "  ${RED}✗ MemPalace does not import from its venv — memory is off: hooks, searches and the MCP server fail at import.${RESET}"
-      echo "  ${RED}  Close every Claude Code session, then: uv tool install \"mempalace$(_mempalace_accel_extra)\" --overrides \"$MEMPALACE_OVERRIDES\" --upgrade --reinstall${RESET}"
+      echo "  ${RED}  Close every Claude Code session, then: uv tool install \"mempalace$accel\"$overrides --upgrade --reinstall${RESET}"
       MEMPALACE_READY=false
       return 0
       ;;
@@ -606,6 +611,11 @@ _setup_mempalace() {
 
   # Gate for _mine_repo_into_wing: mining a diverged palace segfaults chromadb.
   if _mempalace_diverged; then MEMPALACE_READY=false; else MEMPALACE_READY=true; fi
+  # _prepare_dependencies stopped the daemon for the upgrade. Hook writes are
+  # routed `require`: the sessions still open would skip every save until a
+  # session start or a mine brings it back. `daemon start` on a running daemon
+  # is a no-op (1.3 s); HF_HUB_OFFLINE is unset at the top of this script.
+  [[ "$MEMPALACE_READY" == true ]] && { _run_quiet mempalace daemon start || true; }
   return 0
 }
 
@@ -746,10 +756,17 @@ _setup_terminal_delegation() {
 # the dist-info directories that survived, reports "Would make no changes".
 # So: look for holders before uv runs, and trust an import, never a version.
 
+# Where uv keeps the tool venvs, as uv prints it (a native path on Windows):
+# the one source for the probe, the holder scan and the cleanup below, so that
+# UV_TOOL_DIR or a moved tools dir cannot make them look at different places.
+_tool_venv_root() {
+  uv tool dir 2>/dev/null | tr -d '\r'
+}
+
 # The interpreter of <pkg>'s tool venv, as uv lays it out; nothing when absent.
 _tool_venv_python() {
   local root py
-  root="$(uv tool dir 2>/dev/null | tr -d '\r')"
+  root="$(_tool_venv_root)"
   [[ -n "$root" ]] || return 1
   if _is_windows; then root="$(cygpath -u "$root")"; py="$root/$1/Scripts/python.exe"; else py="$root/$1/bin/python"; fi
   [[ -x "$py" ]] || return 1
@@ -776,7 +793,7 @@ _tool_import_ok() {
 _tool_venv_filter() {
   local pat shims name
   # shellcheck disable=SC1003  # literal backslashes, not an escaped quote
-  pat="${APPDATA:-}"'\uv\tools\'"$1"'\*'
+  pat="$(_tool_venv_root)"'\'"$1"'\*'
   # The shims are named after the command, not the package: graphify*.exe for
   # graphifyy, mempalace*.exe (mempalace, mempalace-mcp, mempalace-light-mcp).
   case "$1" in graphifyy) name=graphify ;; *) name="$1" ;; esac
@@ -784,13 +801,31 @@ _tool_venv_filter() {
   printf '%s' "Get-CimInstance Win32_Process | Where-Object { \$_.ProcessId -ne \$PID -and (\$_.ExecutablePath -like '$pat' -or \$_.CommandLine -like '*$pat' -or \$_.ExecutablePath -like '$shims') }"
 }
 
+# Runs on every Windows install now, so a PowerShell that fails (CIM down, an
+# execution policy) must read as "no holder seen", not kill the install through
+# set -e and pipefail.
 _tool_venv_holders() {
   _is_windows || return 0
-  powershell.exe -NoProfile -Command "$(_tool_venv_filter "$1") | ForEach-Object { '{0,7}  {1}' -f \$_.ProcessId, \$_.CommandLine }" 2>/dev/null | tr -d '\r'
+  powershell.exe -NoProfile -Command "$(_tool_venv_filter "$1") | ForEach-Object { '{0,7}  {1}' -f \$_.ProcessId, \$_.CommandLine }" 2>/dev/null | tr -d '\r' || true
 }
 
 _tool_venv_kill_holders() {
   powershell.exe -NoProfile -Command "$(_tool_venv_filter "$1") | ForEach-Object { Stop-Process -Id \$_.ProcessId -Force }; Start-Sleep 2" >/dev/null 2>&1 || true
+}
+
+# `mempalace daemon stop` only asks (client.shutdown(), then back): the process
+# tears chromadb down for a few seconds more, during which the holder scan would
+# list it — and under -y the declined kill would skip every upgrade. Wait for
+# it, bounded; an MCP server of an open session is not waited for.
+MEMPALACE_STOP_WAIT="${MEMPALACE_STOP_WAIT:-15}"
+_mempalace_daemon_stop() {
+  mempalace daemon stop >/dev/null 2>&1 || true
+  local i
+  for ((i = 0; i < MEMPALACE_STOP_WAIT; i++)); do
+    _tool_venv_holders mempalace | grep -q 'mempalace\.daemon' || return 0
+    sleep 1
+  done
+  return 0
 }
 
 # Install or upgrade a uv tool, and come out with a venv that imports.
@@ -835,7 +870,7 @@ _uv_tool_install() {
   # uninstall those and warns "missing RECORD file" on every later run.
   if _is_windows; then
     local site d
-    site="$(cygpath -u "${APPDATA:-}")/uv/tools/$pkg/Lib/site-packages"
+    site="$(cygpath -u "$(_tool_venv_root)")/$pkg/Lib/site-packages"
     for d in "$site"/*.dist-info; do [[ -e "$d/RECORD" ]] || rm -rf "$d"; done
   fi
   _run_quiet uv tool install "$spec" ${args[@]+"${args[@]}"} --upgrade --reinstall && _tool_import_ok "$pkg" && return 0
@@ -862,10 +897,9 @@ _prepare_dependencies() {
   _ok "Graphify"
 
   # The daemon runs from the tool venv: a holder, which makes uv delete the venv
-  # on its way out (see _uv_tool_install). Stop it cleanly first — the next
-  # session start or `mine --daemon` restarts it — rather than be asked to kill
-  # it, maybe mid-write.
-  command -v mempalace >/dev/null && mempalace daemon stop >/dev/null 2>&1 || true
+  # on its way out (see _uv_tool_install). Stop it cleanly first — _setup_mempalace
+  # restarts it — rather than be asked to kill it, maybe mid-write.
+  command -v mempalace >/dev/null && _mempalace_daemon_stop
   local accel
   accel="$(_mempalace_accel_extra)"
   if [[ -n "$accel" ]]; then
