@@ -54,6 +54,27 @@ const BLOCKED_SHELL = [
   "Remove-Item backend\\import-cycles-baseline.json",
   "echo x >> pyproject.toml",
   "sed -i 's/web/config/' backend/arch-gates.json",
+  // audit 2026-10-08: the pre-commit hook is also skipped by moving core.hooksPath or disabling husky
+  "git -c core.hooksPath=/dev/null commit -m x",
+  "git -c core.hooksPath= commit -m x",
+  "git config core.hooksPath .nohooks && git commit -m x",
+  "git --config-env=core.hooksPath=HP commit -m x",
+  "GIT_CONFIG_PARAMETERS=\"'core.hooksPath=/dev/null'\" git commit -m x",
+  "HUSKY=0 git commit -m x",
+  "export HUSKY=0; git commit -m x",
+  "$env:HUSKY = '0'; git commit -m x",
+  // a commit status is posted by CI, never by hand
+  "gh api -X POST repos/o/r/statuses/0123abc -f state=success -f context='mutation / mutation'",
+  "curl -X POST https://api.github.com/repos/o/r/statuses/0123abc -d '{\"state\":\"success\"}'",
+  "Invoke-RestMethod -Method Post -Uri https://api.github.com/repos/o/r/statuses/0123abc",
+  // a remote ref deleted or rewritten: release tags never move, a branch is deleted by a human
+  "git push --delete origin v1",
+  "git push -d origin v1",
+  "rtk git push origin :v1",
+  "git push origin :refs/tags/v1",
+  "git push origin +v6",
+  "git push origin +refs/tags/v6:refs/tags/v6",
+  "cd backend && git push origin --delete feat",
 ];
 const ALLOWED_SHELL = [
   "git commit -m 'fix: nothing to verify here'",
@@ -68,6 +89,12 @@ const ALLOWED_SHELL = [
   "grep -n baseline .github/workflows/backend.yml 2>/dev/null",
   "uv add httpx",
   "node --test tests/",
+  "git config --get core.hooksPath",
+  "git config --unset core.hooksPath",
+  "gh api repos/o/r/commits/0123abc/statuses",
+  "gh api repos/o/r/commits/0123abc/status",
+  "git tag -a v6 -m 'release v6' && git push origin v6",
+  "git push origin refs/tags/v6",
 ];
 
 for (const tool of ["Bash", "PowerShell"]) {
@@ -245,6 +272,8 @@ test("git merge and pushes to main pass only inside a /create-commit the human t
   // green: /create-commit typed by the human, tool results after it do not reset it
   said([turn("human", "x"), typed, turn(null, [{ type: "tool_result", content: "" }])]);
   for (const c of humanOnly) assert.equal(gate(c).code, 0, c);
+  // ... but a tag or branch deleted or rewritten has no exemption: GitHub's tag ruleset says the same (audit 2026-10-08)
+  for (const tool of ["Bash", "PowerShell"]) for (const c of ["git push --delete origin v1", "git push origin :v1", "git push origin +v6"]) assert.equal(gate(c, tool).code, 2, `${tool}: ${c}`);
   // no transcript at all: blocked
   assert.equal(run("protect-gates.js", { ...shell("Bash", "git merge feat"), cwd: dir }).code, 2);
   // review of PR #7: git global options, push options with a value, tag-only pushes
