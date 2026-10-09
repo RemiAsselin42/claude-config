@@ -62,3 +62,10 @@ Rules:
 - **Cause:** the exclusion is by name, and the name depends on where the agent file lives.
 - **Workaround / fix:** `tests/ponytail-subagent.test.js` reads `agents/*.md` and compares bare names only. The day the agents move into a plugin, extend the matcher with the scoped alternatives (`claude-config:diff-reviewer|…`) and make the test derive the expected ids from where the agents live. A renamed or added harness agent is already caught by the test.
 - **Status:** open (nothing to do until the agents leave `agents/`)
+
+### 2026-10-09 — The sync's deletion pass missed upstream renames
+- **Area:** `scripts/sync-upstream.sh`, the pass that removes from a fork what upstream dropped; `scripts/baseline-ratchet.js`, renamed to `.cjs` upstream on 2026-10-05 (`1ae6067`)
+- **Symptom:** the private fork still tracked `scripts/baseline-ratchet.js` four days and several syncs after the rename; `harness-drift.sh` named it as the clone's only distance to `upstream/main` (PR #35).
+- **Cause:** the pass ran `git diff --name-only --diff-filter=D <last synced commit> upstream/main`. `git diff` detects renames by default (`diff.renames`, since git 2.9), so a renamed file is `R`, never `D`. The baseline moved forward at every sync, so once recorded past the rename nothing could list it again; on this fork `merge-base HEAD upstream/main` is empty as well (unrelated histories), so the first-run fallback had nothing either.
+- **Workaround / fix:** no baseline. The pass removes every file the fork tracks on a synced path that `upstream/main` lacks and that upstream's history knows (`git rev-list -n 1 upstream/main -- <path>`); a path upstream never had stays. `tests/sync-upstream.sh` case 9: a rename, a rename an earlier pass missed, the fork's own file. `.git/upstream-sync-ref` is no longer written or read; the one in existing clones is a dead leftover.
+- **Status:** fixed (`feat/sync-upstream-renames`, 2026-10-09)

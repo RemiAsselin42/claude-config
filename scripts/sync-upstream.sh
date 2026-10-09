@@ -74,20 +74,25 @@ fi
 
 # Apply upstream deletions first: `checkout upstream/main -- <dir>` only adds or
 # overwrites files, it never removes what upstream deleted, so retired files
-# (renamed commands, dropped agents) would survive in forks forever. The diff
-# below only lists files that once existed upstream — private-only additions in
-# the fork are never touched. The last synced upstream commit is remembered in
-# .git/upstream-sync-ref; on first run the fork point serves as baseline.
-_LAST_REF_FILE="$REPO_DIR/.git/upstream-sync-ref"
-_OLD_REF="$(cat "$_LAST_REF_FILE" 2>/dev/null)"
-[[ -z "$_OLD_REF" ]] && _OLD_REF="$(git -C "$REPO_DIR" merge-base HEAD upstream/main 2>/dev/null)"
-if [[ -n "$_OLD_REF" ]]; then
+# (renamed commands, dropped agents) would survive in forks forever. A file the
+# fork tracks on a synced path that upstream/main no longer holds goes when
+# upstream's history knows the path: upstream had it and dropped or renamed it.
+# A path upstream never had is the fork's own and stays. No baseline: the first
+# version diffed the last synced commit against upstream/main with
+# --diff-filter=D, which misses a rename (git reports R, not D) and anything
+# older than a baseline recorded past it. scripts/baseline-ratchet.js, renamed
+# to .cjs upstream on 2026-10-05, stayed in the private fork that way (2026-10-09).
+# ponytail: a path upstream once had and dropped, re-added by the fork for its
+# own use, goes at every sync; keep such a file off the synced paths.
+_upstream_tree="$(git -C "$REPO_DIR" -c core.quotePath=false ls-tree -r --name-only upstream/main -- "${_UPSTREAM_PATHS[@]}" 2>/dev/null | LC_ALL=C sort)"
+if [[ -n "$_upstream_tree" ]]; then
   while IFS= read -r _f; do
     [[ -n "$_f" ]] || continue
-    git -C "$REPO_DIR" rm --quiet -f --ignore-unmatch -- "$_f" 2>/dev/null || true
-  done < <(git -C "$REPO_DIR" diff --name-only --diff-filter=D "$_OLD_REF" upstream/main -- "${_UPSTREAM_PATHS[@]}" 2>/dev/null)
+    [[ -n "$(git -C "$REPO_DIR" rev-list -n 1 upstream/main -- "$_f" 2>/dev/null)" ]] || continue
+    git -C "$REPO_DIR" rm --quiet -f -- "$_f" 2>/dev/null || true
+  done < <(comm -23 <(git -C "$REPO_DIR" -c core.quotePath=false ls-files -- "${_UPSTREAM_PATHS[@]}" | LC_ALL=C sort) <(printf '%s\n' "$_upstream_tree"))
 fi
-unset _LAST_REF_FILE _OLD_REF _f
+unset _upstream_tree _f
 
 for _p in "${_UPSTREAM_PATHS[@]}"; do
   git -C "$REPO_DIR" checkout upstream/main -- "$_p" 2>/dev/null || true
@@ -97,6 +102,5 @@ unset _UPSTREAM_PATHS _p
 git -C "$REPO_DIR" diff --cached --quiet || \
   git -C "$REPO_DIR" commit -m "chore: sync from upstream" --quiet
 
-git -C "$REPO_DIR" rev-parse upstream/main > "$REPO_DIR/.git/upstream-sync-ref" 2>/dev/null || true
 mkdir -p "$(dirname "$STAMP")"
 echo "$NOW" > "$STAMP"
