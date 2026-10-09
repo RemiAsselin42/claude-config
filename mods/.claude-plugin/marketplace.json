@@ -1,0 +1,18 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "claude-config",
+  "description": "Plugins vendored in the claude-config repo, loaded in place from the deployed ~/.claude/mods",
+  "owner": { "name": "Rémi Asselin", "url": "https://github.com/RemiAsselin42" },
+  "plugins": [
+    {
+      "name": "ponytail",
+      "source": "./ponytail",
+      "description": "Lazy senior dev mode: YAGNI ladder, stdlib first, shortest working diff. DietrichGebert/ponytail 4.8.4 at 16f2980 (MIT)."
+    },
+    {
+      "name": "vibe-wise",
+      "source": "./vibe-wise",
+      "description": "Learning mode per project: you design, Claude explains and writes the agreed code. nykooi1/vibe-wise 0.1.43 at c5fc8d8 (MIT)."
+    }
+  ]
+}

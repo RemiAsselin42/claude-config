@@ -133,23 +133,13 @@
     ]
   },
   "extraKnownMarketplaces": {
-    "ponytail": {
-      "source": { "source": "github", "repo": "DietrichGebert/ponytail" }
-    },
-    "caveman": {
-      "source": { "source": "github", "repo": "JuliusBrussee/caveman" }
-    },
     "hono": {
       "source": { "source": "github", "repo": "honojs/skills" }
-    },
-    "vibe-wise": {
-      "source": { "source": "github", "repo": "nykooi1/vibe-wise" }
     }
   },
   "enabledPlugins": {
-    "ponytail@ponytail": true,
-    "caveman@caveman": true,
-    "vibe-wise@vibe-wise": true,
+    "ponytail@claude-config": true,
+    "vibe-wise@claude-config": true,
     "context7@claude-plugins-official": true,
     "frontend-design@claude-plugins-official": true,
     "hono@hono": true
