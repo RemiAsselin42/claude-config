@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 # Claude Code SessionStart hook: what the last sessions in this repo were about
-# (MemPalace diary, newest 3) plus the head of TODO.md. Stdout is injected into
-# the session context (~200 tokens) — the useful part of beads' `bd prime`,
-# without the binary. Also fires after /compact, restoring the same anchors.
-# Never blocks a session: every step is optional and the exit code is always 0.
+# (MemPalace diary, newest 3), the head of TODO.md, and the integrity of the
+# deployed harness (scripts/harness-drift.sh: deployed ≠ clone, clone ≠ origin).
+# Stdout is injected into the session context (~200 tokens) — the useful part of
+# beads' `bd prime`, without the binary. Also fires after /compact, restoring the
+# same anchors. A drift is shown to the human as well: the output then takes the
+# hooks' JSON form, additionalContext plus systemMessage (jq needed; without it,
+# plain text and the statusline alone). Never blocks a session: every step is
+# optional and the exit code is always 0.
 out=""
+warn=""
 
 if [ -s TODO.md ]; then
   out+="## TODO.md"$'\n'"$(grep -v '^[[:space:]]*$' TODO.md | head -15)"$'\n\n'
@@ -41,5 +46,20 @@ if command -v mempalace >/dev/null 2>&1 && command -v timeout >/dev/null 2>&1; t
   rm -f "$wake" "$err"
 fi
 
-[ -n "$out" ] && printf '%s' "$out"
+# Harness drift: the script beside this one prints one full line per drift and
+# writes the short form the statusline reads ($CLAUDE_CONFIG_DIR/.harness-drift).
+here=${BASH_SOURCE[0]%/*}; [ "$here" = "${BASH_SOURCE[0]}" ] && here=.
+drift=$(bash "$here/harness-drift.sh" 2>/dev/null)
+if [ -n "$drift" ]; then
+  out+="## Harness drift"$'\n'"$drift"$'\n'
+  out+="deployed ≠ clone: run install.sh --only claude from the clone. clone ≠ origin: the clone's working tree is not what the remote holds (branch, fetch, local edits)."$'\n'
+  warn="Harness drift — ${drift//$'\n'/ — }. Deployed ≠ clone: install.sh --only claude. Clone ≠ origin: the clone is not what the remote holds."
+fi
+
+if [ -n "$warn" ] && command -v jq >/dev/null 2>&1; then
+  jq -cn --arg ctx "$out" --arg msg "$warn" \
+    '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $ctx}, systemMessage: $msg}'
+else
+  [ -n "$out" ] && printf '%s' "$out"
+fi
 exit 0

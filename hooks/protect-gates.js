@@ -36,9 +36,11 @@
 //     resolved after any "cd"), and may add a [tool.mutmut] section to a
 //     pyproject.toml that has none, the other tool sections untouched; changing
 //     or deleting an existing one, or creating any other gate file, stays blocked;
-//   - the harness itself: ~/.claude/settings.json, ~/.claude/hooks/*, any
-//     .claude/settings*.json, and the session transcripts that carry the
-//     /create-commit marker. These stay blocked even with PROTECT_GATES=off.
+//   - the harness itself: ~/.claude/settings.json, ~/.claude/hooks/*, and the
+//     rest of what install.sh deploys (~/.claude/CLAUDE.md, agents/, commands/,
+//     scripts/, mods/), any .claude/settings*.json, and the session transcripts
+//     that carry the /create-commit marker. These stay blocked even with
+//     PROTECT_GATES=off. Reading or running them is fine.
 //
 // PROTECT_GATES=off (set by the human owner for one session) lets everything else through
 // and shows a visible warning each time a call would have been blocked.
@@ -62,7 +64,14 @@ const GATE_BASENAMES = [
 ];
 // the pre-commit hook scripts and the config that points at them: pointing elsewhere (core.hooksPath, HUSKY=0) is a shell rule below
 const GATE_PATHS = [/\/\.github\/workflows\/[^/]+$/, /\/\.git\/hooks\/[^/]+$/, /\/\.husky\//, /\/\.git\/config$/];
-const SELF_PATHS = [/\/\.claude\/settings(\.local)?\.json$/, /\/\.claude\/hooks\//, /\/\.claude\/projects\/.*\.jsonl$/];
+const SELF_PATHS = [
+  /\/\.claude\/settings(\.local)?\.json$/,
+  /\/\.claude\/hooks\//,
+  /\/\.claude\/projects\/.*\.jsonl$/,
+  // the rest of what install.sh deploys under ~/.claude (2026-10-09), spelled like the entries above:
+  // unanchored, so a project's own .claude/commands or .claude/agents are frozen too, as its .claude/hooks already were
+  /\/\.claude\/claude\.md$/, /\/\.claude\/agents\//, /\/\.claude\/commands\//, /\/\.claude\/scripts\//, /\/\.claude\/mods\//,
+];
 const TOOL_SECTION = /^\[\[?tool\.(ruff|mypy|mutmut|pytest)\b/; // [tool.x] and [[tool.x.y]] array tables alike
 
 const SHELL_RULES = [
