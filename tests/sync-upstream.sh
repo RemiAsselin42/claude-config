@@ -267,5 +267,51 @@ for other in topic2 master; do
   fi
 done
 
+# 9. upstream renames a file: the old name leaves the fork, the new one arrives, in
+# one commit. The deletion pass once diffed the last synced commit against
+# upstream/main with --diff-filter=D, and git reports a rename as R, never as D:
+# scripts/baseline-ratchet.js, renamed to .cjs upstream on 2026-10-05, stayed in
+# the private fork (seen 2026-10-09).
+git -C "$FORK" switch -q trunk
+echo "tool" > "$UP/scripts/tool.js" && git -C "$UP" add -A && git -C "$UP" commit -q -m "tool.js"
+sync
+git -C "$UP" mv scripts/tool.js scripts/tool.cjs && git -C "$UP" commit -q -m "tool.js -> tool.cjs"
+sync; rc=$?
+if [[ $rc -eq 0 && ! -e "$FORK/scripts/tool.js" && -z "$(git -C "$FORK" ls-files scripts/tool.js)" \
+      && "$(cat "$FORK/scripts/tool.cjs" 2>/dev/null)" == "tool" && -z "$(git -C "$FORK" status --porcelain)" ]]; then
+  ok "upstream rename: the old name leaves the fork, the new one arrives, committed"
+else
+  ko "upstream rename: exit $rc, tool.js present=$([[ -e "$FORK/scripts/tool.js" ]] && echo yes || echo no), tool.cjs=$(cat "$FORK/scripts/tool.cjs" 2>/dev/null || echo absent), status: $(git -C "$FORK" status --porcelain | tr '\n' ' ')"
+fi
+
+# A rename an earlier sync missed, the private clone's state on 2026-10-09: the old
+# name tracked in the fork, upstream/main holding the new one only, and whatever the
+# last pass recorded as its baseline already past the rename. The next sync drops
+# it on its own, with nothing new upstream: no git rm by hand in the clone.
+echo "old" > "$UP/scripts/old.js" && git -C "$UP" add -A && git -C "$UP" commit -q -m "old.js"
+sync
+git -C "$UP" mv scripts/old.js scripts/old.cjs && git -C "$UP" commit -q -m "old.js -> old.cjs"
+git -C "$FORK" fetch -q upstream && git -C "$FORK" checkout -q upstream/main -- scripts \
+  && git -C "$FORK" commit -q -m "chore: sync from upstream"   # what the first version's pass left: the new name beside the old
+git -C "$FORK" rev-parse upstream/main > "$FORK/.git/upstream-sync-ref"
+sync; rc=$?
+if [[ $rc -eq 0 && -z "$(git -C "$FORK" ls-files scripts/old.js)" && ! -e "$FORK/scripts/old.js" \
+      && "$(cat "$FORK/scripts/old.cjs" 2>/dev/null)" == "old" && -z "$(git -C "$FORK" status --porcelain)" ]]; then
+  ok "a rename an earlier pass missed: the old name leaves at the next sync, nothing new upstream"
+else
+  ko "a rename an earlier pass missed: exit $rc, old.js tracked=$([[ -n "$(git -C "$FORK" ls-files scripts/old.js)" ]] && echo yes || echo no), status: $(git -C "$FORK" status --porcelain | tr '\n' ' ')"
+fi
+
+# A file the fork adds under a synced path, one upstream never had, is the fork's
+# own: it stays, sync after sync.
+echo "mine" > "$FORK/scripts/mine.sh" && git -C "$FORK" add scripts/mine.sh && git -C "$FORK" commit -q -m "mine"
+echo "v8" > "$UP/CLAUDE.md" && git -C "$UP" commit -q -am "v8"
+sync; rc=$?
+if [[ $rc -eq 0 && "$(cat "$FORK/scripts/mine.sh" 2>/dev/null)" == "mine" && "$(cat "$FORK/CLAUDE.md")" == "v8" ]]; then
+  ok "the fork's own file under a synced path: kept"
+else
+  ko "the fork's own file under a synced path: exit $rc, mine.sh=$(cat "$FORK/scripts/mine.sh" 2>/dev/null || echo absent), CLAUDE.md=$(cat "$FORK/CLAUDE.md")"
+fi
+
 echo "$pass passed, $fail failed"
 [[ $fail -eq 0 ]]
