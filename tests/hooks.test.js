@@ -277,6 +277,17 @@ test("PROTECT_GATES=off: a visible warning instead of a block; the harness itsel
     // a soft command rule in the same compound must not downgrade the harness write to a warning
     shell("Bash", "echo '{}' > /home/u/.claude/settings.json; pnpm lint:arch:baseline"),
     shell("Bash", "git commit -n -m x && sed -i 's/protect-gates//' /home/u/.claude/settings.json"),
+    // the rest of what install.sh deploys under ~/.claude (2026-10-09): CLAUDE.md, agents, commands, scripts, mods
+    file("Edit", { file_path: "/home/u/.claude/CLAUDE.md", old_string: "a", new_string: "b" }),
+    file("Write", { file_path: "C:\\Users\\u\\.claude\\agents\\plan-reviewer.md", content: "" }),
+    file("Write", { file_path: "/home/u/.claude/commands/feature.md", content: "" }),
+    file("Edit", { file_path: "C:\\Users\\u\\.claude\\mods\\ponytail\\hooks\\claude-codex-hooks.json", old_string: "a", new_string: "b" }),
+    shell("Bash", "cp scripts/statusline.sh ~/.claude/scripts/"),
+    shell("Bash", "cp -r mods/ponytail ~/.claude/mods/"),
+    shell("Bash", "sed -i 's/x/y/' /home/u/.claude/scripts/session-start.sh"),
+    shell("Bash", "cat x > ~/.claude/CLAUDE.md"),
+    shell("PowerShell", "Copy-Item .\\commands\\feature.md C:\\Users\\u\\.claude\\commands\\feature.md"),
+    shell("PowerShell", "Remove-Item C:\\Users\\u\\.claude\\agents\\spec-tester.md"),
   ];
   for (const c of self) {
     for (const env of [{}, { PROTECT_GATES: "off" }]) {
@@ -285,9 +296,16 @@ test("PROTECT_GATES=off: a visible warning instead of a block; the harness itsel
       assert.match(r3.err, /harness itself/);
     }
   }
-  // reading the harness is fine
+  // reading or running the harness is fine
   assert.equal(run("protect-gates.js", shell("Bash", "cat ~/.claude/settings.json"), { PROTECT_GATES: "off" }).code, 0);
   assert.equal(run("protect-gates.js", shell("Bash", "cat /home/u/.claude/settings.json")).code, 0);
+  for (const c of [
+    "bash ~/.claude/scripts/vibe-toggle.sh on",
+    "bash ~/.claude/scripts/style-toggle.sh ponytail full >/dev/null",
+    "cat ~/.claude/CLAUDE.md",
+    "node ~/.claude/mods/ponytail/hooks/ponytail-activate.js",
+    "ls /home/u/.claude/agents",
+  ]) assert.equal(run("protect-gates.js", shell("Bash", c)).code, 0, c);
 });
 
 test("git merge and pushes to main pass only inside a /create-commit the human typed", () => {

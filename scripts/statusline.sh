@@ -164,6 +164,16 @@ if [ -n "$cwd" ] && [ -d "$cwd" ]; then
   [ -n "$vibe" ] && line_vibe="$(label VibeWise)${D}${vibe}${R}"
 fi
 
+# ── Harness: drift the SessionStart hook found (scripts/harness-drift.sh writes
+# the short form, one line per level, to .harness-drift; gone when clean) ─────
+line_harness=""
+if [ -s "$CFG/.harness-drift" ]; then
+  while IFS= read -r l; do
+    [ -n "$l" ] && line_harness+="$(label Harness)${BD}⚠ ${l}${R}"$'\n'
+  done < "$CFG/.harness-drift"
+  line_harness=${line_harness%$'\n'}
+fi
+
 # ── Github: branch + live diff vs HEAD, cached 5 s per cwd ───────────────────
 # Generated dirs are excluded: graphify background rebuilds keep them dirty
 # mid-session until the Stop hook commits them, which would drown the real diff.
@@ -187,7 +197,7 @@ if [ -n "$cwd" ] && [ -d "$cwd" ]; then
   fi
 fi
 
-for l in "$line_model" "$line_cache" "$line_usage" "$line_mode" "$line_vibe" "$line_git"; do
+for l in "$line_model" "$line_cache" "$line_usage" "$line_mode" "$line_vibe" "$line_harness" "$line_git"; do
   [ -n "$l" ] && printf '%s\n' "$l"
 done
 exit 0

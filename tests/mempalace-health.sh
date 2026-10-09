@@ -189,6 +189,13 @@ SS="$REPO_DIR/scripts/session-start.sh"
 stub timeout 'shift; exec "$@"'
 mkdir -p "$T/repo"; cd "$T/repo" || exit 1
 export HF_HUB_OFFLINE=1   # what settings.json gives every hook
+# The harness check session-start.sh runs (scripts/harness-drift.sh): a scratch
+# config dir whose pointer names an empty throwaway clone with its origin ref,
+# so nothing drifts here and the output stays the plain text asserted below.
+export CLAUDE_CONFIG_DIR="$T/cfg"; mkdir -p "$T/cfg" "$T/clone"
+git -C "$T/clone" init -q -b main && git -C "$T/clone" -c user.email=t@t -c user.name=t commit -q --allow-empty -m base
+git -C "$T/clone" update-ref refs/remotes/origin/main HEAD
+printf '%s\n' "$T/clone" > "$T/cfg/claude-config.path"
 # a. daemon down, wake-up dies at import: one capped line, exit 0, daemon started once
 stub mempalace "echo \"\$* HF=\${HF_HUB_OFFLINE:-unset}\" >> '$T/mp.log'
 case \"\$1 \$2\" in
