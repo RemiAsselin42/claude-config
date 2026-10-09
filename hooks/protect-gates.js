@@ -37,10 +37,12 @@
 //     pyproject.toml that has none, the other tool sections untouched; changing
 //     or deleting an existing one, or creating any other gate file, stays blocked;
 //   - the harness itself: ~/.claude/settings.json, ~/.claude/hooks/*, and the
-//     rest of what install.sh deploys (~/.claude/CLAUDE.md, agents/, commands/,
-//     scripts/, mods/), any .claude/settings*.json, and the session transcripts
-//     that carry the /create-commit marker. These stay blocked even with
-//     PROTECT_GATES=off. Reading or running them is fine.
+//     rest of what install.sh deploys under this user's ~/.claude (CLAUDE.md,
+//     agents/, commands/, scripts/, mods/), any .claude/settings*.json, and the
+//     session transcripts that carry the /create-commit marker. These stay
+//     blocked even with PROTECT_GATES=off. Reading or running them is fine;
+//   - a project's own .claude/agents/ and .claude/commands/: like a gate config,
+//     blocked unless PROTECT_GATES=off (a human changes what Claude is told).
 //
 // PROTECT_GATES=off (set by the human owner for one session) lets everything else through
 // and shows a visible warning each time a call would have been blocked.
@@ -64,14 +66,14 @@ const GATE_BASENAMES = [
 ];
 // the pre-commit hook scripts and the config that points at them: pointing elsewhere (core.hooksPath, HUSKY=0) is a shell rule below
 const GATE_PATHS = [/\/\.github\/workflows\/[^/]+$/, /\/\.git\/hooks\/[^/]+$/, /\/\.husky\//, /\/\.git\/config$/];
-const SELF_PATHS = [
-  /\/\.claude\/settings(\.local)?\.json$/,
-  /\/\.claude\/hooks\//,
-  /\/\.claude\/projects\/.*\.jsonl$/,
-  // the rest of what install.sh deploys under ~/.claude (2026-10-09), spelled like the entries above:
-  // unanchored, so a project's own .claude/commands or .claude/agents are frozen too, as its .claude/hooks already were
-  /\/\.claude\/claude\.md$/, /\/\.claude\/agents\//, /\/\.claude\/commands\//, /\/\.claude\/scripts\//, /\/\.claude\/mods\//,
-];
+const SELF_PATHS = [/\/\.claude\/settings(\.local)?\.json$/, /\/\.claude\/hooks\//, /\/\.claude\/projects\/.*\.jsonl$/];
+// The rest of what install.sh deploys, under this user's ~/.claude only (2026-10-09): hard, like SELF_PATHS.
+// classify() first folds the home directory, however the tool spelled it, into "~".
+const HOME_SELF = /^~\/\.claude\/(claude\.md$|agents\/|commands\/|scripts\/|mods\/)/;
+const HOME_DIR = os.homedir().replace(/\\/g, "/").toLowerCase();
+const HOME_MSYS = HOME_DIR.replace(/^([a-z]):\//, "/$1/"); // Git Bash spells C:/Users/u as /c/users/u
+// A project's own agents and commands, any other .claude/agents or .claude/commands: soft, PROTECT_GATES=off lifts it.
+const PROJECT_PROMPTS = /\/\.claude\/(agents|commands)\//;
 const TOOL_SECTION = /^\[\[?tool\.(ruff|mypy|mutmut|pytest)\b/; // [tool.x] and [[tool.x.y]] array tables alike
 
 const SHELL_RULES = [
@@ -98,10 +100,11 @@ const REDIRECT = />{1,2}\s*["']?([^\s"'<>|;&]+)/g;
 // "self" = the harness (never editable through Claude), "gate" = config or baseline.
 function classify(p) {
   // lowercased: Windows paths are case-insensitive, so ARCH-GATES.JSON is the same file
-  const n = String(p).replace(/\\/g, "/").toLowerCase();
-  if (SELF_PATHS.some((r) => r.test("/" + n))) return "self"; // "/" + n: a relative .claude/settings.json matches too
+  let n = String(p).replace(/\\/g, "/").toLowerCase();
+  for (const h of [HOME_DIR, HOME_MSYS]) if (h && n.startsWith(h + "/")) { n = "~" + n.slice(h.length); break; }
+  if (HOME_SELF.test(n) || SELF_PATHS.some((r) => r.test("/" + n))) return "self"; // "/" + n: a relative .claude/settings.json matches too
   const base = n.split("/").pop();
-  if (GATE_BASENAMES.some((r) => r.test(base)) || GATE_PATHS.some((r) => r.test("/" + n))) return "gate";
+  if (GATE_BASENAMES.some((r) => r.test(base)) || GATE_PATHS.some((r) => r.test("/" + n)) || PROJECT_PROMPTS.test("/" + n)) return "gate";
   return null;
 }
 
@@ -232,6 +235,7 @@ function fileDecision(tool, input) {
   const kind = classify(p);
   if (kind === "self") return { why: `${p} is part of the harness itself`, hard: true };
   if (kind !== "gate") return null;
+  if (PROJECT_PROMPTS.test("/" + String(p).replace(/\\/g, "/").toLowerCase())) return { why: `${p} is the project's own agent or command: a human changes what Claude is told` };
   if (/pyproject\.toml$/.test(p.replace(/\\/g, "/"))) return pyprojectDecision(tool, input, p);
   return { why: `${p} is a gate config or baseline`, create: tool === "Write" && creatable(p) && !fs.existsSync(p) };
 }

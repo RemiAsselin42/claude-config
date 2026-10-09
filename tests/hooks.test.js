@@ -34,6 +34,13 @@ function run(hook, payload, env = {}) {
 }
 const shell = (tool, command) => ({ hook_event_name: "PreToolUse", tool_name: tool, tool_input: { command } });
 const file = (tool, tool_input) => ({ hook_event_name: "PreToolUse", tool_name: tool, tool_input });
+// This user's ~/.claude as the tools spell it: native separators, forward slashes, Git Bash's /c/Users form on Windows
+const HOME = os.homedir();
+const home = (...p) => path.join(HOME, ".claude", ...p);
+const homePosix = (...p) => [HOME.replace(/\\/g, "/"), ".claude", ...p].join("/");
+const homeShell = (...p) =>
+  (process.platform === "win32" && /^[A-Za-z]:/.test(HOME) ? "/" + HOME[0].toLowerCase() + HOME.slice(2).replace(/\\/g, "/") : HOME) +
+  ["", ".claude", ...p].join("/");
 
 // ---------------------------------------------------------------- protect-gates
 const BLOCKED_SHELL = [
@@ -277,17 +284,17 @@ test("PROTECT_GATES=off: a visible warning instead of a block; the harness itsel
     // a soft command rule in the same compound must not downgrade the harness write to a warning
     shell("Bash", "echo '{}' > /home/u/.claude/settings.json; pnpm lint:arch:baseline"),
     shell("Bash", "git commit -n -m x && sed -i 's/protect-gates//' /home/u/.claude/settings.json"),
-    // the rest of what install.sh deploys under ~/.claude (2026-10-09): CLAUDE.md, agents, commands, scripts, mods
-    file("Edit", { file_path: "/home/u/.claude/CLAUDE.md", old_string: "a", new_string: "b" }),
-    file("Write", { file_path: "C:\\Users\\u\\.claude\\agents\\plan-reviewer.md", content: "" }),
-    file("Write", { file_path: "/home/u/.claude/commands/feature.md", content: "" }),
-    file("Edit", { file_path: "C:\\Users\\u\\.claude\\mods\\ponytail\\hooks\\claude-codex-hooks.json", old_string: "a", new_string: "b" }),
+    // the rest of what install.sh deploys, under this user's ~/.claude only (2026-10-09): CLAUDE.md, agents, commands, scripts, mods
+    file("Edit", { file_path: home("CLAUDE.md"), old_string: "a", new_string: "b" }),
+    file("Write", { file_path: home("agents", "plan-reviewer.md"), content: "" }),
+    file("Write", { file_path: homePosix("commands", "feature.md"), content: "" }),
+    file("Edit", { file_path: homeShell("mods", "ponytail", "hooks", "claude-codex-hooks.json"), old_string: "a", new_string: "b" }),
     shell("Bash", "cp scripts/statusline.sh ~/.claude/scripts/"),
     shell("Bash", "cp -r mods/ponytail ~/.claude/mods/"),
-    shell("Bash", "sed -i 's/x/y/' /home/u/.claude/scripts/session-start.sh"),
+    shell("Bash", `sed -i 's/x/y/' ${homePosix("scripts", "session-start.sh")}`),
     shell("Bash", "cat x > ~/.claude/CLAUDE.md"),
-    shell("PowerShell", "Copy-Item .\\commands\\feature.md C:\\Users\\u\\.claude\\commands\\feature.md"),
-    shell("PowerShell", "Remove-Item C:\\Users\\u\\.claude\\agents\\spec-tester.md"),
+    shell("PowerShell", `Copy-Item .\\commands\\feature.md ${home("commands", "feature.md")}`),
+    shell("PowerShell", `Remove-Item ${home("agents", "spec-tester.md")}`),
   ];
   for (const c of self) {
     for (const env of [{}, { PROTECT_GATES: "off" }]) {
@@ -304,8 +311,29 @@ test("PROTECT_GATES=off: a visible warning instead of a block; the harness itsel
     "bash ~/.claude/scripts/style-toggle.sh ponytail full >/dev/null",
     "cat ~/.claude/CLAUDE.md",
     "node ~/.claude/mods/ponytail/hooks/ponytail-activate.js",
-    "ls /home/u/.claude/agents",
+    `ls ${homePosix("agents")}`,
   ]) assert.equal(run("protect-gates.js", shell("Bash", c)).code, 0, c);
+});
+
+test("a project's own .claude/agents and .claude/commands: blocked by default, lifted by PROTECT_GATES=off; another home counts as a project", () => {
+  const cases = [
+    file("Write", { file_path: "/repo/.claude/commands/deploy.md", content: "" }),
+    file("Edit", { file_path: "C:\\repo\\.claude\\agents\\reviewer.md", old_string: "a", new_string: "b" }),
+    file("Write", { file_path: "/home/other/.claude/commands/x.md", content: "" }),
+    shell("Bash", "echo x > .claude/commands/deploy.md"),
+    shell("Bash", "cp a .claude/agents/reviewer.md"),
+    shell("PowerShell", "Set-Content .claude\\agents\\reviewer.md 'x'"),
+  ];
+  for (const c of cases) {
+    const r = run("protect-gates.js", c);
+    assert.equal(r.code, 2, `${JSON.stringify(c.tool_input)}\n${r.err}`);
+    assert.match(r.err, /agent or command|gate/i);
+    assert.doesNotMatch(r.err, /harness itself/);
+    const off = run("protect-gates.js", c, { PROTECT_GATES: "off" });
+    assert.equal(off.code, 0, `${JSON.stringify(c.tool_input)} off\n${off.err}`);
+    assert.match(JSON.parse(off.out).systemMessage, /would have blocked/);
+  }
+  assert.equal(run("protect-gates.js", shell("Bash", "cat .claude/commands/deploy.md")).code, 0);
 });
 
 test("git merge and pushes to main pass only inside a /create-commit the human typed", () => {
