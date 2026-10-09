@@ -8,12 +8,14 @@
 #                      agent or command with no source in the clone counts (hooks run, agents/
 #                      and commands/ are mirrored); a leftover in scripts/ or a file Claude Code
 #                      lays into mods/ does not (both additive).
-#   clone ≠ origin/…   the same paths in the clone against the last fetched origin/<default
-#                      branch>: what install.sh would deploy is not what the remote holds.
-#                      No network, the ref as it is.
-# Prints one full line per drift (session-start.sh puts them in the session and in front
-# of the human), writes a short form to $CLAUDE_DIR/.harness-drift for the statusline
-# (removed when clean), always exits 0.
+#   clone ≠ remote     the same paths in the clone's working tree against the last fetched
+#                      default branch of `upstream` (the public repo a fork syncs from) when
+#                      that remote exists, else of `origin`. No network, the ref as it is. With
+#                      an upstream, the distance to origin (the fork's own remote) is printed
+#                      as an "info:" line: not an alert, never in the statusline.
+# Prints one full line per drift (session-start.sh puts them in the session and, the alerts,
+# in front of the human), writes the alerts' short form to $CLAUDE_DIR/.harness-drift for the
+# statusline (removed when there is none), always exits 0.
 #   bash tests/harness-drift.sh
 set -uo pipefail
 
@@ -31,20 +33,17 @@ brief() {  # brief <n> <items…>: the first n, then "+k more"
   local n=$1; shift
   if (( $# > n )); then printf '%s +%d more' "$(join "${@:1:n}")" $(( $# - n )); else join "$@"; fi
 }
-report() {  # report <full lines…>, the matching short lines in $short: stdout and marker, or no marker
-  if (( $# )); then printf '%s\n' "$@"; printf '%s\n' "${short[@]}" > "$MARK"; else rm -f "$MARK"; fi
-}
 
 clone=$(tr -d '\r\n' < "$D/claude-config.path" 2>/dev/null || true)
 if [ -z "$clone" ] || [ ! -d "$clone" ]; then
-  short=("harness clone unknown — run install.sh")
-  report "harness clone unknown: $D/claude-config.path → ${clone:-missing} — run install.sh"
+  printf '%s\n' "harness clone unknown — run install.sh" > "$MARK"
+  printf '%s\n' "harness clone unknown: $D/claude-config.path → ${clone:-missing} — run install.sh"
   exit 0
 fi
 
 tmp=$(mktemp -d) || exit 0
 trap 'rm -rf "$tmp"' EXIT
-l1=(); l2=()
+l1=(); l2=(); info=()
 
 # ── deployed ≠ clone ─────────────────────────────────────────────────────────
 if [ -f "$clone/settings.json" ]; then
@@ -84,30 +83,44 @@ for d in "${MIRRORED[@]}"; do
   done
 done
 
-# ── clone ≠ origin/<default branch> ──────────────────────────────────────────
-lbl="clone"
+# ── clone ≠ upstream/<default>, else origin/<default> ───────────────────────
+default_of() {  # default_of <remote>: what <remote>/HEAD names, else main, else master — as sync-upstream.sh resolves it
+  local b
+  git -C "$clone" symbolic-ref -q --short "refs/remotes/$1/HEAD" 2>/dev/null && return 0
+  for b in main master; do
+    git -C "$clone" rev-parse -q --verify "$1/$b" >/dev/null 2>&1 && { printf '%s\n' "$1/$b"; return 0; }
+  done
+  return 1
+}
+against() {  # against <ref>: the scoped files whose working-tree state differs from <ref>, untracked ones included
+  git -C "$clone" diff --name-only "$1" -- "${FILES[@]}" "${DIRS[@]}" 2>/dev/null
+  git -C "$clone" ls-files --others --exclude-standard -- "${DIRS[@]}" 2>/dev/null
+}
+lbl="clone"; infoline=""
 if ! git -C "$clone" rev-parse --git-dir >/dev/null 2>&1; then
   l2=("the clone is not a git repository")
-else
-  # what origin/HEAD names, else main or master — as scripts/sync-upstream.sh resolves it
-  def=$(git -C "$clone" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || true)
-  if [ -z "$def" ]; then
-    for b in main master; do
-      git -C "$clone" rev-parse -q --verify "origin/$b" >/dev/null 2>&1 && { def="origin/$b"; break; }
-    done
-  fi
-  if [ -n "$def" ]; then
+elif git -C "$clone" remote get-url upstream >/dev/null 2>&1; then
+  if def=$(default_of upstream); then
     lbl="clone ≠ $def"
-    while IFS= read -r f; do [ -n "$f" ] && l2+=("$f"); done < <(
-      git -C "$clone" diff --name-only "$def" -- "${FILES[@]}" "${DIRS[@]}" 2>/dev/null
-      git -C "$clone" ls-files --others --exclude-standard -- "${DIRS[@]}" 2>/dev/null)
+    while IFS= read -r f; do [ -n "$f" ] && l2+=("$f"); done < <(against "$def")
   else
-    l2=("no origin/main or origin/master fetched")
+    l2=("no upstream/main or upstream/master fetched")
   fi
+  if odef=$(default_of origin); then
+    while IFS= read -r f; do [ -n "$f" ] && info+=("$f"); done < <(against "$odef")
+    (( ${#info[@]} )) && infoline="info: clone ≠ $odef: $(join "${info[@]}")"
+  fi
+elif def=$(default_of origin); then
+  lbl="clone ≠ $def"
+  while IFS= read -r f; do [ -n "$f" ] && l2+=("$f"); done < <(against "$def")
+else
+  l2=("no origin/main or origin/master fetched")
 fi
 
 lines=(); short=()
 if (( ${#l1[@]} )); then lines+=("deployed ≠ clone: $(join "${l1[@]}")"); short+=("deployed ≠ clone: $(brief 3 "${l1[@]}")"); fi
 if (( ${#l2[@]} )); then lines+=("$lbl: $(join "${l2[@]}")"); short+=("$lbl: $(brief 3 "${l2[@]}")"); fi
-report "${lines[@]}"
+if (( ${#short[@]} )); then printf '%s\n' "${short[@]}" > "$MARK"; else rm -f "$MARK"; fi
+[ -n "$infoline" ] && lines+=("$infoline")
+(( ${#lines[@]} )) && printf '%s\n' "${lines[@]}"
 exit 0

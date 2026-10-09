@@ -46,14 +46,18 @@ if command -v mempalace >/dev/null 2>&1 && command -v timeout >/dev/null 2>&1; t
   rm -f "$wake" "$err"
 fi
 
-# Harness drift: the script beside this one prints one full line per drift and
-# writes the short form the statusline reads ($CLAUDE_CONFIG_DIR/.harness-drift).
+# Harness check: the script beside this one prints one full line per drift (an
+# "info:" line is information, not an alert) and writes the alerts' short form
+# the statusline reads ($CLAUDE_CONFIG_DIR/.harness-drift).
 here=${BASH_SOURCE[0]%/*}; [ "$here" = "${BASH_SOURCE[0]}" ] && here=.
 drift=$(bash "$here/harness-drift.sh" 2>/dev/null)
 if [ -n "$drift" ]; then
-  out+="## Harness drift"$'\n'"$drift"$'\n'
-  out+="deployed ≠ clone: run install.sh --only claude from the clone. clone ≠ origin: the clone's working tree is not what the remote holds (branch, fetch, local edits)."$'\n'
-  warn="Harness drift — ${drift//$'\n'/ — }. Deployed ≠ clone: install.sh --only claude. Clone ≠ origin: the clone is not what the remote holds."
+  out+="## Harness check"$'\n'"$drift"$'\n'
+  alerts=$(printf '%s\n' "$drift" | grep -v '^info: ' || true)
+  if [ -n "$alerts" ]; then
+    out+="deployed ≠ clone: run install.sh --only claude from the clone. clone ≠ upstream or origin: the clone's working tree is not what that remote holds (branch, fetch, local edits)."$'\n'
+    warn="Harness drift — ${alerts//$'\n'/ — }. Deployed ≠ clone: install.sh --only claude. Clone ≠ remote: the clone is not what the remote holds."
+  fi
 fi
 
 if [ -n "$warn" ] && command -v jq >/dev/null 2>&1; then

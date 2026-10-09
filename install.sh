@@ -1239,6 +1239,33 @@ for dir in agents commands scripts hooks; do
   fi
 done
 
+# What this script deploys under ~/.claude, one relative path per line, from the
+# repo: the six copied directories, walked, plus CLAUDE.md and settings.json.
+_deployed_manifest() {
+  ( cd "$REPO_DIR" && find agents commands scripts hooks templates mods -type f 2>/dev/null | LC_ALL=C sort )
+  printf 'CLAUDE.md\nsettings.json\n'
+}
+# Remove from ~/.claude the files the previous manifest ($1) listed and the new one
+# ($2) does not: this script's own leftovers (a renamed script, a dropped template),
+# never the owner's files. Relative paths inside the deployed directories only.
+_prune_stale_deployed() {
+  local p
+  [[ -f "$1" ]] || return 0
+  while IFS= read -r p || [[ -n "$p" ]]; do
+    p=${p%$'\r'}
+    case "$p" in
+      agents/*|commands/*|scripts/*|hooks/*|templates/*|mods/*|CLAUDE.md|settings.json) ;;
+      *) continue ;;
+    esac
+    case "$p" in *..*) continue ;; esac
+    grep -qxF -- "$p" "$2" && continue
+    if [[ -f "$CLAUDE_DIR/$p" ]]; then
+      rm -f "$CLAUDE_DIR/$p"
+      _detail "  ${DIM}· $p removed: no longer deployed${RESET}"
+    fi
+  done < "$1"
+}
+
 # --- Copy agents, commands and scripts ---
 _step "Copying agents, commands and scripts..."
 mkdir -p "$CLAUDE_DIR/agents" "$CLAUDE_DIR/commands" "$CLAUDE_DIR/scripts" "$CLAUDE_DIR/hooks" "$CLAUDE_DIR/templates" "$CLAUDE_DIR/mods"
@@ -1274,6 +1301,13 @@ for dir in agents commands; do
     fi
   done
 done
+# Manifest of this deploy (.deployed-files): the next install removes what the
+# previous manifest listed and its own does not — this script's leftovers only,
+# in the additive directories too (scripts/ once kept a renamed script for months).
+_manifest_new="$(mktemp)"
+_deployed_manifest > "$_manifest_new"
+_prune_stale_deployed "$CLAUDE_DIR/.deployed-files" "$_manifest_new"
+mv -f "$_manifest_new" "$CLAUDE_DIR/.deployed-files"
 _detail "  ${GREEN}✓ Claude files copied${RESET}"
 
 # --- Copy global CLAUDE.md (with vault path substitution) ---
@@ -1398,7 +1432,9 @@ fi
 # Legacy caveman machinery: caveman-toggle (pre plugin-flag era), then the plugin's
 # own session flag (caveman dropped 2026-10-09) — retire deployed copies.
 rm -f "$CLAUDE_DIR/scripts/caveman-toggle.sh" "$CLAUDE_DIR/caveman.enabled" "$CLAUDE_DIR/caveman.level" "$CLAUDE_DIR/.caveman-active"
-rm -f "$CLAUDE_DIR/scripts/baseline-ratchet.js"   # renamed .cjs (2026-10): scripts/ is additive, the old copy would linger
+# scripts/baseline-ratchet.js (renamed .cjs, 2026-10) was removed here by name; the
+# deploy manifest above now prunes such leftovers, and a clone that still holds the
+# file deploys it rather than fighting the check (harness-drift.sh names it there).
 _ok_flush
 _detail "  ${GREEN}✓ Claude configuration updated${RESET}"
 

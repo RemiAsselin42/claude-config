@@ -154,13 +154,45 @@ ctx=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/
 is_eq "12 hookEventName SessionStart" SessionStart "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.hookEventName' 2>/dev/null)"
 is_eq "12 systemMessage names the drift" true "$(printf '%s' "$msg" | grep -q 'Harness drift.*deployed ≠ clone: hooks/g.js' && echo true || echo false)"
 has_line "12 context keeps TODO.md" "- todo one" "$ctx"
-has_line "12 context carries the drift section" "## Harness drift" "$ctx"
+has_line "12 context carries the harness section" "## Harness check" "$ctx"
 has_line "12 context carries the drift line" "deployed ≠ clone: hooks/g.js" "$ctx"
 deploy
 out=$(cd "$proj" && CLAUDE_CONFIG_DIR="$D" PATH="$stubs:$PATH" bash "$SS" 2>/dev/null)
 has_line "12 clean: plain text, TODO.md heading" "## TODO.md" "$out"
 is_eq "12 clean: not JSON" false "$(printf '%s' "$out" | jq -e . >/dev/null 2>&1 && echo true || echo false)"
-is_eq "12 clean: no drift section" "" "$(printf '%s\n' "$out" | grep -i 'harness' || true)"
+is_eq "12 clean: no harness section" "" "$(printf '%s\n' "$out" | grep -i 'harness' || true)"
+
+echo "== 13. an upstream remote: the alert compares to upstream/<default>, origin becomes an information line"
+printf '#!/usr/bin/env bash\necho s3\n' > "$C/scripts/s.sh"
+git -C "$C" -c user.email=t@t -c user.name=t commit -q -am "shared change"
+git -C "$C" remote add upstream "$tmp/nowhere.git"
+git -C "$C" update-ref refs/remotes/upstream/main HEAD   # upstream holds the change (no upstream/HEAD: the main fallback), origin/main does not
+deploy
+out=$(run)
+is_eq "13 no alert line" "" "$(printf '%s\n' "$out" | grep -v '^info: ' || true)"
+has_line "13 origin as information" "info: clone ≠ origin/main: scripts/s.sh" "$out"
+is_eq "13 no marker for an information line" false "$(exists "$D/.harness-drift")"
+
+echo "== 14. a shared file modified in the clone: the alert names upstream/main, origin stays informational"
+printf '#!/usr/bin/env bash\necho s4\n' > "$C/scripts/s.sh"; deploy
+out=$(run)
+has_line "14 clone ≠ upstream/main: scripts/s.sh" "clone ≠ upstream/main: scripts/s.sh" "$out"
+has_line "14 information line against origin" "info: clone ≠ origin/main: scripts/s.sh" "$out"
+is_eq "14 the marker holds the alert only" "clone ≠ upstream/main: scripts/s.sh" "$(cat "$D/.harness-drift" 2>/dev/null)"
+git -C "$C" checkout -q -- scripts/s.sh; deploy
+
+echo "== 15. an upstream remote with nothing fetched: an alert, not silence"
+git -C "$C" update-ref -d refs/remotes/upstream/main
+has_line "15 no upstream ref" "clone: no upstream/main or upstream/master fetched" "$(run)"
+git -C "$C" update-ref refs/remotes/upstream/main HEAD
+is_eq "15 fetched again: no alert" "" "$(run | grep -v '^info: ' || true)"
+
+echo "== 16. session-start.sh with an information line only: plain text that carries it, no systemMessage, no marker"
+out=$(cd "$proj" && CLAUDE_CONFIG_DIR="$D" PATH="$stubs:$PATH" bash "$SS" 2>/dev/null)
+is_eq "16 not JSON" false "$(printf '%s' "$out" | jq -e . >/dev/null 2>&1 && echo true || echo false)"
+has_line "16 the information line is in the context" "info: clone ≠ origin/main: scripts/s.sh" "$out"
+has_line "16 under the harness heading" "## Harness check" "$out"
+is_eq "16 no marker" false "$(exists "$D/.harness-drift")"
 
 echo
 if (( fails )); then echo "$fails failure(s)"; exit 1; fi
