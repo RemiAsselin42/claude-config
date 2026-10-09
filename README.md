@@ -49,7 +49,7 @@ Your private repo stays in sync with this one automatically — see [Minimal set
 1. Syncs from the `upstream` remote **first**: a fork that lacks the remote gets it, pointing at the public repo (`CLAUDE_CONFIG_UPSTREAM_URL` in `install.sh`), whatever its name; a checkout of the public repo itself gets none. If the sync brings changes, the script re-executes itself so the rest of the run uses the updated version, and syncs once more when those changes touched the sync script: a path added to its list arrives in the same run. Skipped, with a message, while the repo has uncommitted changes or is not on its default branch (what `origin/HEAD` names, else `main` or `master`: the sync commits upstream's files into the current branch)
 2. Checks **Node.js**, installs **uv** if missing, then installs/upgrades **Graphify**, **MemPalace**, **chromadb**, **RTK**, **jq**, **shellcheck** and **context-mode** (plus the Zilliz MCP server when `MILVUS_ADDRESS` is set)
 3. Asks once to add `~/.local/bin` to persistent PATH (`-y` skips)
-4. Copies **commands**, **scripts**, **templates** to `~/.claude/` — `commands/` and `agents/` are mirrored (deployed files with no source in the repo are pruned), `scripts/` and `templates/` are additive. `agents/` holds the three subagents `/feature` spawns, pinned to another model; a subagent dropped from the repo disappears from every machine at the next install. `mods/` goes to `~/.claude/mods/` the same additive way: `settings.json` names the deployed `paste-view` in `CLAUDE_CODE_PLUGIN_DIRS`, so every new session shows a preview of what is pasted (a pasted text as one line that gives its size and opens it whole; for an image, a line that opens it in the system viewer under a coarse mosaic of half blocks on Windows, or a real thumbnail where the terminal draws kitty graphics, which Windows Terminal and VS Code do not) with nothing fetched from a marketplace
+4. Copies **commands**, **scripts**, **templates** to `~/.claude/` — `commands/` and `agents/` are mirrored (deployed files with no source in the repo are pruned), `scripts/` and `templates/` are additive. `agents/` holds the three subagents `/feature` spawns, pinned to another model; a subagent dropped from the repo disappears from every machine at the next install. `mods/` goes to `~/.claude/mods/` the same additive way: `settings.json` names the deployed `paste-view` in `CLAUDE_CODE_PLUGIN_DIRS`, so every new session shows a preview of what is pasted (a pasted text as one line that gives its size and opens it whole; for an image, a line that opens it in the system viewer under a coarse mosaic of half blocks on Windows, or a real thumbnail where the terminal draws kitty graphics, which Windows Terminal and VS Code do not) with nothing fetched from a marketplace `mods/` also holds the plugins `ponytail` and `vibe-wise`, vendored at a fixed upstream commit and listed by `mods/.claude-plugin/marketplace.json`, the local marketplace `claude-config` that step 12 registers from the deployed folder
 5. Records the repo location in `~/.claude/claude-config.path`; hooks, `scripts/session-start.sh` (SessionStart hook: newest MemPalace diary entries for the repo + head of `TODO.md`, ~200 tokens) and `scripts/session-stop.sh` (Stop hook: `graphify update` + mining the repo into its MemPalace wing + vault sync, run detached) resolve the repo through this pointer instead of hardcoded absolute paths
 6. Initializes **MemPalace**: creates the palace, selects the embedding model, checks index health. Repos are _not_ mined here — each one is mined into its own wing during step 16
 7. Copies **CLAUDE.md** to `~/.claude/CLAUDE.md` (substitutes `${VAULT_DIR}`)
@@ -57,9 +57,9 @@ Your private repo stays in sync with this one automatically — see [Minimal set
 9. Copies **`settings.json`** — this pins the default model/effort (`fable` · `xhigh`) and points the statusline at `scripts/statusline.sh` on every machine
 10. Activates **RTK** via `setup-rtk.sh`
 11. Removes the five **cc-safe-setup** hooks that earlier installs left behind (`comment-strip`, `syntax-check`, `context-monitor`, `cd-git-allow`, `api-error-alert`) and fails if one is still on disk or in the deployed `settings.json`; then checks that the four guards (`hooks/*.sh`, `protect-gates.js`) are on disk and registered there, since a registered hook whose file is missing guards nothing. The blocking hooks now ship in `hooks/` (see **Quality harness** below) and are registered by `settings.json`; `comment-strip` was the real cause of the "heredoc bug" (`docs/pitfall.md`)
-12. Installs **pinned plugins** via the `claude` CLI (`ponytail`, upstream `caveman`, official `context7` + `frontend-design`, `hono`, `vibe-wise`), and warns when `python3` does not run (the vibe-wise hook calls it)
+12. Installs the **plugins**: registers the local marketplace `claude-config` (the deployed `~/.claude/mods`, declared by `mods/.claude-plugin/marketplace.json`) and installs `ponytail` and `vibe-wise` from it, loaded in place with nothing fetched; installs the **pinned plugins** from their upstream marketplaces via the `claude` CLI (official `context7` + `frontend-design`, `hono`); removes the upstream `ponytail`, `caveman` and `vibe-wise` marketplaces earlier installs registered (caveman left the harness on 2026-10-09); and warns when `python3` does not run (the vibe-wise hook calls it)
 13. Checks the **statusline** prerequisite (`jq`) — `scripts/statusline.sh` renders model, context, 5h/7d rate limits and git from the payload Claude Code pipes in, plus the active terse-mode badge and the project's VibeWise learning mode; no network, no login
-14. Enables **ponytail** by default (terse-mode plugin) when no mode flag exists on this machine — `style-toggle.sh` switches between ponytail and caveman
+14. Enables **ponytail** by default (terse-mode plugin) when its user config does not exist on this machine — `style-toggle.sh` switches it off and on
 15. Updates `.gitignore` in target repos (graphify block + `CLAUDE.md` + `mempalace.yaml` + `context/`) using `templates/gitignore.append`
 16. Interactively selects sibling git repos to index. Per repo: graphify hooks + graph, LLM **community naming**, vault sync (report + file tree + canvas + one note per node), `mempalace.yaml` generation and mining into the repo's own wing, and a local `CLAUDE.md` **re-rendered** from `templates/CLAUDE.project.md` on every run — so a machine still holding an older generation catches up. Anything written below the template's last line is kept, and a `CLAUDE.md` install.sh never generated is left untouched (`tests/claude-md-refresh.sh` covers all four cases)
 17. Runs the same pipeline on the config repo itself (forced graph refresh, no `.gitignore` management)
@@ -160,7 +160,7 @@ claude-config/
 │   ├── session-start.sh         # SessionStart hook: starts the MemPalace daemon, diary + TODO.md head, one line when MemPalace is down
 │   ├── session-stop.sh          # Stop hook: graphify update + wing mine + vault sync
 │   ├── statusline.sh            # Statusline: model, context, rate limits, mode, VibeWise, git
-│   ├── style-toggle.sh          # Switch terse mode: ponytail ⇄ caveman ⇄ off
+│   ├── style-toggle.sh          # Switch the ponytail terse mode: on ⇄ off, status
 │   ├── vibe-toggle.sh           # VibeWise learning mode of the current project: on ⇄ off, status
 │   ├── setup-rtk.sh             # Install RTK
 │   ├── sync-upstream.sh         # Sync shared files from upstream remote
@@ -171,13 +171,18 @@ claude-config/
 │   ├── CLAUDE.project.md        # Per-repo CLAUDE.md, re-rendered on every install
 │   ├── gitignore.append         # .gitignore entries appended by install.sh
 │   └── gates/                   # What /init-gates creates in a repo: dependency-cruiser config, the CI callers of the three gate families
-├── mods/paste-view/             # Claude Code mod → ~/.claude/mods/: pasted images and long texts previewed above the prompt (vendored, Amorfx/claude-paste-view, Windows added); claude plugin test mods/paste-view
+├── mods/                        # Vendored Claude Code plugins and mods → ~/.claude/mods/ (copied by install.sh, nothing fetched from a marketplace)
+│   ├── .claude-plugin/          # marketplace.json: the local marketplace `claude-config` install.sh registers from ~/.claude/mods, listing ./ponytail and ./vibe-wise
+│   ├── paste-view/              # Mod: pasted images and long texts previewed above the prompt (Amorfx/claude-paste-view at a71ba10, MIT, Windows added; loaded through CLAUDE_CODE_PLUGIN_DIRS); claude plugin test mods/paste-view
+│   ├── ponytail/                # Plugin: lazy senior dev mode, the default terse mode (DietrichGebert/ponytail 4.8.4 at 16f2980, MIT; one matcher added so the harness agents stay out of it)
+│   └── vibe-wise/               # Plugin: learning mode per project (nykooi1/vibe-wise 0.1.43 at c5fc8d8, MIT, as is)
 ├── docs/
 │   └── pitfall.md               # Append-only log of traps Claude Code hit in this repo
 └── tests/
     ├── claude-md-refresh.sh     # Self-check for the per-repo CLAUDE.md refresh
     ├── statusline.sh            # Pins the statusline line format against a fixture payload
     ├── vibe-toggle.sh           # vibe-toggle.sh on throwaway projects (lookup, on/off, CRLF, symlinks), the VibeWise statusline line, the plugin's wiring
+    ├── style-toggle.sh          # style-toggle.sh: ponytail on (plugin config + session flag), off, status, any other plugin name refused
     ├── vibe-toggle-write.sh     # What vibe-toggle.sh writes: only the plugin's markers, line endings and a missing final newline kept, a failed write leaves the notes whole
     ├── legacy-hooks.sh          # install.sh must remove the dropped cc-safe-setup hooks and notice a leftover
     ├── install-scope.sh         # install.sh --only: usage names both halves, bad values are refused, the guard answers right
@@ -186,6 +191,7 @@ claude-config/
     ├── workflows-yaml.sh        # Every workflow and gate template parses as YAML (js-yaml): a broken one runs nothing and reaches no PR
     ├── mempalace-health.sh      # install.sh looks for venv holders before uv, trusts an import over a version, fails closed on a broken venv; session-start.sh starts the daemon and says when MemPalace is down
     ├── hooks.test.js            # Every guard in hooks/, fed Bash and PowerShell payloads (node --test "tests/*.test.js")
+    ├── ponytail-subagent.test.js # The SubagentStart matcher of the vendored ponytail skips the harness agents declared in agents/ and no other subagent
     ├── baseline-ratchet.test.js # The ratchet on real baselines from a pilot repository
     ├── gates-template.test.js   # The dependency-cruiser template on a toy project: layers, cycle, module in no layer, path alias
     ├── python/conftest.py       # load_gate(name): a gate script loaded from gates/python by file, the way CI runs it
@@ -217,7 +223,7 @@ claude-config/
 | `/review-documentation` | Check doc/code consistency                                                            |
 | `/review-quality`       | Evaluate code quality                                                                 |
 | `/review-stack`         | Audit the technology stack                                                            |
-| `/style-toggle`         | Switch terse mode: ponytail ⇄ caveman ⇄ off (empty = status)                          |
+| `/style-toggle`         | Switch the ponytail terse mode: on ⇄ off (empty = status)                             |
 | `/update-agents`        | Update AGENTS.md                                                                      |
 | `/update-documentation` | Update documentation                                                                  |
 | `/update-prompts`       | Adapt prompt examples to the current project                                          |
@@ -228,19 +234,21 @@ claude-config/
 ---
 
 <details>
-<summary><strong>Terse modes (ponytail / caveman)</strong></summary>
+<summary><strong>Terse mode (ponytail)</strong></summary>
 
-Two pinned plugins reduce token consumption: **ponytail** (YAGNI decision ladder — less generated code) and **caveman** (prose compression). Running both is redundant, so exactly one is active at a time — ponytail by default. Switch in one command:
+**ponytail** (YAGNI decision ladder — less generated code) is on by default. It is vendored in `mods/ponytail/` (DietrichGebert/ponytail 4.8.4 at `16f2980`, MIT) and loaded in place from `~/.claude/mods` through the local marketplace `claude-config`, so every machine runs the same rules. Switch it in one command:
 
 ```bash
-bash ~/.claude/scripts/style-toggle.sh [ponytail|caveman|off|status] [level]
+bash ~/.claude/scripts/style-toggle.sh [ponytail|off|status] [level]
 ```
 
 Also available as a slash command inside Claude Code: `/style-toggle [same arguments]` (empty = status).
 
-Ponytail levels: `lite`, `full` (default), `ultra`. Caveman adds `wenyan-lite`, `wenyan-full`, `wenyan-ultra`.
+Levels: `lite`, `full` (default), `ultra`.
 
-Persistent state is each plugin's user config (`defaultMode` in `%APPDATA%\<plugin>\config.json`, or `$XDG_CONFIG_HOME`/`~/.config`): their SessionStart hooks re-read it and rewrite the session flag (`~/.claude/.ponytail-active` / `.caveman-active`) on every session start — the builtin default is `full`, so the switch must write the config, not just the flag. `style-toggle.sh` writes both (config for persistence, flag for an immediate statusline update). Both plugins stay installed — the inactive one is simply dormant; `/ponytail` and `/caveman` remain available for per-session tweaks. On a new machine, `install.sh` enables ponytail (`full`) when neither plugin config exists. `scripts/statusline.sh` renders whichever mode is active.
+Persistent state is the plugin's user config (`defaultMode` in `%APPDATA%\ponytail\config.json`, or `$XDG_CONFIG_HOME`/`~/.config`): its SessionStart hook re-reads it and rewrites the session flag (`~/.claude/.ponytail-active`) on every session start — the builtin default is `full`, so the switch must write the config, not just the flag. `style-toggle.sh` writes both (config for persistence, flag for an immediate statusline update). `/ponytail` remains available for per-session tweaks. On a new machine, `install.sh` enables ponytail (`full`) when the config does not exist. `scripts/statusline.sh` renders the badge from the plugin's own statusline script.
+
+The one local change to the copy: its SubagentStart hook carries a `matcher` that skips the harness agents `plan-reviewer`, `spec-tester` and `diff-reviewer` (`agents/`), so a reviewer or a test writer is never told to cut corners (`tests/ponytail-subagent.test.js`). caveman (prose compression) left the harness on 2026-10-09.
 
 </details>
 
@@ -265,18 +273,17 @@ bash ~/.claude/scripts/vibe-toggle.sh [on|off|status] [dir]
 <details>
 <summary><strong>Pinned plugins</strong></summary>
 
-`install.sh` installs the same Claude Code plugins on every machine via the `claude` CLI (list: `PINNED_PLUGINS` array in `install.sh`):
+`install.sh` installs the same Claude Code plugins on every machine via the `claude` CLI: two vendored in `mods/` and served by the local marketplace `claude-config` (`MODS_PLUGINS` in `install.sh`), the rest from their upstream marketplaces (`PINNED_PLUGINS`):
 
 | Plugin     | Source                                                                | Purpose                                                                                        |
 | ---------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `ponytail` | [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) | YAGNI decision ladder — less generated code (reuse → stdlib → existing dependency → minimum)   |
-| `caveman`  | [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman)     | Upstream compression plugin — replaces the local CLAUDE.md block, adds stats/compress commands |
+| `ponytail` | `mods/ponytail/` — [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) 4.8.4 at `16f2980`, MIT | YAGNI decision ladder — less generated code (reuse → stdlib → existing dependency → minimum)   |
 | `context7` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) | Remote MCP (2 tools) — current docs for any library, on demand                     |
 | `frontend-design` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) | Skill — opinionated visual direction, away from the generic "AI aesthetic"    |
 | `hono` | [honojs/skills](https://github.com/honojs/skills)     | Skill — inline Hono API reference (routing, middleware, validators, JSX) + `npx hono request` |
-| `vibe-wise` | [nykooi1/vibe-wise](https://github.com/nykooi1/vibe-wise) | Learning mode, per project — you design, Claude explains and writes the agreed code; `/vibe-toggle` switches it, the statusline shows it |
+| `vibe-wise` | `mods/vibe-wise/` — [nykooi1/vibe-wise](https://github.com/nykooi1/vibe-wise) 0.1.43 at `c5fc8d8`, MIT | Learning mode, per project — you design, Claude explains and writes the agreed code; `/vibe-toggle` switches it, the statusline shows it |
 
-If the `claude` CLI is not in PATH, the step is skipped with a warning; install manually with `claude plugin marketplace add <repo> && claude plugin install <name>@<marketplace>`.
+If the `claude` CLI is not in PATH, the step is skipped with a warning; install manually with `claude plugin marketplace add <repo> && claude plugin install <name>@<marketplace>`, and for the vendored ones `claude plugin marketplace add ~/.claude/mods`, then `claude plugin install ponytail@claude-config` and `claude plugin install vibe-wise@claude-config`.
 
 </details>
 

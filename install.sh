@@ -1013,19 +1013,27 @@ _prepare_dependencies() {
   _ok_flush
 }
 
-# Pinned Claude Code plugins, replicated on every machine.
-# Format: "<marketplace-repo>|<plugin>@<marketplace-name>"
+# Pinned Claude Code plugins, replicated on every machine from their upstream
+# marketplace. Format: "<marketplace-repo>|<plugin>@<marketplace-name>"
 PINNED_PLUGINS=(
-  "DietrichGebert/ponytail|ponytail@ponytail"
-  "JuliusBrussee/caveman|caveman@caveman"
   "anthropics/claude-plugins-official|context7@claude-plugins-official"
   "anthropics/claude-plugins-official|frontend-design@claude-plugins-official"
   # yusukebe/hono-skill moved to honojs/skills on 2026-08-31 and now holds only a README.
   "honojs/skills|hono@hono"
-  # Learning mode, kept per project: scripts/vibe-toggle.sh turns it on and off,
-  # the statusline shows it.
-  "nykooi1/vibe-wise|vibe-wise@vibe-wise"
 )
+
+# Plugins vendored in mods/ (ponytail, the terse mode; vibe-wise, the learning
+# mode scripts/vibe-toggle.sh turns on and off per project). mods/.claude-plugin/
+# marketplace.json is a marketplace named claude-config whose "./<plugin>" entries
+# Claude Code loads in place from the deployed ~/.claude/mods: nothing fetched,
+# an edit there is live at the next session. Registered from its absolute path,
+# which is why it is not in settings.json's extraKnownMarketplaces.
+MODS_MARKETPLACE=claude-config
+MODS_PLUGINS=(ponytail vibe-wise)
+# The upstream marketplaces earlier versions of this script registered for the
+# same plugins, plus caveman (dropped 2026-10-09). Removing a marketplace
+# uninstalls its plugins, so ponytail@ponytail and caveman@caveman go with them.
+LEGACY_MARKETPLACES=(ponytail caveman vibe-wise)
 
 _install_pinned_plugins() {
   if ! command -v claude >/dev/null 2>&1; then
@@ -1049,6 +1057,40 @@ _install_pinned_plugins() {
     else
       echo "  ${YELLOW}⚠ ${plugin}: install failed — run manually:${RESET}"
       echo "    claude plugin marketplace add ${marketplace} && claude plugin install ${plugin}"
+    fi
+  done
+}
+
+_install_mods_plugins() {
+  command -v claude >/dev/null 2>&1 || return 0   # _install_pinned_plugins warned already
+  local known m dir p installed
+  known="$(claude plugin marketplace list 2>/dev/null)"
+  for m in "${LEGACY_MARKETPLACES[@]}"; do
+    grep -q "❯ ${m}[[:space:]]*$" <<<"$known" || continue
+    if _run_quiet claude plugin marketplace remove "$m"; then
+      _detail "  ${DIM}· marketplace $m removed, its plugins with it (now in mods/)${RESET}"
+    else
+      echo "  ${YELLOW}⚠ marketplace $m still registered — run: claude plugin marketplace remove $m${RESET}"
+    fi
+  done
+  if ! grep -q "❯ ${MODS_MARKETPLACE}[[:space:]]*$" <<<"$known"; then
+    dir="$CLAUDE_DIR/mods"
+    _is_windows && dir="$(cygpath -w "$dir" 2>/dev/null || printf '%s' "$dir")"
+    if ! _run_quiet claude plugin marketplace add "$dir"; then
+      echo "  ${YELLOW}⚠ marketplace $MODS_MARKETPLACE not added — run: claude plugin marketplace add $dir${RESET}"
+      return 0
+    fi
+  fi
+  installed="$(claude plugin list 2>/dev/null)"
+  for p in "${MODS_PLUGINS[@]}"; do
+    if grep -q "❯ ${p}@${MODS_MARKETPLACE}[[:space:]]*$" <<<"$installed"; then
+      _detail "  ${DIM}· $p@$MODS_MARKETPLACE: already installed${RESET}"
+      continue
+    fi
+    if _run_quiet claude plugin install "$p@$MODS_MARKETPLACE"; then
+      _ok "$p@$MODS_MARKETPLACE (mods/)"
+    else
+      echo "  ${YELLOW}⚠ $p@$MODS_MARKETPLACE: install failed — run: claude plugin install $p@$MODS_MARKETPLACE${RESET}"
     fi
   done
 }
@@ -1200,13 +1242,16 @@ done
 # --- Copy agents, commands and scripts ---
 _step "Copying agents, commands and scripts..."
 mkdir -p "$CLAUDE_DIR/agents" "$CLAUDE_DIR/commands" "$CLAUDE_DIR/scripts" "$CLAUDE_DIR/hooks" "$CLAUDE_DIR/templates" "$CLAUDE_DIR/mods"
-# mods/ holds Claude Code mods vendored in the repo (paste-view). They are loaded
-# from the deployed copy, which settings.json names in CLAUDE_CODE_PLUGIN_DIRS,
-# never from the checkout: Claude Code writes its generated typings into the
-# folder it loads, and a checkout with work in progress would run live.
-# Use nullglob to avoid glob failure if a source directory is empty
+# mods/ holds the Claude Code mod and plugins vendored in the repo (paste-view,
+# ponytail, vibe-wise) and the marketplace file that lists the plugins. They are
+# loaded from the deployed copy — settings.json names paste-view in
+# CLAUDE_CODE_PLUGIN_DIRS, _install_mods_plugins registers ~/.claude/mods as a
+# marketplace — never from the checkout: Claude Code writes its generated typings
+# into the folder it loads, and a checkout with work in progress would run live.
+# nullglob: no failure on an empty source directory; dotglob: mods/.claude-plugin/
+# travels too.
 (
-  shopt -s nullglob
+  shopt -s nullglob dotglob
   for dir in agents commands scripts hooks templates mods; do
     files=("$REPO_DIR/$dir/"*)
     if [[ ${#files[@]} -gt 0 ]]; then
@@ -1325,9 +1370,10 @@ _verify_legacy_cc_safe_hooks_removed || exit 1
 _verify_shell_guards_deployed || exit 1
 _ok "shell guards (hooks/*.sh, protect-gates.js)"
 
-# --- Install pinned plugins (after settings.json copy — plugin state must survive it) ---
-_step "Installing pinned plugins..."
+# --- Install plugins (after settings.json copy — plugin state must survive it) ---
+_step "Installing plugins..."
 _install_pinned_plugins
+_install_mods_plugins
 _warn_vibe_wise_python3
 
 # --- Statusline: scripts/statusline.sh renders model, context, 5h/7d rate
@@ -1340,17 +1386,18 @@ else
   echo "  ${YELLOW}⚠ jq not found — statusline shows the model name only${RESET}"
 fi
 
-# --- Default terse mode: ponytail (never together with caveman — both compress
-# output; scripts/style-toggle.sh switches between them via the plugins' user
-# configs, which their SessionStart hooks re-read on every session — a bare
-# flag file would be reset to the builtin 'full' default at the next session) ---
+# --- Default terse mode: ponytail. scripts/style-toggle.sh switches it through
+# the plugin's user config, which its SessionStart hook re-reads on every session
+# — a bare flag file would be reset to the builtin 'full' default at the next
+# session ---
 _style_cfg_root="${XDG_CONFIG_HOME:-${APPDATA:-$HOME/.config}}"
-if [[ ! -f "$_style_cfg_root/ponytail/config.json" && ! -f "$_style_cfg_root/caveman/config.json" ]]; then
+if [[ ! -f "$_style_cfg_root/ponytail/config.json" ]]; then
   bash "$CLAUDE_DIR/scripts/style-toggle.sh" ponytail full >/dev/null
-  _detail "  ${DIM}ponytail enabled by default (full) — switch: style-toggle.sh caveman${RESET}"
+  _detail "  ${DIM}ponytail enabled by default (full) — switch: style-toggle.sh off${RESET}"
 fi
-# Legacy caveman-toggle machinery (pre plugin-flag era) — retire deployed copies.
-rm -f "$CLAUDE_DIR/scripts/caveman-toggle.sh" "$CLAUDE_DIR/caveman.enabled" "$CLAUDE_DIR/caveman.level"
+# Legacy caveman machinery: caveman-toggle (pre plugin-flag era), then the plugin's
+# own session flag (caveman dropped 2026-10-09) — retire deployed copies.
+rm -f "$CLAUDE_DIR/scripts/caveman-toggle.sh" "$CLAUDE_DIR/caveman.enabled" "$CLAUDE_DIR/caveman.level" "$CLAUDE_DIR/.caveman-active"
 rm -f "$CLAUDE_DIR/scripts/baseline-ratchet.js"   # renamed .cjs (2026-10): scripts/ is additive, the old copy would linger
 _ok_flush
 _detail "  ${GREEN}✓ Claude configuration updated${RESET}"

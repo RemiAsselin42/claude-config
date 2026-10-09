@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Self-check for the vibe-wise integration: scripts/vibe-toggle.sh (the toggle
 # and the per-project lookup), the VibeWise line of scripts/statusline.sh, and
-# the wiring in settings.json, install.sh and commands/vibe-toggle.md. Every
+# the wiring in settings.json, install.sh, mods/ and commands/vibe-toggle.md. Every
 # fixture project is a throwaway `git init`ed directory, so the upward lookup
 # stops there and never reaches notes above the temp directory.
 #
@@ -269,7 +269,7 @@ if no_vibe "$out" && printf '%s\n' "$out" | grep -q '^Github' && printf '%s\n' "
 else ko "21 no VibeWise line without notes (sibling with notes has one)" "no notes:" "$out" "sibling:" "$sib"; fi
 
 echo "== 22. line order with a terse-mode badge (R3)"
-stub="$tmp/cfg22/plugins/cache/ponytail/ponytail/1.0.0/hooks/ponytail-statusline.sh"
+stub="$tmp/cfg22/mods/ponytail/hooks/ponytail-statusline.sh"
 mkdir -p "$(dirname "$stub")"; printf '#!/usr/bin/env bash\nprintf "[PONYTAIL]"\n' > "$stub"
 out=$(render_with "$tmp/cfg22" "$(payload "$p18")")
 pn=$(printf '%s\n' "$out" | grep -n '^Ponytail' | head -1 | cut -d: -f1)
@@ -307,19 +307,24 @@ else ko "26 no current_dir: no VibeWise line from the process cwd (with current_
 
 # ══ Wiring ════════════════════════════════════════════════════════════════════
 
-echo "== 27. settings.json (R1, R2)"
+echo "== 27. settings.json and the mods marketplace (R1, R2)"
 S="$REPO_DIR/settings.json"
-is_eq "27 enabledPlugins[vibe-wise@vibe-wise] is true" true "$(jq -r '.enabledPlugins["vibe-wise@vibe-wise"]' "$S" | tr -d '\r')"
-is_eq "27 extraKnownMarketplaces[vibe-wise].source is github nykooi1/vibe-wise" '{"repo":"nykooi1/vibe-wise","source":"github"}' \
-  "$(jq -cS '.extraKnownMarketplaces["vibe-wise"].source' "$S" | tr -d '\r')"
-is_eq "27 permissions.allow holds Bash(bash *vibe-toggle*)" true \
-  "$(jq -r '.permissions.allow | index("Bash(bash *vibe-toggle*)") != null' "$S" | tr -d '\r')"
+is_eq "27 enabledPlugins[vibe-wise@claude-config] is true" true "$(jq -r '.enabledPlugins["vibe-wise@claude-config"]' "$S" | tr -d '\r')"
+is_eq "27 no enabledPlugins[vibe-wise@vibe-wise], no extraKnownMarketplaces[vibe-wise]: the upstream copy is gone" "null null"   "$(jq -r '[.enabledPlugins["vibe-wise@vibe-wise"], .extraKnownMarketplaces["vibe-wise"]] | map(tostring) | join(" ")' "$S" | tr -d '\r')"
+M="$REPO_DIR/mods/.claude-plugin/marketplace.json"
+is_eq "27 marketplace claude-config lists vibe-wise from ./vibe-wise" "claude-config ./vibe-wise"   "$(jq -r '.name + " " + (.plugins[] | select(.name == "vibe-wise") | .source)' "$M" 2>/dev/null | tr -d '\r')"
+is_eq "27 mods/vibe-wise holds the plugin's SessionStart hook" true "$([ -f "$REPO_DIR/mods/vibe-wise/hooks/session_start.py" ] && echo true || echo false)"
+is_eq "27 permissions.allow holds Bash(bash *vibe-toggle*)" true   "$(jq -r '.permissions.allow | index("Bash(bash *vibe-toggle*)") != null' "$S" | tr -d '\r')"
 
-echo "== 28. install.sh PINNED_PLUGINS (R1)"
+echo "== 28. install.sh: vibe-wise comes from mods/, not from PINNED_PLUGINS (R1)"
 arr=$(awk '/^PINNED_PLUGINS=\(/{f=1} f{print} f&&/^\)/{exit}' "$REPO_DIR/install.sh")
+mods=$(sed -n 's/^MODS_PLUGINS=(\(.*\))$/\1/p' "$REPO_DIR/install.sh")
 if [ -z "$arr" ]; then ko "28 PINNED_PLUGINS array not found in install.sh"
-elif printf '%s\n' "$arr" | grep -qF '"nykooi1/vibe-wise|vibe-wise@vibe-wise"'; then ok "28 PINNED_PLUGINS holds nykooi1/vibe-wise|vibe-wise@vibe-wise"
-else ko "28 PINNED_PLUGINS holds nykooi1/vibe-wise|vibe-wise@vibe-wise" "$arr"; fi
+elif printf '%s
+' "$arr" | grep -q 'vibe-wise'; then ko "28 PINNED_PLUGINS no longer names vibe-wise" "$arr"
+else ok "28 PINNED_PLUGINS no longer names vibe-wise"; fi
+if printf ' %s ' "$mods" | grep -q ' vibe-wise '; then ok "28 MODS_PLUGINS holds vibe-wise (installed as vibe-wise@claude-config)"
+else ko "28 MODS_PLUGINS holds vibe-wise (installed as vibe-wise@claude-config)" "MODS_PLUGINS=($mods)"; fi
 
 echo "== 29. commands/vibe-toggle.md (R2)"
 C="$REPO_DIR/commands/vibe-toggle.md"

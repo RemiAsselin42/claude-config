@@ -3,7 +3,7 @@
 # no OAuth token (this replaced a vendored fork of @allthingsclaude/bar, which
 # fetched the same numbers from a private endpoint with its own login).
 # Lines: Model · Cache (context window) · Usage (5h/7d rate limits, present on
-# subscription accounts) · active terse mode (ponytail/caveman badge) · VibeWise
+# subscription accounts) · active terse mode (ponytail badge) · VibeWise
 # (learning mode of the cwd's project, when it has notes) · Github.
 # Wired by install.sh via settings.json → "statusLine". Needs jq (install.sh
 # provides it); without it only a placeholder model line is printed.
@@ -120,25 +120,13 @@ if [ -n "$p7" ]; then
 fi
 [ -n "$line_usage" ] && line_usage="$(label Usage)${line_usage}"
 
-# ── Mode badge: delegate to the active plugin's own statusline script ────────
-# ponytail first, caveman as fallback (style-toggle.sh keeps at most one on, so
-# the first non-empty badge wins). Several cached plugin versions can coexist —
-# pick the most recently modified script of each.
+# ── Mode badge: ponytail's own statusline script, from the vendored copy that
+# install.sh deploys to ~/.claude/mods (empty when the mode is off) ──────────
 badge=""
-for pattern in "ponytail/ponytail/*/hooks/ponytail-statusline.sh" \
-               "caveman/caveman/*/src/hooks/caveman-statusline.sh"; do
-  badge_script=""
-  for s in "$CFG"/plugins/cache/$pattern; do
-    [ -f "$s" ] || continue
-    if [ -z "$badge_script" ] || [ "$s" -nt "$badge_script" ]; then
-      badge_script="$s"
-    fi
-  done
-  [ -n "$badge_script" ] && badge=$(bash "$badge_script" 2>/dev/null)
-  [ -n "$badge" ] && break
-done
-# Restyle "[PONYTAIL]", "[PONYTAIL:ULTRA]", "[CAVEMAN:X] <savings>" as a
-# bar-like line: "Ponytail │ On · Full [· savings]". Unknown format → verbatim.
+badge_script="$CFG/mods/ponytail/hooks/ponytail-statusline.sh"
+[ -f "$badge_script" ] && badge=$(bash "$badge_script" 2>/dev/null)
+# Restyle "[PONYTAIL]", "[PONYTAIL:ULTRA]" as a bar-like line:
+# "Ponytail │ On · Full". Unknown format → verbatim.
 line_mode=""
 if [ -n "$badge" ]; then
   plain=$(printf '%s' "$badge" | sed "s/${ESC}\[[0-9;]*m//g")
