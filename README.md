@@ -87,7 +87,7 @@ git remote add origin https://github.com/<you>/my-claude-config
 git push -u origin main
 ```
 
-From then on, `scripts/sync-upstream.sh` pulls shared files from `upstream` into your private repo without touching personal files (`vault/`, `env.local`, `.claude/`). It runs at the start of every `install.sh` and nowhere else: no hook calls it between installs, so the script's 8-hour debounce (`~/.claude/.upstream-sync-stamp`) only matters if you wire one up yourself. It never touches a fork with uncommitted changes on a synced path, and it cannot sync an unreachable upstream: in both cases it exits 3 with the reason on stderr, and install.sh prints a yellow `⚠ upstream sync skipped` — the files it then deploys come from the fork as it is, possibly behind upstream — instead of the green `✓ upstream synced`.
+From then on, `scripts/sync-upstream.sh` pulls shared files from `upstream` into your private repo without touching personal files (`vault/`, `env.local`, `.claude/`). It runs at the start of every `install.sh` and nowhere else: no hook calls it between installs, so the script's 8-hour debounce (`~/.claude/.upstream-sync-stamp`) only matters if you wire one up yourself. It never touches a fork with uncommitted changes on a synced path, and it cannot sync an unreachable upstream: in both cases it exits 3 with the reason on stderr, and install.sh prints a yellow `⚠ upstream sync skipped` — the files it then deploys come from the fork as it is, possibly behind upstream — instead of the green `✓ upstream synced`. A file upstream dropped or renamed leaves the fork at the next sync, whenever that happened: the pass compares the fork's tracked files on the synced paths with `upstream/main` and removes those upstream's history knows; a file upstream never had, the fork's own, stays.
 
 ### Obsidian vault
 
@@ -189,7 +189,7 @@ claude-config/
     ├── vibe-toggle-write.sh     # What vibe-toggle.sh writes: only the plugin's markers, line endings and a missing final newline kept, a failed write leaves the notes whole
     ├── legacy-hooks.sh          # install.sh must remove the dropped cc-safe-setup hooks and notice a leftover
     ├── install-scope.sh         # install.sh --only: usage names both halves, bad values are refused, the guard answers right
-    ├── sync-upstream.sh         # The upstream sync on two throwaway repos: dirty or unreachable = exit 3 (skipped), clean = pulled and committed, a path added to the list = brought by install.sh's second pass
+    ├── sync-upstream.sh         # The upstream sync on two throwaway repos: dirty or unreachable = exit 3 (skipped), clean = pulled and committed, a path added to the list = brought by install.sh's second pass, a file renamed upstream = gone from the fork
     ├── readme-structure.sh      # Both READMEs against git ls-files: every tree entry tracked, every tracked entry in the tree, command table = commands/
     ├── workflows-yaml.sh        # Every workflow and gate template parses as YAML (js-yaml): a broken one runs nothing and reaches no PR
     ├── mempalace-health.sh      # install.sh looks for venv holders before uv, trusts an import over a version, fails closed on a broken venv; session-start.sh starts the daemon and says when MemPalace is down
