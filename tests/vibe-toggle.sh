@@ -263,10 +263,8 @@ p=$(newproj t20); write_profile "$p/.vibe-wise/profile.md" 'Learning mode: pause
 has_line "20 'VibeWise │ Off'" 'VibeWise │ Off' "$(render "$p")"
 
 echo "== 21. statusline, no notes (R3)"
-p=$(newproj t21); out=$(render "$p"); sib=$(render "$p18")
-if no_vibe "$out" && printf '%s\n' "$out" | grep -q '^Github' && printf '%s\n' "$sib" | grep -q '^VibeWise'; then
-  ok "21 no VibeWise line without notes (sibling with notes has one)"
-else ko "21 no VibeWise line without notes (sibling with notes has one)" "no notes:" "$out" "sibling:" "$sib"; fi
+p=$(newproj t21)
+has_line "21 without notes: 'VibeWise │ Off · No notes'" 'VibeWise │ Off · No notes' "$(render "$p")"
 
 echo "== 22. line order with a terse-mode badge (R3)"
 stub="$tmp/cfg22/mods/ponytail/hooks/ponytail-statusline.sh"
@@ -289,9 +287,7 @@ if printf '%s\n' "$out" | grep -qE '^VibeWise │ On( · Normal)?$'; then ok "23
 echo "== 24. statusline from a subdirectory (R3)"
 mkdir -p "$p18/sub" "$p18/hid"; printf 'not notes\n' > "$p18/hid/.vibe-wise"
 has_line "24 current_dir in a subdirectory: same VibeWise line" 'VibeWise │ On · Normal' "$(render "$p18/sub")"
-out=$(render "$p18/hid")
-if no_vibe "$out" && printf '%s\n' "$(render "$p18")" | grep -q '^VibeWise'; then ok "24 subdirectory with a file .vibe-wise: no VibeWise line (root has one)"
-else ko "24 subdirectory with a file .vibe-wise: no VibeWise line (root has one)" "$out"; fi
+has_line "24 subdirectory with a file .vibe-wise hides the root notes: 'VibeWise │ Off · No notes'" 'VibeWise │ Off · No notes' "$(render "$p18/hid")"
 
 echo "== 25. native Windows current_dir (R3)"
 if command -v cygpath >/dev/null 2>&1; then
