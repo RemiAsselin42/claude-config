@@ -126,17 +126,19 @@ fi
 # Weekly per-model windows, one "Week <label>" segment each: the usage-scoped mod
 # (mods/usage-scoped) writes $CFG/.usage-scoped after each measure, one
 # "label<TAB>percent<TAB>resets_at (epoch s)" line per window and no secret.
-# A line is used only with exactly three fields, a 1–3 digit percent (clamped to
-# 100) and a digit-only reset: a run of tabs collapses under IFS, a stray field
-# or a CR left after the strip fails the check, and the line is skipped. Control
+# A line is used only when the whole of it is three tab-separated fields — a
+# label, a 1–3 digit percent (clamped to 100) and a reset of at most 12 digits,
+# neither with a leading zero, which bash arithmetic would read as octal — so a
+# run of tabs, a stray field or a CR left after the strip skips the line. Control
 # characters are dropped from the label before it reaches the terminal. No file
 # or an empty file: nothing added.
 if [ -s "$CFG/.usage-scoped" ]; then
+  tab=$'\t'
+  scoped_re="^([^$tab]+)$tab(0|[1-9][0-9]{0,2})$tab(0|[1-9][0-9]{0,11})$"
   while IFS= read -r l || [ -n "$l" ]; do
     l=${l%$'\r'}
-    IFS=$'\t' read -r slabel spct sreset sextra <<< "$l"
-    [[ -z "$sextra" && "$spct" =~ ^[0-9]{1,3}$ && "$sreset" =~ ^[0-9]{1,12}$ ]] || continue
-    slabel=${slabel//[[:cntrl:]]/}
+    [[ $l =~ $scoped_re ]] || continue
+    slabel=${BASH_REMATCH[1]//[[:cntrl:]]/}; spct=${BASH_REMATCH[2]}; sreset=${BASH_REMATCH[3]}
     [ -n "$slabel" ] || continue
     (( spct > 100 )) && spct=100
     [ -n "$line_usage" ] && line_usage+="${D} | ${R}"
