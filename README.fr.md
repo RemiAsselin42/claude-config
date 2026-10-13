@@ -57,8 +57,8 @@ Le repo privé se synchronise automatiquement avec celui-ci — voir [Installati
 9. Copie **`settings.json`** — épingle le modèle/effort par défaut (`fable` · `xhigh`) et pointe la statusline vers `scripts/statusline.sh` sur chaque machine
 10. Active **RTK** via `setup-rtk.sh`
 11. Supprime les cinq hooks **cc-safe-setup** laissés par les installs précédentes (`comment-strip`, `syntax-check`, `context-monitor`, `cd-git-allow`, `api-error-alert`) et échoue s'il en reste un sur disque ou dans le `settings.json` déployé ; vérifie ensuite que les quatre gardes (`hooks/*.sh`, `protect-gates.js`) sont sur disque et enregistrées dedans, un hook enregistré sans son fichier ne garde rien. Les hooks bloquants vivent désormais dans `hooks/` (voir **Harnais qualité** plus bas) et sont enregistrés par `settings.json` ; `comment-strip` était la vraie cause du « bug heredoc » (`docs/pitfall.md`)
-12. Installe les **plugins** : enregistre la marketplace locale `claude-config` (le `~/.claude/mods` déployé, déclaré par `mods/.claude-plugin/marketplace.json`) et y installe `ponytail` et `vibe-wise`, chargés sur place sans rien télécharger ; installe les **plugins épinglés** depuis leurs marketplaces amont via le CLI `claude` (`context7` + `frontend-design` officiels, `hono`) ; retire les marketplaces amont `ponytail`, `caveman` et `vibe-wise` enregistrées par les installs précédentes (caveman a quitté le harnais le 2026-10-09) ; et prévient si `python3` ne s'exécute pas (le hook de vibe-wise l'appelle)
-13. Vérifie le prérequis de la **statusline** (`jq`) — `scripts/statusline.sh` affiche modèle, contexte, limites 5h/7j et git à partir du payload que Claude Code lui envoie, plus le badge du mode terse actif, le mode d'apprentissage VibeWise du projet et l'écart du harnais trouvé au démarrage de la session ; sans réseau, sans login
+12. Installe les **plugins** : enregistre la marketplace locale `claude-config` (le `~/.claude/mods` déployé, déclaré par `mods/.claude-plugin/marketplace.json`) et y installe `ponytail`, `vibe-wise` et `usage-scoped`, chargés sur place sans rien télécharger ; installe les **plugins épinglés** depuis leurs marketplaces amont via le CLI `claude` (`context7` + `frontend-design` officiels, `hono`) ; retire les marketplaces amont `ponytail`, `caveman` et `vibe-wise` enregistrées par les installs précédentes (caveman a quitté le harnais le 2026-10-09) ; et prévient si `python3` ne s'exécute pas (le hook de vibe-wise l'appelle)
+13. Vérifie le prérequis de la **statusline** (`jq`) — `scripts/statusline.sh` affiche modèle, contexte, limites 5h/7j et git à partir du payload que Claude Code lui envoie, plus le badge du mode terse actif, le mode d'apprentissage VibeWise du projet, l'écart du harnais trouvé au démarrage de la session et les fenêtres hebdomadaires par modèle que le mod `usage-scoped` écrit dans `~/.claude/.usage-scoped` ; le script lui-même ne fait aucune requête et ne détient aucun login, le mod dépense le jeton que le moteur garde
 14. Active **ponytail** par défaut (plugin de mode terse) si sa config utilisateur n'existe pas sur la machine — `style-toggle.sh` l'éteint et le rallume
 15. Met à jour `.gitignore` dans les repos cibles (bloc graphify + `CLAUDE.md` + `mempalace.yaml` + `context/`) via `templates/gitignore.append`
 16. Sélection interactive des repos git frères à indexer. Par repo : hooks + graphe graphify, **nommage LLM des communautés**, sync vault (rapport + arbre de fichiers + canvas + une note par nœud), génération de `mempalace.yaml`, mining dans le wing du repo, et un `CLAUDE.md` local **re-rendu** depuis `templates/CLAUDE.project.md` à chaque exécution — une machine restée sur une ancienne génération se met ainsi à jour toute seule. Ce qui est écrit sous la dernière ligne du template est conservé, et un `CLAUDE.md` qu'install.sh n'a jamais généré n'est pas touché (`tests/claude-md-refresh.sh` couvre les quatre cas)
@@ -160,7 +160,7 @@ claude-config/
 │   ├── session-start.sh         # Hook SessionStart : démarre le daemon MemPalace, diary + tête de TODO.md, une ligne quand MemPalace est en panne, l'écart du harnais
 │   ├── harness-drift.sh         # Intégrité du harnais déployé : déployé ≠ clone, clone ≠ origin/<branche par défaut> ; lancé par session-start.sh, lu par la statusline
 │   ├── session-stop.sh          # Hook Stop : graphify update + mine du wing + sync vault
-│   ├── statusline.sh            # Statusline : modèle, contexte, limites, mode, VibeWise, git
+│   ├── statusline.sh            # Statusline : modèle, contexte, limites (+ les fenêtres hebdomadaires par modèle lues dans .usage-scoped), mode, VibeWise, écart du harnais, git
 │   ├── style-toggle.sh          # Bascule le mode terse ponytail : on ⇄ off, status
 │   ├── vibe-toggle.sh           # Mode d'apprentissage VibeWise du projet courant : on ⇄ off, état
 │   ├── setup-rtk.sh             # Installe RTK
@@ -173,15 +173,17 @@ claude-config/
 │   ├── gitignore.append         # Entrées .gitignore ajoutées par install.sh
 │   └── gates/                   # Ce que /init-gates crée dans un repo : config dependency-cruiser, les appelants CI des trois familles de gates
 ├── mods/                        # Plugins et mods Claude Code vendorisés → ~/.claude/mods/ (copiés par install.sh, rien ne vient d'une marketplace)
-│   ├── .claude-plugin/          # marketplace.json : la marketplace locale `claude-config` qu'install.sh enregistre depuis ~/.claude/mods, listant ./ponytail et ./vibe-wise
+│   ├── .claude-plugin/          # marketplace.json : la marketplace locale `claude-config` qu'install.sh enregistre depuis ~/.claude/mods, listant ./ponytail, ./vibe-wise et ./usage-scoped
 │   ├── paste-view/              # Mod : aperçu des images et longs textes collés au-dessus du prompt (Amorfx/claude-paste-view à a71ba10, MIT, Windows ajouté ; chargé via CLAUDE_CODE_PLUGIN_DIRS) ; claude plugin test mods/paste-view
 │   ├── ponytail/                # Plugin : mode dev senior paresseux, le mode terse par défaut (DietrichGebert/ponytail 4.8.4 à 16f2980, MIT ; un matcher ajouté pour en exclure les agents du harnais)
+│   ├── usage-scoped/            # Mod (local) : après chaque mesure, les fenêtres hebdomadaires par modèle → ~/.claude/.usage-scoped pour la statusline, le moteur gardant le jeton ; claude plugin test mods/usage-scoped
 │   └── vibe-wise/               # Plugin : mode d'apprentissage par projet (nykooi1/vibe-wise 0.1.43 à c5fc8d8, MIT, tel quel)
 ├── docs/
 │   └── pitfall.md               # Journal append-only des pièges rencontrés par Claude Code dans ce repo
 └── tests/
     ├── claude-md-refresh.sh     # Auto-test du re-rendu des CLAUDE.md par repo
-    ├── statusline.sh            # Fige le format des lignes de la statusline sur un payload fixture
+    ├── statusline.sh            # Fige le format des lignes de la statusline sur un payload fixture, segments Week <modèle> d'une fixture .usage-scoped compris
+    ├── usage-scoped.sh          # Le câblage du mod usage-scoped : entrée marketplace, MODS_PLUGINS, enabledPlugins, manifeste et modules hooks (le mod lui-même : claude plugin test mods/usage-scoped)
     ├── harness-drift.sh         # harness-drift.sh sur un clone et un dossier de config jetables : chaque sorte d'écart nommée, clés tolérées silencieuses, upstream contre origin, le marqueur, le JSON de session-start.sh
     ├── deploy-manifest.sh       # Le manifeste de déploiement d'install.sh : un fichier retiré du repo quitte ~/.claude à l'install suivante, jamais les fichiers du propriétaire ni un chemin étranger
     ├── vibe-toggle.sh           # vibe-toggle.sh sur des projets jetables (recherche, on/off, CRLF, liens symboliques), la ligne VibeWise de la statusline, le câblage du plugin
@@ -276,7 +278,7 @@ bash ~/.claude/scripts/vibe-toggle.sh [on|off|status] [dossier]
 <details>
 <summary><strong>Plugins épinglés</strong></summary>
 
-`install.sh` installe les mêmes plugins Claude Code sur chaque machine via le CLI `claude` : deux vendorisés dans `mods/` et servis par la marketplace locale `claude-config` (`MODS_PLUGINS` dans `install.sh`), les autres depuis leurs marketplaces amont (`PINNED_PLUGINS`) :
+`install.sh` installe les mêmes plugins Claude Code sur chaque machine via le CLI `claude` : trois dans `mods/` (deux vendorisés, un local) servis par la marketplace locale `claude-config` (`MODS_PLUGINS` dans `install.sh`), les autres depuis leurs marketplaces amont (`PINNED_PLUGINS`) :
 
 | Plugin     | Source                                                                | Rôle                                                                                                       |
 | ---------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
@@ -285,8 +287,9 @@ bash ~/.claude/scripts/vibe-toggle.sh [on|off|status] [dossier]
 | `frontend-design` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) | Skill — direction visuelle opinionée, loin de l'« esthétique IA » générique              |
 | `hono` | [honojs/skills](https://github.com/honojs/skills)     | Skill — référence API Hono inline (routing, middleware, validateurs, JSX) + `npx hono request`            |
 | `vibe-wise` | `mods/vibe-wise/` — [nykooi1/vibe-wise](https://github.com/nykooi1/vibe-wise) 0.1.43 à `c5fc8d8`, MIT | Mode d'apprentissage, par projet — vous concevez, Claude explique et écrit le code convenu ; `/vibe-toggle` le bascule, la statusline l'affiche |
+| `usage-scoped` | `mods/usage-scoped/` — mod local, MIT | Module de hooks — après chaque mesure, écrit les fenêtres hebdomadaires par modèle dans `~/.claude/.usage-scoped` avec le jeton que le moteur garde ; la statusline les affiche en segments `Week <modèle>` |
 
-Si le CLI `claude` n'est pas dans le PATH, l'étape est sautée avec un avertissement ; installation manuelle : `claude plugin marketplace add <repo> && claude plugin install <nom>@<marketplace>`, et pour les vendorisés `claude plugin marketplace add ~/.claude/mods`, puis `claude plugin install ponytail@claude-config` et `claude plugin install vibe-wise@claude-config`.
+Si le CLI `claude` n'est pas dans le PATH, l'étape est sautée avec un avertissement ; installation manuelle : `claude plugin marketplace add <repo> && claude plugin install <nom>@<marketplace>`, et pour ceux de `mods/` `claude plugin marketplace add ~/.claude/mods`, puis `claude plugin install ponytail@claude-config`, `claude plugin install vibe-wise@claude-config` et `claude plugin install usage-scoped@claude-config`.
 
 </details>
 

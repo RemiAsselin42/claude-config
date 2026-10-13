@@ -57,8 +57,8 @@ Your private repo stays in sync with this one automatically — see [Minimal set
 9. Copies **`settings.json`** — this pins the default model/effort (`fable` · `xhigh`) and points the statusline at `scripts/statusline.sh` on every machine
 10. Activates **RTK** via `setup-rtk.sh`
 11. Removes the five **cc-safe-setup** hooks that earlier installs left behind (`comment-strip`, `syntax-check`, `context-monitor`, `cd-git-allow`, `api-error-alert`) and fails if one is still on disk or in the deployed `settings.json`; then checks that the four guards (`hooks/*.sh`, `protect-gates.js`) are on disk and registered there, since a registered hook whose file is missing guards nothing. The blocking hooks now ship in `hooks/` (see **Quality harness** below) and are registered by `settings.json`; `comment-strip` was the real cause of the "heredoc bug" (`docs/pitfall.md`)
-12. Installs the **plugins**: registers the local marketplace `claude-config` (the deployed `~/.claude/mods`, declared by `mods/.claude-plugin/marketplace.json`) and installs `ponytail` and `vibe-wise` from it, loaded in place with nothing fetched; installs the **pinned plugins** from their upstream marketplaces via the `claude` CLI (official `context7` + `frontend-design`, `hono`); removes the upstream `ponytail`, `caveman` and `vibe-wise` marketplaces earlier installs registered (caveman left the harness on 2026-10-09); and warns when `python3` does not run (the vibe-wise hook calls it)
-13. Checks the **statusline** prerequisite (`jq`) — `scripts/statusline.sh` renders model, context, 5h/7d rate limits and git from the payload Claude Code pipes in, plus the active terse-mode badge, the project's VibeWise learning mode and the harness drift found at session start; no network, no login
+12. Installs the **plugins**: registers the local marketplace `claude-config` (the deployed `~/.claude/mods`, declared by `mods/.claude-plugin/marketplace.json`) and installs `ponytail`, `vibe-wise` and `usage-scoped` from it, loaded in place with nothing fetched; installs the **pinned plugins** from their upstream marketplaces via the `claude` CLI (official `context7` + `frontend-design`, `hono`); removes the upstream `ponytail`, `caveman` and `vibe-wise` marketplaces earlier installs registered (caveman left the harness on 2026-10-09); and warns when `python3` does not run (the vibe-wise hook calls it)
+13. Checks the **statusline** prerequisite (`jq`) — `scripts/statusline.sh` renders model, context, 5h/7d rate limits and git from the payload Claude Code pipes in, plus the active terse-mode badge, the project's VibeWise learning mode, the harness drift found at session start and the weekly per-model windows the `usage-scoped` mod writes to `~/.claude/.usage-scoped`; the script itself makes no request and holds no login, the mod spends the credential the engine holds
 14. Enables **ponytail** by default (terse-mode plugin) when its user config does not exist on this machine — `style-toggle.sh` switches it off and on
 15. Updates `.gitignore` in target repos (graphify block + `CLAUDE.md` + `mempalace.yaml` + `context/`) using `templates/gitignore.append`
 16. Interactively selects sibling git repos to index. Per repo: graphify hooks + graph, LLM **community naming**, vault sync (report + file tree + canvas + one note per node), `mempalace.yaml` generation and mining into the repo's own wing, and a local `CLAUDE.md` **re-rendered** from `templates/CLAUDE.project.md` on every run — so a machine still holding an older generation catches up. Anything written below the template's last line is kept, and a `CLAUDE.md` install.sh never generated is left untouched (`tests/claude-md-refresh.sh` covers all four cases)
@@ -160,7 +160,7 @@ claude-config/
 │   ├── session-start.sh         # SessionStart hook: starts the MemPalace daemon, diary + TODO.md head, one line when MemPalace is down, the harness drift
 │   ├── harness-drift.sh         # Integrity of the deployed harness: deployed ≠ clone, clone ≠ origin/<default branch>; run by session-start.sh, read by the statusline
 │   ├── session-stop.sh          # Stop hook: graphify update + wing mine + vault sync
-│   ├── statusline.sh            # Statusline: model, context, rate limits, mode, VibeWise, git
+│   ├── statusline.sh            # Statusline: model, context, rate limits (+ the weekly per-model windows from .usage-scoped), mode, VibeWise, harness drift, git
 │   ├── style-toggle.sh          # Switch the ponytail terse mode: on ⇄ off, status
 │   ├── vibe-toggle.sh           # VibeWise learning mode of the current project: on ⇄ off, status
 │   ├── setup-rtk.sh             # Install RTK
@@ -173,15 +173,17 @@ claude-config/
 │   ├── gitignore.append         # .gitignore entries appended by install.sh
 │   └── gates/                   # What /init-gates creates in a repo: dependency-cruiser config, the CI callers of the three gate families
 ├── mods/                        # Vendored Claude Code plugins and mods → ~/.claude/mods/ (copied by install.sh, nothing fetched from a marketplace)
-│   ├── .claude-plugin/          # marketplace.json: the local marketplace `claude-config` install.sh registers from ~/.claude/mods, listing ./ponytail and ./vibe-wise
+│   ├── .claude-plugin/          # marketplace.json: the local marketplace `claude-config` install.sh registers from ~/.claude/mods, listing ./ponytail, ./vibe-wise and ./usage-scoped
 │   ├── paste-view/              # Mod: pasted images and long texts previewed above the prompt (Amorfx/claude-paste-view at a71ba10, MIT, Windows added; loaded through CLAUDE_CODE_PLUGIN_DIRS); claude plugin test mods/paste-view
 │   ├── ponytail/                # Plugin: lazy senior dev mode, the default terse mode (DietrichGebert/ponytail 4.8.4 at 16f2980, MIT; one matcher added so the harness agents stay out of it)
+│   ├── usage-scoped/            # Mod (local): after each measure, the weekly per-model rate-limit windows → ~/.claude/.usage-scoped for the statusline, the engine holding the credential; claude plugin test mods/usage-scoped
 │   └── vibe-wise/               # Plugin: learning mode per project (nykooi1/vibe-wise 0.1.43 at c5fc8d8, MIT, as is)
 ├── docs/
 │   └── pitfall.md               # Append-only log of traps Claude Code hit in this repo
 └── tests/
     ├── claude-md-refresh.sh     # Self-check for the per-repo CLAUDE.md refresh
-    ├── statusline.sh            # Pins the statusline line format against a fixture payload
+    ├── statusline.sh            # Pins the statusline line format against a fixture payload, the Week <model> segments from a .usage-scoped fixture included
+    ├── usage-scoped.sh          # The usage-scoped mod's wiring: marketplace entry, MODS_PLUGINS, enabledPlugins, manifest and hooks modules (the mod itself: claude plugin test mods/usage-scoped)
     ├── harness-drift.sh         # harness-drift.sh on a throwaway clone and config dir: each drift kind named, tolerated keys silent, upstream vs origin, the marker, session-start.sh's JSON
     ├── deploy-manifest.sh       # install.sh's deploy manifest: a file the repo dropped leaves ~/.claude at the next install, the owner's files and foreign paths never
     ├── vibe-toggle.sh           # vibe-toggle.sh on throwaway projects (lookup, on/off, CRLF, symlinks), the VibeWise statusline line, the plugin's wiring
@@ -276,7 +278,7 @@ bash ~/.claude/scripts/vibe-toggle.sh [on|off|status] [dir]
 <details>
 <summary><strong>Pinned plugins</strong></summary>
 
-`install.sh` installs the same Claude Code plugins on every machine via the `claude` CLI: two vendored in `mods/` and served by the local marketplace `claude-config` (`MODS_PLUGINS` in `install.sh`), the rest from their upstream marketplaces (`PINNED_PLUGINS`):
+`install.sh` installs the same Claude Code plugins on every machine via the `claude` CLI: three in `mods/` (two vendored, one local) served by the local marketplace `claude-config` (`MODS_PLUGINS` in `install.sh`), the rest from their upstream marketplaces (`PINNED_PLUGINS`):
 
 | Plugin     | Source                                                                | Purpose                                                                                        |
 | ---------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
@@ -285,8 +287,9 @@ bash ~/.claude/scripts/vibe-toggle.sh [on|off|status] [dir]
 | `frontend-design` | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) | Skill — opinionated visual direction, away from the generic "AI aesthetic"    |
 | `hono` | [honojs/skills](https://github.com/honojs/skills)     | Skill — inline Hono API reference (routing, middleware, validators, JSX) + `npx hono request` |
 | `vibe-wise` | `mods/vibe-wise/` — [nykooi1/vibe-wise](https://github.com/nykooi1/vibe-wise) 0.1.43 at `c5fc8d8`, MIT | Learning mode, per project — you design, Claude explains and writes the agreed code; `/vibe-toggle` switches it, the statusline shows it |
+| `usage-scoped` | `mods/usage-scoped/` — local mod, MIT | Hooks module — after each measure, writes the weekly per-model rate-limit windows to `~/.claude/.usage-scoped` with the credential the engine holds; the statusline shows them as `Week <model>` segments |
 
-If the `claude` CLI is not in PATH, the step is skipped with a warning; install manually with `claude plugin marketplace add <repo> && claude plugin install <name>@<marketplace>`, and for the vendored ones `claude plugin marketplace add ~/.claude/mods`, then `claude plugin install ponytail@claude-config` and `claude plugin install vibe-wise@claude-config`.
+If the `claude` CLI is not in PATH, the step is skipped with a warning; install manually with `claude plugin marketplace add <repo> && claude plugin install <name>@<marketplace>`, and for the ones in `mods/` `claude plugin marketplace add ~/.claude/mods`, then `claude plugin install ponytail@claude-config`, `claude plugin install vibe-wise@claude-config` and `claude plugin install usage-scoped@claude-config`.
 
 </details>
 

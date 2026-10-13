@@ -13,6 +13,11 @@
       "name": "vibe-wise",
       "source": "./vibe-wise",
       "description": "Learning mode per project: you design, Claude explains and writes the agreed code. nykooi1/vibe-wise 0.1.43 at c5fc8d8 (MIT)."
+    },
+    {
+      "name": "usage-scoped",
+      "source": "./usage-scoped",
+      "description": "Weekly per-model rate-limit windows written to ~/.claude/.usage-scoped for the statusline's Week <model> segments; the engine holds the credential. Local mod (MIT)."
     }
   ]
 }
