@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
-# Claude Code statusline, rendered from the stdin payload alone — no network,
-# no OAuth token (this replaced a vendored fork of @allthingsclaude/bar, which
-# fetched the same numbers from a private endpoint with its own login).
+# Claude Code statusline, rendered from the stdin payload and local files — this
+# script makes no request and holds no token (it replaced a vendored fork of
+# @allthingsclaude/bar, which fetched the same numbers from a private endpoint
+# with its own login). The one figure the payload lacks, the weekly per-model
+# windows, comes from .usage-scoped, which the usage-scoped mod writes with the
+# credential the engine holds.
 # Lines: Model · Cache (context window) · Usage (5h/7d rate limits, present on
-# subscription accounts) · active terse mode (ponytail badge) · VibeWise
-# (learning mode of the cwd's project; "Off · No notes" without notes) · Harness
-# (drift found at session start) · Github.
+# subscription accounts, then one "Week <model>" segment per .usage-scoped line)
+# · active terse mode (ponytail badge) · VibeWise (learning mode of the cwd's
+# project; "Off · No notes" without notes) · Harness (drift found at session
+# start) · Github.
 # Wired by install.sh via settings.json → "statusLine". Needs jq (install.sh
 # provides it); without it only a placeholder model line is printed.
 # Check: bash tests/statusline.sh
@@ -118,6 +122,26 @@ line_usage=""
 if [ -n "$p7" ]; then
   [ -n "$line_usage" ] && line_usage+="${D} | ${R}"
   line_usage+="$(seg Week "$p7" "${r7:-0}")"
+fi
+# Weekly per-model windows, one "Week <label>" segment each: the usage-scoped mod
+# (mods/usage-scoped) writes $CFG/.usage-scoped after each measure, one
+# "label<TAB>percent<TAB>resets_at (epoch s)" line per window and no secret.
+# A line is used only with exactly three fields, a 1–3 digit percent (clamped to
+# 100) and a digit-only reset: a run of tabs collapses under IFS, a stray field
+# or a CR left after the strip fails the check, and the line is skipped. Control
+# characters are dropped from the label before it reaches the terminal. No file
+# or an empty file: nothing added.
+if [ -s "$CFG/.usage-scoped" ]; then
+  while IFS= read -r l || [ -n "$l" ]; do
+    l=${l%$'\r'}
+    IFS=$'\t' read -r slabel spct sreset sextra <<< "$l"
+    [[ -z "$sextra" && "$spct" =~ ^[0-9]{1,3}$ && "$sreset" =~ ^[0-9]{1,12}$ ]] || continue
+    slabel=${slabel//[[:cntrl:]]/}
+    [ -n "$slabel" ] || continue
+    (( spct > 100 )) && spct=100
+    [ -n "$line_usage" ] && line_usage+="${D} | ${R}"
+    line_usage+="$(seg "Week $slabel" "$spct" "$sreset")"
+  done < "$CFG/.usage-scoped"
 fi
 [ -n "$line_usage" ] && line_usage="$(label Usage)${line_usage}"
 

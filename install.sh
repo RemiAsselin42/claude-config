@@ -1023,13 +1023,14 @@ PINNED_PLUGINS=(
 )
 
 # Plugins vendored in mods/ (ponytail, the terse mode; vibe-wise, the learning
-# mode scripts/vibe-toggle.sh turns on and off per project). mods/.claude-plugin/
+# mode scripts/vibe-toggle.sh turns on and off per project; usage-scoped, the
+# mod that writes the weekly per-model windows for the statusline). mods/.claude-plugin/
 # marketplace.json is a marketplace named claude-config whose "./<plugin>" entries
 # Claude Code loads in place from the deployed ~/.claude/mods: nothing fetched,
 # an edit there is live at the next session. Registered from its absolute path,
 # which is why it is not in settings.json's extraKnownMarketplaces.
 MODS_MARKETPLACE=claude-config
-MODS_PLUGINS=(ponytail vibe-wise)
+MODS_PLUGINS=(ponytail vibe-wise usage-scoped)
 # The upstream marketplaces earlier versions of this script registered for the
 # same plugins, plus caveman (dropped 2026-10-09). Removing a marketplace
 # uninstalls its plugins, so ponytail@ponytail and caveman@caveman go with them.
@@ -1269,8 +1270,8 @@ _prune_stale_deployed() {
 # --- Copy agents, commands and scripts ---
 _step "Copying agents, commands and scripts..."
 mkdir -p "$CLAUDE_DIR/agents" "$CLAUDE_DIR/commands" "$CLAUDE_DIR/scripts" "$CLAUDE_DIR/hooks" "$CLAUDE_DIR/templates" "$CLAUDE_DIR/mods"
-# mods/ holds the Claude Code mod and plugins vendored in the repo (paste-view,
-# ponytail, vibe-wise) and the marketplace file that lists the plugins. They are
+# mods/ holds the Claude Code mods and plugins vendored in the repo (paste-view,
+# ponytail, vibe-wise, usage-scoped) and the marketplace file that lists the plugins. They are
 # loaded from the deployed copy — settings.json names paste-view in
 # CLAUDE_CODE_PLUGIN_DIRS, _install_mods_plugins registers ~/.claude/mods as a
 # marketplace — never from the checkout: Claude Code writes its generated typings

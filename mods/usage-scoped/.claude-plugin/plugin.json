@@ -1,0 +1,11 @@
+{
+  "name": "usage-scoped",
+  "version": "0.1.0",
+  "description": "Per-model weekly rate-limit windows (the usage endpoint's weekly_scoped limits) written to ~/.claude/.usage-scoped for the statusline, with the engine holding the credential",
+  "author": {
+    "name": "Rémi Asselin",
+    "url": "https://github.com/RemiAsselin42"
+  },
+  "license": "MIT",
+  "keywords": ["statusline", "usage", "rate-limits", "mod", "claude-code"]
+}
