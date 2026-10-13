@@ -73,5 +73,64 @@ check "harness line, clone level"     "Harness  │ ⚠ clone ≠ origin/main: s
 hn=$(printf '%s\n' "$drift" | grep -n '^Harness' | tail -1 | cut -d: -f1); gn=$(printf '%s\n' "$drift" | grep -n '^Github' | cut -d: -f1)
 [ -n "$hn" ] && [ -n "$gn" ] && [ "$hn" -lt "$gn" ] && echo "ok   Harness lines come before Github" || { echo "FAIL Harness lines must come before Github"; fails=$((fails + 1)); }
 
+# Weekly scoped limits the usage-scoped mod fetched (mods/usage-scoped writes
+# $CLAUDE_CONFIG_DIR/.usage-scoped, one label<TAB>percent<TAB>resets_at line per
+# window): one "Week <label>" segment each, after Week on the Usage line.
+raw_with() {  # raw_with <CLAUDE_CONFIG_DIR> <payload>: the render, ANSI kept
+  printf '%s' "$2" | CLAUDE_CONFIG_DIR="$1" TMPDIR="$tmp" bash "$SCRIPT"
+}
+has_line() {  # has_line <description> <exact line> <output>
+  if printf '%s\n' "$3" | grep -qxF -- "$2"; then
+    echo "ok   $1"
+  else
+    echo "FAIL $1"; echo "     expected line: $2"; printf '%s\n' "$3" | sed 's/^/     got:      /'
+    fails=$((fails + 1))
+  fi
+}
+usage_now="Usage    │ Session · [████░░░░░░] 37% · 2h 12m | Week · [█░░░░░░░░░] 12% · 3d 4h"
+fable="Week Fable · [█░░░░░░░░░] 12% · 3d 14h"
+opus="Week Opus · [████░░░░░░] 40% · 1d 2h"
+r_fable=$((now + 3 * 86400 + 14 * 3600 + 30)); r_opus=$((now + 86400 + 2 * 3600 + 30))
+
+mkdir -p "$tmp/us1"
+printf 'Fable\t12\t%s\n' "$r_fable" > "$tmp/us1/.usage-scoped"
+us1=$(render_with "$tmp/us1" "$payload")
+has_line "scoped segment after Week on the Usage line" "$usage_now | $fable" "$us1"
+[ "$(printf '%s\n' "$us1" | wc -l)" -eq 5 ] && echo "ok   still exactly 5 lines with the scoped segment" || { echo "FAIL line count with .usage-scoped: $(printf '%s\n' "$us1" | wc -l)"; fails=$((fails + 1)); }
+
+mkdir -p "$tmp/us-empty"
+: > "$tmp/us-empty/.usage-scoped"
+if [ "$(raw_with "$tmp/us-empty" "$payload")" = "$(raw_with "$tmp/nocfg" "$payload")" ]; then echo "ok   empty .usage-scoped: render byte-identical to no file"
+else echo "FAIL empty .usage-scoped: render differs from no file"; fails=$((fails + 1)); fi
+
+mkdir -p "$tmp/us-many"
+{
+  printf 'Fable\t12\t%s\n' "$r_fable"
+  printf 'Bad\tx1\t%s\n' "$r_fable"
+  printf 'Two\t5\n'
+  printf 'Gap\t\t5\n'
+  printf 'Opus\t40\t%s\n' "$r_opus"
+} > "$tmp/us-many/.usage-scoped"
+many=$(render_with "$tmp/us-many" "$payload")
+has_line "two scoped segments in file order, malformed lines skipped" "$usage_now | $fable | $opus" "$many"
+
+mkdir -p "$tmp/us-crlf"
+while IFS= read -r l; do printf '%s\r\n' "$l"; done < "$tmp/us-many/.usage-scoped" > "$tmp/us-crlf/.usage-scoped"
+has_line "CRLF .usage-scoped renders the same segments as LF" "$usage_now | $fable | $opus" "$(render_with "$tmp/us-crlf" "$payload")"
+
+mkdir -p "$tmp/us-big"
+printf 'Fable\t150\t%s\n' "$r_fable" > "$tmp/us-big/.usage-scoped"
+has_line "scoped percent above 100 shown as 100" "$usage_now | Week Fable · [██████████] 100% · 3d 14h" "$(render_with "$tmp/us-big" "$payload")"
+
+mkdir -p "$tmp/us-esc"
+printf 'Fable\033[31m\t12\t%s\n' "$r_fable" > "$tmp/us-esc/.usage-scoped"
+check "label escape dropped, segment still shown" "Week Fable" "$(render_with "$tmp/us-esc" "$payload")"
+if raw_with "$tmp/us-esc" "$payload" | grep -qF -- "$(printf '\033[31m')"; then echo "FAIL raw render holds the label's \\x1b[31m"; fails=$((fails + 1))
+else echo "ok   raw render holds no \\x1b[31m from the label"; fi
+
+nolimits='{"model": {"display_name": "Opus"}, "workspace": {"current_dir": "/nonexistent-dir"},
+  "context_window": {"context_window_size": 200000, "used_percentage": 80, "current_usage": null}}'
+has_line "Usage line holds the scoped segment alone without rate_limits" "Usage    │ $fable" "$(render_with "$tmp/us1" "$nolimits")"
+
 if (( fails )); then echo "$fails failure(s)"; exit 1; fi
 echo "all statusline checks passed"
