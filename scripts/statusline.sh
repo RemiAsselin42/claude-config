@@ -4,7 +4,8 @@
 # fetched the same numbers from a private endpoint with its own login).
 # Lines: Model · Cache (context window) · Usage (5h/7d rate limits, present on
 # subscription accounts) · active terse mode (ponytail badge) · VibeWise
-# (learning mode of the cwd's project, when it has notes) · Github.
+# (learning mode of the cwd's project; "Off · No notes" without notes) · Harness
+# (drift found at session start) · Github.
 # Wired by install.sh via settings.json → "statusLine". Needs jq (install.sh
 # provides it); without it only a placeholder model line is printed.
 # Check: bash tests/statusline.sh
@@ -147,7 +148,9 @@ fi
 # Per project, unlike the badge above: vibe-toggle.sh, deployed beside this
 # script, reads the project's .vibe-wise/profile.md by the plugin's own rules.
 # Only for a real cwd: with no dir the script would answer for this process's
-# own directory. No notes → no line.
+# own directory. No notes → "Off · No notes" (the toggle's "none": /vibe-toggle
+# on cannot resume it, /vibe-wise:learn starts it); the script missing or
+# failing → no line.
 line_vibe=""
 if [ -n "$cwd" ] && [ -d "$cwd" ]; then
   here=${BASH_SOURCE[0]%/*}; [ "$here" = "${BASH_SOURCE[0]}" ] && here=.
@@ -159,6 +162,7 @@ if [ -n "$cwd" ] && [ -d "$cwd" ]; then
     "vibe-wise: on [frequent]") vibe="On · Frequent" ;;
     "vibe-wise: on")            vibe="On" ;;
     "vibe-wise: off")           vibe="Off" ;;
+    "vibe-wise: none — no learning notes"*) vibe="Off · No notes" ;;
     *)                          vibe="" ;;
   esac
   [ -n "$vibe" ] && line_vibe="$(label VibeWise)${D}${vibe}${R}"

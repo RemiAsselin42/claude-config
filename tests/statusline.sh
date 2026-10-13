@@ -48,8 +48,9 @@ full=$(render "$payload")
 check "model line with effort"        "Model    │ Fable 5 · xhigh"                                              "$full"
 check "context tokens, bar, percent"  "Cache    │ 220k/1M [██░░░░░░░░] 22%"                                     "$full"
 check "5h and 7d rate limits"         "Usage    │ Session · [████░░░░░░] 37% · 2h 12m | Week · [█░░░░░░░░░] 12% · 3d 4h" "$full"
+check "VibeWise line without notes"   "VibeWise │ Off · No notes"                                                "$full"
 check "git branch and live diff"      "Github   │ ⎇ main · +1 -0"                                               "$full"
-[ "$(printf '%s\n' "$full" | wc -l)" -eq 4 ] && echo "ok   exactly 4 lines" || { echo "FAIL line count: $(printf '%s\n' "$full" | wc -l)"; fails=$((fails + 1)); }
+[ "$(printf '%s\n' "$full" | wc -l)" -eq 5 ] && echo "ok   exactly 5 lines" || { echo "FAIL line count: $(printf '%s\n' "$full" | wc -l)"; fails=$((fails + 1)); }
 
 # No rate limits (API-key accounts) and no git dir: only Model + Cache.
 sparse=$(render '{"model": {"display_name": "Opus"}, "workspace": {"current_dir": "/nonexistent-dir"},
@@ -58,6 +59,7 @@ check "no effort, no suffix"          "Model    │ Opus"                       
 check "null current_usage → 0 tokens" "Cache    │ 0/200k [████████░░] 80%"                                       "$sparse"
 printf '%s\n' "$sparse" | grep -q "Usage"  && { echo "FAIL Usage line printed without rate_limits"; fails=$((fails + 1)); } || echo "ok   no Usage line without rate_limits"
 printf '%s\n' "$sparse" | grep -q "Github" && { echo "FAIL Github line printed outside a repo"; fails=$((fails + 1)); }  || echo "ok   no Github line outside a repo"
+printf '%s\n' "$sparse" | grep -q "VibeWise" && { echo "FAIL VibeWise line printed for a missing current_dir"; fails=$((fails + 1)); } || echo "ok   no VibeWise line for a missing current_dir"
 
 # Harness drift found by the SessionStart hook (scripts/harness-drift.sh writes
 # $CLAUDE_CONFIG_DIR/.harness-drift, one short line per level): one Harness line
@@ -67,7 +69,7 @@ printf 'deployed ≠ clone: settings.json (permissions.allow), hooks/g.js\nclone
 drift=$(render_with "$tmp/drift" "$payload")
 check "harness line, deployed level"  "Harness  │ ⚠ deployed ≠ clone: settings.json (permissions.allow), hooks/g.js" "$drift"
 check "harness line, clone level"     "Harness  │ ⚠ clone ≠ origin/main: scripts/s.sh +2 more"                      "$drift"
-[ "$(printf '%s\n' "$drift" | wc -l)" -eq 6 ] && echo "ok   exactly 6 lines with the two Harness lines" || { echo "FAIL line count with drift: $(printf '%s\n' "$drift" | wc -l)"; fails=$((fails + 1)); }
+[ "$(printf '%s\n' "$drift" | wc -l)" -eq 7 ] && echo "ok   exactly 7 lines with the two Harness lines" || { echo "FAIL line count with drift: $(printf '%s\n' "$drift" | wc -l)"; fails=$((fails + 1)); }
 hn=$(printf '%s\n' "$drift" | grep -n '^Harness' | tail -1 | cut -d: -f1); gn=$(printf '%s\n' "$drift" | grep -n '^Github' | cut -d: -f1)
 [ -n "$hn" ] && [ -n "$gn" ] && [ "$hn" -lt "$gn" ] && echo "ok   Harness lines come before Github" || { echo "FAIL Harness lines must come before Github"; fails=$((fails + 1)); }
 

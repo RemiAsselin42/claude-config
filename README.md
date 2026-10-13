@@ -267,7 +267,7 @@ The pinned **vibe-wise** plugin turns work on a project into a learning session:
 bash ~/.claude/scripts/vibe-toggle.sh [on|off|status] [dir]
 ```
 
-`vibe-toggle.sh` rewrites the `Learning mode:` line of the project's `profile.md`, which the plugin's SessionStart hook reads at every session start, `/clear` and compaction: a switch fully applies from the next of those (`/vibe-wise:learn` starts it at once). The statusline shows `VibeWise │ On · Normal` (the checkpoint frequency), `VibeWise │ Off` when paused, and no line in a project without notes. The hook needs a `python3` that runs; `install.sh` warns when it does not.
+`vibe-toggle.sh` rewrites the `Learning mode:` line of the project's `profile.md`, which the plugin's SessionStart hook reads at every session start, `/clear` and compaction: a switch fully applies from the next of those (`/vibe-wise:learn` starts it at once). The statusline shows `VibeWise │ On · Normal` (the checkpoint frequency), `VibeWise │ Off` when paused, and `VibeWise │ Off · No notes` in a project without notes. The hook needs a `python3` that runs; `install.sh` warns when it does not.
 
 </details>
 
