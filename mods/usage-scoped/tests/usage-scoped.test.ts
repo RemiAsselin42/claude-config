@@ -46,10 +46,17 @@ function harness(on: On, env: Record<string, string> = { CLAUDE_CONFIG_DIR: CONF
     fetch: 'answer' as 'answer' | 'reject' | 'hang',
     requests: [] as { url: string; init: any }[],
     writes: [] as [string, string][],
+    /** 'answer' settles a write at once, 'hang' holds it until the matching `release` runs. */
+    write: 'answer' as 'answer' | 'hang',
+    release: [] as (() => void)[],
   }
   on('session.measure', ($, e) => ({ changed: e.changed }))
   on('session.authorize', () => ({ value: state.handle }))
-  on('fs.write', ($, e) => (state.writes.push([e.path, e.text]), { value: undefined }))
+  on('fs.write', ($, e) => {
+    state.writes.push([e.path, e.text])
+    if (state.write === 'hang') return new Promise<{ value: undefined }>(r => state.release.push(() => r({ value: undefined })))
+    return { value: undefined }
+  })
   on('http.fetch', ($, e) => {
     state.requests.push({ url: e.url, init: e.init })
     if (state.fetch === 'reject') throw new Error('network down')
@@ -115,6 +122,15 @@ test('the file holds labels and digits only, never the handle, control character
   expect(lines(text)).toEqual([`Fable[31mx\t12\t${RESET}`, `Opus\t40\t${RESET}`])
 })
 
+test('format characters go with the control characters, a label is trimmed, one blank once cleaned is skipped', async ($, on) => {
+  const { state, measure } = harness(on)
+  // U+202E (right-to-left override) and U+200B (zero-width space) are Cf, not Cc, and would reach the terminal.
+  state.text = body([scoped('Fa‮ble​', 12, RESET), scoped(' Opus ', 40, RESET), scoped(' ⁦ ', 5, RESET)])
+  await measure($)
+  expect(state.writes.length).toBe(1)
+  expect(lines(state.writes[0][1])).toEqual([`Fable\t12\t${RESET}`, `Opus\t40\t${RESET}`])
+})
+
 // ── 4 ──────────────────────────────────────────────────────────────────────────
 test('a refresh with the same values asks again but writes nothing, a changed value writes again', async ($, on) => {
   const { state, measure } = harness(on)
@@ -128,6 +144,20 @@ test('a refresh with the same values asks again but writes nothing, a changed va
   expect(state.requests.length).toBe(3)
   expect(state.writes.length).toBe(2)
   expect(state.writes[1][1]).toBe(`Fable\t13\t${RESET}\n`)
+})
+
+test('a write still in flight when a newer refresh has written does not make the newer text look unchanged', async ($, on) => {
+  const { clock, state, measure } = harness(on)
+  state.write = 'hang'
+  await measure($) // 12 fetched, its write held
+  state.write = 'answer'
+  state.text = body([scoped('Fable', 13, RESET)])
+  await measure($) // 13 fetched and written at once
+  expect(state.writes.map(w => w[1])).toEqual([`Fable\t12\t${RESET}\n`, `Fable\t13\t${RESET}\n`])
+  state.release.forEach(r => r()) // the held write settles after the newer one
+  await clock.advance(1)
+  await measure($) // still 13: nothing to write
+  expect(state.writes.length).toBe(2)
 })
 
 // ── 5 ──────────────────────────────────────────────────────────────────────────
@@ -156,10 +186,11 @@ async function recovers($: any, h: ReturnType<typeof harness>) {
   h.state.handle = { handle: HANDLE, kind: 'bearer' }
   h.state.status = 200
   h.state.fetch = 'answer'
+  const before = h.state.writes.length
   h.state.text = body([scoped('Fable', 12, RESET)])
   expect(await h.measure($)).toMatchObject({ changed: ['rateLimits'] })
-  expect(h.state.writes.length).toBe(1)
-  expect(h.state.writes[0][1]).toBe(`Fable\t12\t${RESET}\n`)
+  expect(h.state.writes.length).toBe(before + 1)
+  expect(h.state.writes[before][1]).toBe(`Fable\t12\t${RESET}\n`)
 }
 
 test('a 500 response writes nothing, throws nothing, and the measure still answers', async ($, on) => {
@@ -181,19 +212,32 @@ test('a fetch that rejects writes nothing, throws nothing, and the measure still
   await recovers($, h)
 })
 
-test('no handle from authorize writes nothing, throws nothing, and the measure still answers', async ($, on) => {
+// No credential to spend is a state, not a failure: the file left by an earlier login is
+// emptied once (so the statusline drops its segments), with no request made, and the
+// next measure with the same state writes nothing more.
+test('no handle from authorize empties the file once, asks nothing, throws nothing, and the measure still answers', async ($, on) => {
   const h = harness(on)
   h.state.handle = null
   expect(await h.measure($)).toMatchObject({ changed: ['rateLimits'] })
-  expect(h.state.writes).toEqual([])
+  expect(h.state.requests).toEqual([])
+  expect(h.state.writes.length).toBe(1)
+  expect(isPath(h.state.writes[0][0], FILE)).toBe(true)
+  expect(h.state.writes[0][1]).toBe('')
+  await h.measure($)
+  expect(h.state.writes.length).toBe(1)
   await recovers($, h)
 })
 
-test('an api-key handle writes nothing, throws nothing, and the measure still answers', async ($, on) => {
+test('an api-key handle empties the file once, asks nothing, throws nothing, and the measure still answers', async ($, on) => {
   const h = harness(on)
   h.state.handle = { handle: 'sk-ant-api-key', kind: 'api-key' }
   expect(await h.measure($)).toMatchObject({ changed: ['rateLimits'] })
-  expect(h.state.writes).toEqual([])
+  expect(h.state.requests).toEqual([])
+  expect(h.state.writes.length).toBe(1)
+  expect(isPath(h.state.writes[0][0], FILE)).toBe(true)
+  expect(h.state.writes[0][1]).toBe('')
+  await h.measure($)
+  expect(h.state.writes.length).toBe(1)
   await recovers($, h)
 })
 

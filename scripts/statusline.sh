@@ -129,13 +129,14 @@ fi
 # A line is used only when the whole of it is three tab-separated fields — a
 # label, a 1–3 digit percent (clamped to 100) and a reset of at most 12 digits,
 # neither with a leading zero, which bash arithmetic would read as octal — so a
-# run of tabs, a stray field or a CR left after the strip skips the line. Control
-# characters are dropped from the label before it reaches the terminal. No file
-# or an empty file: nothing added.
+# run of tabs, a stray field, a CR left after the strip or a last line without
+# its line end (the mod ends every line: a write in progress) skips the line.
+# Control characters are dropped from the label before it reaches the terminal.
+# No file or an empty file: nothing added.
 if [ -s "$CFG/.usage-scoped" ]; then
   tab=$'\t'
   scoped_re="^([^$tab]+)$tab(0|[1-9][0-9]{0,2})$tab(0|[1-9][0-9]{0,11})$"
-  while IFS= read -r l || [ -n "$l" ]; do
+  while IFS= read -r l; do
     l=${l%$'\r'}
     [[ $l =~ $scoped_re ]] || continue
     slabel=${BASH_REMATCH[1]//[[:cntrl:]]/}; spct=${BASH_REMATCH[2]}; sreset=${BASH_REMATCH[3]}

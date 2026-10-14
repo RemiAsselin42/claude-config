@@ -128,6 +128,11 @@ check "label escape dropped, segment still shown" "Week Fable" "$(render_with "$
 if raw_with "$tmp/us-esc" "$payload" | grep -qF -- "$(printf '\033[31m')"; then echo "FAIL raw render holds the label's \\x1b[31m"; fails=$((fails + 1))
 else echo "ok   raw render holds no \\x1b[31m from the label"; fi
 
+mkdir -p "$tmp/us-torn"
+printf 'Fable\t12\t17' > "$tmp/us-torn/.usage-scoped"   # no line end: what a reader sees mid-write
+if [ "$(raw_with "$tmp/us-torn" "$payload")" = "$(raw_with "$tmp/nocfg" "$payload")" ]; then echo "ok   unterminated last line skipped: render identical to no file"
+else echo "FAIL unterminated last line rendered as a segment"; fails=$((fails + 1)); fi
+
 nolimits='{"model": {"display_name": "Opus"}, "workspace": {"current_dir": "/nonexistent-dir"},
   "context_window": {"context_window_size": 200000, "used_percentage": 80, "current_usage": null}}'
 has_line "Usage line holds the scoped segment alone without rate_limits" "Usage    │ $fable" "$(render_with "$tmp/us1" "$nolimits")"
