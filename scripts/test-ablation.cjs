@@ -17,6 +17,9 @@
 //         baseline or recording nothing, project modified. The line quotes the
 //         error Vitest printed, not its stack location, and no absolute path:
 //         the project is `<project>`, the temp copy `<copy>`, the home `~`.
+//         A run killed on a timeout or a signal may add one line before it,
+//         naming what Vite's config loader had left in node_modules/.vite-temp
+//         and the script removed (exit 0 too, after a mutant's timeout).
 // stdout: one count per `facts` bucket, then the report path, alone, last. A dry
 //         run prints the units, `units: N` and `not_ablated: M` before any Vitest
 //         run, then the estimate and the report path.
@@ -28,14 +31,17 @@
 // entry per major. The real project is never written: Vitest runs in a temp
 // copy whose node_modules is a junction (works on Windows without admin rights)
 // with its caches inside the copy, and the copy is removed on exit, error paths
-// included. A dry run still runs the baseline (for the estimate) and nothing
-// else; its units carry status "not_run".
+// included. One known exception: Vitest 3.0.x has no --configLoader, so with a
+// config file Vite >= 6 leaves an empty node_modules/.vite-temp/ in the project.
+// A dry run still runs the baseline (for the estimate) and nothing else; its
+// units carry status "not_run".
 "use strict";
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { spawn, spawnSync, execFileSync } = require("node:child_process");
+const { pathToFileURL } = require("node:url");
 
 const WIN = process.platform === "win32";
 // Left out of the copy and of test discovery: .git and node_modules at any
@@ -88,13 +94,16 @@ const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 // under the home).
 const roots = []; // { dir, label, re }
 function registerRoot(dir, label) {
+  const resolved = path.resolve(dir);
+  if (path.dirname(resolved) === resolved) return; // a filesystem root (HOME=/ or C:\) would match everywhere
   const forms = new Set();
-  for (const d of [dir, realpathNative(dir)]) {
-    const p = path.resolve(d).replace(/[\\/]+$/, "");
+  for (const d of [resolved, realpathNative(resolved)]) {
+    const p = d.replace(/[\\/]+$/, "");
     forms.add(posix(p));
     forms.add(p.split("/").join("\\"));
+    forms.add(pathToFileURL(p).pathname); // percent-encoded, as a file:/// URL spells a space or a non-ASCII char
   }
-  roots.push({ dir: path.resolve(dir), label, re: new RegExp([...forms].map(escapeRe).join("|"), WIN ? "gi" : "g") });
+  roots.push({ dir: resolved, label, re: new RegExp([...forms].map(escapeRe).join("|"), WIN ? "gi" : "g") });
   roots.sort((a, b) => b.dir.length - a.dir.length);
 }
 registerRoot(os.homedir(), "~");
@@ -281,7 +290,9 @@ function collectUnits(ts, sf, text) {
     if (ts.isArrayLiteralExpression(e)) return emptyArray ? null : "[]";
     if (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e)) return e.text === "" ? null : '""';
     if (ts.isTemplateExpression(e)) return '""';
+    if (ts.isPrefixUnaryExpression(e) && (e.operator === K.MinusToken || e.operator === K.PlusToken) && (ts.isNumericLiteral(e.operand) || ts.isBigIntLiteral(e.operand))) e = e.operand; // `-1` is a numeric literal to a reader
     if (ts.isNumericLiteral(e)) return Number(e.text) === 0 ? null : "0";
+    if (ts.isBigIntLiteral(e)) return /^0+n$/.test(e.text) ? null : "0n";
     if (e.kind === K.TrueKeyword) return "false";
     if (e.kind === K.FalseKeyword) return "true";
     if (ts.isVoidExpression(e) || (ts.isIdentifier(e) && e.text === "undefined")) return null;
@@ -582,7 +593,8 @@ function runVitest({ copy, vitest, testFiles, env, timeoutMs, tag, viteTempDir }
       if (timedOut) cleanViteTemp(); else viteTemp = null;
       let json = null;
       if (!timedOut && fs.existsSync(outFile)) { try { json = JSON.parse(fs.readFileSync(outFile, "utf8")); } catch { json = null; } }
-      resolve({ timedOut, code, durationMs: Date.now() - t0, json, output: output.slice(-4000) });
+      // The head holds the error header, the tail the end of its stack: keep both of a long output.
+      resolve({ timedOut, code, durationMs: Date.now() - t0, json, output: output.length > 8000 ? `${output.slice(0, 4000)}\n…\n${output.slice(-4000)}` : output });
     });
   });
 }
