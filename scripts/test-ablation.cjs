@@ -33,7 +33,11 @@ const crypto = require("node:crypto");
 const { spawn, spawnSync, execFileSync } = require("node:child_process");
 
 const WIN = process.platform === "win32";
-const SKIP_DIRS = new Set([".git", "node_modules", "dist", "build", "coverage", ".test-ablation"]);
+// Left out of the copy and of test discovery: .git and node_modules at any
+// depth, build outputs at the project root only (src/build/ is source).
+const SKIP_ANYWHERE = new Set([".git", "node_modules"]);
+const SKIP_AT_ROOT = new Set(["dist", "build", "coverage", ".test-ablation"]);
+const skipDir = (abs, root) => SKIP_ANYWHERE.has(path.basename(abs)) || (path.dirname(abs) === root && SKIP_AT_ROOT.has(path.basename(abs)));
 const TEST_FILE = /\.(test|spec)\.(ts|tsx|mts|cts|js|mjs)$/;
 const MISSING_SYMBOL = /is not a function|is not a constructor|is not defined|does not provide an export named|Cannot find module|Failed to resolve import|Failed to load url/;
 const BASELINE_TIMEOUT_MS = 300000;
@@ -76,10 +80,23 @@ function relInside(root, abs, what) {
   if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) fail(`${what} ${abs} is not inside the project ${root}`);
   return posix(rel);
 }
+// The nearest ancestor whose package.json has vitest (a dependency, or an
+// installed node_modules/vitest); failing that, the nearest package.json.
 function findProject(fromDir) {
+  const hasVitest = (d) => {
+    if (fs.existsSync(path.join(d, "node_modules", "vitest", "package.json"))) return true;
+    try {
+      const p = JSON.parse(fs.readFileSync(path.join(d, "package.json"), "utf8"));
+      return [p.dependencies, p.devDependencies, p.peerDependencies].some((s) => s && "vitest" in s);
+    } catch { return false; }
+  };
+  let nearest = null;
   for (let d = fromDir; ; d = path.dirname(d)) {
-    if (fs.existsSync(path.join(d, "package.json"))) return d;
-    if (path.dirname(d) === d) return null;
+    if (fs.existsSync(path.join(d, "package.json"))) {
+      if (hasVitest(d)) return d;
+      nearest = nearest || d;
+    }
+    if (path.dirname(d) === d) return nearest;
   }
 }
 
@@ -135,7 +152,11 @@ function collectUnits(ts, sf, text) {
   const notAblated = [];
   const exports = new Set();
   let exportsComplete = true;
-  const kindName = (n) => K[n.kind];
+  // SyntaxKind's reverse map answers the marker alias for some values
+  // (VariableStatement reads back as FirstStatement): prefer the real name.
+  const KIND_NAMES = new Map();
+  for (const [name, v] of Object.entries(K)) if (typeof v === "number" && !/^(First|Last)[A-Z]|^Count$/.test(name) && !KIND_NAMES.has(v)) KIND_NAMES.set(v, name);
+  const kindName = (n) => KIND_NAMES.get(n.kind) || K[n.kind];
   const lc = (p) => { const x = sf.getLineAndCharacterOfPosition(p); return { line: x.line + 1, col: x.character + 1 }; };
   const modifiers = (n) => (ts.canHaveModifiers(n) && ts.getModifiers(n)) || [];
   const hasMod = (n, m) => modifiers(n).some((x) => x.kind === m);
@@ -210,10 +231,13 @@ function collectUnits(ts, sf, text) {
   }
   // `body`: the single statement under if/else/loop/label: a block is walked
   // in place, anything else is one wrapped unit (probe `{ probe; unit }`); the
-  // probe of a labeled statement's body goes before the label.
+  // probe of a labeled statement's body goes before the outermost of the
+  // labels stacked on it (`a: b: for` keeps `continue a` legal).
   function body(st, segs, parent, label) {
     if (ts.isBlock(st)) return statements(st.statements, segs, parent);
-    statement(st, [...segs, "0"], parent, label ? "before" : "wrap", label ? label.getStart(sf) : undefined);
+    let outer = label;
+    while (outer && outer.parent && ts.isLabeledStatement(outer.parent)) outer = outer.parent;
+    statement(st, [...segs, "0"], parent, outer ? "before" : "wrap", outer ? outer.getStart(sf) : undefined);
   }
   function declaredExports(st) {
     if (!hasMod(st, K.ExportKeyword)) return;
@@ -289,7 +313,7 @@ function probedSource(text, units) {
     const p = PROBE(u.id);
     if (u.probe === "expr") ins.push({ pos: u.pos, start: true, idx, text: `(${p}, ` }, { pos: u.endPos, start: false, idx, text: ")" });
     else if (u.probe === "wrap") ins.push({ pos: u.pos, start: true, idx, text: `{ ${p}; ` }, { pos: u.endPos, start: false, idx, text: " }" });
-    else ins.push({ pos: u.probePos, start: true, idx, text: `${p}; ` });
+    else ins.push({ pos: u.probePos, start: true, idx, text: `;${p}; ` }); // the leading `;` keeps `x = 0⏎(probe)` from becoming a call in a semicolon-less source
   });
   ins.sort((a, b) => b.pos - a.pos || (a.start !== b.start ? (a.start ? -1 : 1) : a.start ? b.idx - a.idx : a.idx - b.idx));
   let out = text;
@@ -308,14 +332,17 @@ function importsOf(ts, sf) {
   const bindingNames = (b, e) => { if (ts.isObjectBindingPattern(b)) for (const el of b.elements) e.names.add(el.propertyName ? el.propertyName.text : el.name.text); else e.all = true; };
   (function walk(n) {
     if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier)) {
-      const e = add(n.moduleSpecifier.text);
+      // a type-only import is erased at runtime: not an import of the source, not a name to check
       const c = n.importClause;
-      if (c) {
-        if (c.name) e.names.add("default");
-        if (c.namedBindings && ts.isNamedImports(c.namedBindings)) for (const el of c.namedBindings.elements) e.names.add(el.propertyName ? el.propertyName.text : el.name.text);
-        if (c.namedBindings && ts.isNamespaceImport(c.namedBindings)) e.all = true;
+      if (!c || !c.isTypeOnly) {
+        const e = add(n.moduleSpecifier.text);
+        if (c) {
+          if (c.name) e.names.add("default");
+          if (c.namedBindings && ts.isNamedImports(c.namedBindings)) for (const el of c.namedBindings.elements) if (!el.isTypeOnly) e.names.add(el.propertyName ? el.propertyName.text : el.name.text);
+          if (c.namedBindings && ts.isNamespaceImport(c.namedBindings)) e.all = true;
+        }
       }
-    } else if (ts.isExportDeclaration(n) && n.moduleSpecifier && ts.isStringLiteral(n.moduleSpecifier)) {
+    } else if (ts.isExportDeclaration(n) && n.moduleSpecifier && ts.isStringLiteral(n.moduleSpecifier) && !n.isTypeOnly) {
       add(n.moduleSpecifier.text).all = true;
     } else if (ts.isCallExpression(n) && n.expression.kind === ts.SyntaxKind.ImportKeyword && n.arguments.length && ts.isStringLiteral(n.arguments[0])) {
       const e = add(n.arguments[0].text);
@@ -341,16 +368,17 @@ function resolvesTo(spec, fromDir, sourceAbs) {
   const want = norm(sourceAbs);
   return c.some((x) => norm(x) === want);
 }
-function walkFiles(dir, out) {
+function walkFiles(dir, root, out) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (e.isDirectory()) { if (!SKIP_DIRS.has(e.name)) walkFiles(path.join(dir, e.name), out); }
-    else if (e.isFile() && TEST_FILE.test(e.name)) out.push(path.join(dir, e.name));
+    const abs = path.join(dir, e.name);
+    if (e.isDirectory()) { if (!skipDir(abs, root)) walkFiles(abs, root, out); }
+    else if (e.isFile() && TEST_FILE.test(e.name)) out.push(abs);
   }
   return out;
 }
 function discoverTests(ts, project, sourceAbs) {
   const found = [];
-  for (const abs of walkFiles(project, [])) {
+  for (const abs of walkFiles(project, project, [])) {
     const { sf } = parseFile(ts, abs, fs.readFileSync(abs, "utf8"));
     const names = new Set();
     let all = false, imports = false;
@@ -366,7 +394,7 @@ function discoverTests(ts, project, sourceAbs) {
 // ---------------------------------------------------------------- the copy
 function copyProject(project) {
   const copy = fs.mkdtempSync(path.join(os.tmpdir(), "test-ablation-"));
-  fs.cpSync(project, copy, { recursive: true, filter: (src) => src === project || !SKIP_DIRS.has(path.basename(src)) });
+  fs.cpSync(project, copy, { recursive: true, filter: (src) => src === project || !skipDir(src, project) });
   const nm = path.join(project, "node_modules");
   if (fs.existsSync(nm)) fs.symlinkSync(nm, path.join(copy, "node_modules"), "junction");
   return copy;
@@ -376,9 +404,11 @@ function removeCopy(copy) {
   try { if (fs.lstatSync(nm).isSymbolicLink()) { try { fs.unlinkSync(nm); } catch { fs.rmdirSync(nm); } } } catch { /* no link */ }
   fs.rmSync(copy, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 }
+// The work tree's status when the project is inside one (a package of a
+// monorepo included), null otherwise or without git.
 function gitStatus(project) {
-  if (!fs.existsSync(path.join(project, ".git"))) return null;
-  try { return execFileSync("git", ["-C", project, "status", "--porcelain"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); } catch { return null; }
+  const git = (...a) => execFileSync("git", ["-C", project, ...a], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  try { return git("rev-parse", "--is-inside-work-tree").trim() === "true" ? git("status", "--porcelain") : null; } catch { return null; }
 }
 
 // ---------------------------------------------------------------- vitest runs
@@ -392,6 +422,7 @@ function runEnv(extra) {
   if (!extra || !(REACH_ENV in extra)) delete env[REACH_ENV];
   return env;
 }
+let activeChild = null; // the Vitest run in progress, killed by the signal handlers of main()
 function runVitest({ copy, bin, testFiles, env, timeoutMs, tag }) {
   const dir = path.join(copy, ".test-ablation");
   fs.mkdirSync(dir, { recursive: true });
@@ -401,6 +432,7 @@ function runVitest({ copy, bin, testFiles, env, timeoutMs, tag }) {
   return new Promise((resolve) => {
     const t0 = Date.now();
     const child = spawn(process.execPath, args, { cwd: copy, env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, detached: !WIN });
+    activeChild = child;
     let output = "";
     child.stdout.on("data", (d) => { output += d; });
     child.stderr.on("data", (d) => { output += d; });
@@ -408,6 +440,7 @@ function runVitest({ copy, bin, testFiles, env, timeoutMs, tag }) {
     const timer = setTimeout(() => { timedOut = true; killTree(child); }, timeoutMs);
     child.on("close", (code) => {
       clearTimeout(timer);
+      activeChild = null;
       let json = null;
       if (!timedOut && fs.existsSync(outFile)) { try { json = JSON.parse(fs.readFileSync(outFile, "utf8")); } catch { json = null; } }
       resolve({ timedOut, code, durationMs: Date.now() - t0, json, output: output.slice(-4000) });
@@ -422,10 +455,13 @@ function parseResults(json, copy, testFiles) {
   const seen = new Set();
   const roots = [...new Set([copy, realpathOr(copy)])].map((r) => posix(r).replace(/\/+$/, "") + "/");
   const fold = (s) => (WIN ? s.toLowerCase() : s);
+  // Exact: Vitest's file arguments are substring filters, so a file that
+  // merely matched one (e2e/test/x.test.ts for test/x.test.ts) must not be
+  // read as the requested one.
   const relOf = (name) => {
     const n = posix(name);
     for (const r of roots) if (fold(n).startsWith(fold(r))) { const rel = n.slice(r.length); if (testFiles.includes(rel)) return rel; }
-    return testFiles.find((t) => fold(n).endsWith(fold("/" + t))) || null;
+    return null;
   };
   for (const f of json.testResults || []) {
     const rel = relOf(f.name);
@@ -444,8 +480,10 @@ function parseResults(json, copy, testFiles) {
   for (const t of testFiles) if (!seen.has(t)) res.set(`${t}::*`, { status: "failed", message: "no result from vitest" });
   return res;
 }
+// From the first line only (the error name and message): an assertion whose
+// expected text says "is not a function" is still an assertion.
 const killKind = (message) => (/^\s*AssertionError\b/.test(firstLine(message)) ? "assertion" : "crash");
-const failReason = (message) => (MISSING_SYMBOL.test(message) ? "missing_symbol" : killKind(message));
+const failReason = (message) => (killKind(message) === "crash" && MISSING_SYMBOL.test(firstLine(message)) ? "missing_symbol" : killKind(message));
 
 // ---------------------------------------------------------------- report
 function sortKeys(v) {
@@ -479,17 +517,25 @@ async function main() {
 
   const outPath = o.out ? path.resolve(o.out) : path.join(os.tmpdir(), "test-ablation", `${sha1(`${project}\n${sourceRel}`).slice(0, 12)}.json`);
   const gitBefore = gitStatus(project);
-  const copy = copyProject(project);
-  const copyRe = new RegExp([...new Set([copy, realpathOr(copy)])].flatMap((r) => [escapeRe(posix(r)) + "/?", escapeRe(r) + "\\\\?"]).join("|"), WIN ? "gi" : "g");
-  const scrub = (s) => firstLine(s).replace(copyRe, "").slice(0, 200);
   const durations = { baseline: [], reach: null, ablation: null };
   const t0 = Date.now();
-  const copySource = path.join(copy, sourceRel);
   let vitestRuns = 0;
-  const run = (tag, extraEnv, timeoutMs) => { vitestRuns++; return runVitest({ copy, bin: vitest.bin, testFiles, env: runEnv(extraEnv), timeoutMs, tag }); };
+  // The copy is made inside the try, so a failed copy or a Ctrl+C during a
+  // run that takes minutes never leaves a test-ablation-* dir (and its junction
+  // to the real node_modules) behind.
+  let copy = null;
+  const cleanup = () => { if (copy) { const c = copy; copy = null; removeCopy(c); } };
+  for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => { if (activeChild) killTree(activeChild); cleanup(); process.exit(130); });
 
   let report;
   try {
+    copy = copyProject(project);
+    const copySource = path.join(copy, sourceRel);
+    if (!fs.existsSync(copySource)) fail(`source ${sourceRel} is under a directory the copy leaves out (dist, build, coverage at the project root): not supported`);
+    const copyRe = new RegExp([...new Set([copy, realpathOr(copy)])].flatMap((r) => [escapeRe(posix(r)) + "/?", escapeRe(r) + "\\\\?"]).join("|"), WIN ? "gi" : "g");
+    const scrub = (s) => firstLine(s).replace(copyRe, "").slice(0, 200);
+    const run = (tag, extraEnv, timeoutMs) => { vitestRuns++; return runVitest({ copy, bin: vitest.bin, testFiles, env: runEnv(extraEnv), timeoutMs, tag }); };
+
     // 1. baseline
     const runs = [];
     for (let k = 0; k < o.baselineRuns; k++) {
@@ -558,7 +604,8 @@ async function main() {
       const status = o.dryRun ? (u.invalid ? "invalid" : "not_run") : u.invalid ? "invalid" : ks.length ? "killed" : "survived";
       return { id: u.id, parent: u.parent, kind: u.kind, start: u.start, end: u.end, text_head: u.text_head, text_sha1: u.text_sha1, flags: u.flags, reached: o.dryRun ? null : reached.has(u.id), status, kills: ks };
     });
-    const killedTests = new Set(unitRows.flatMap((u) => u.kills.map((k) => k.test)));
+    // A timed-out mutant (`test: "*"`) implicates every stable test of the run: none of them is "never failing".
+    const killedTests = new Set(unitRows.flatMap((u) => (u.kills.some((k) => k.test === "*") ? passing : u.kills.map((k) => k.test))));
     const facts = o.dryRun
       ? { survived_reached: [], unreached: [], crash_only: [], never_failing_tests: [], orphan_tests: [] }
       : {
@@ -579,7 +626,7 @@ async function main() {
       meta: { durations_ms: { ...durations, total: Date.now() - t0 }, units_total: units.length, vitest_runs: vitestRuns, run_timeout_ms: timeoutMs },
     };
   } finally {
-    removeCopy(copy);
+    cleanup();
   }
 
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
@@ -587,7 +634,8 @@ async function main() {
   if (o.dryRun) {
     for (const u of report.units) console.log(`${u.id}  ${u.text_head}`);
     const mean = durations.baseline.reduce((a, b) => a + b, 0) / durations.baseline.length;
-    console.log(`estimate: ${units.length} units x ${Math.round(mean)} ms = ${Math.round((units.length * mean) / 1000)} s`);
+    const runs = units.filter((u) => !u.invalid).length + 1; // one per valid unit, plus the reach run
+    console.log(`estimate: ${runs} runs (${runs - 1} units + the reach run) x ${Math.round(mean)} ms = ${Math.round((runs * mean) / 1000)} s`);
   } else {
     for (const k of Object.keys(report.facts)) console.log(`${k}: ${report.facts[k].length}`);
   }

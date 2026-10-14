@@ -21,7 +21,7 @@ Rules:
   - a test in `never_failing_tests`: `useless` (it asserts nothing the source decides) or `other-target` (it exercises another module: check its imports);
   - a test in `orphan_tests`: `orphan` (the code it expects does not exist; cite `static.missing_exports` or `baseline.failing[].message_head`);
   - `unknown` when the evidence is not enough: better than a guess.
-- Group children under an unreached parent: one verdict for the parent, the children listed after it in the same line, no verdict of their own.
+- Group children under an unreached parent: one line for the parent, its children named at the end of the evidence column (`…; children: <id>, <id>`), no line of their own. The three columns stay.
 - Evidence is a report field (`facts.unreached`, `kills: []`, `missing_exports`) or a `file:line` of the source or a test. One per line.
 
 Output, nothing else:
