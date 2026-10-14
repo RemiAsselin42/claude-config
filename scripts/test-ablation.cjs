@@ -12,17 +12,22 @@
 //
 // Exit 0: report written (findings or not: an audit, not a gate).
 // Exit 2: blind spot or usage error, one stderr line naming it: typescript or
-//         vitest unresolvable from the project, source syntax error, no stable
-//         passing test, reach run differing from the baseline, project modified.
-// stdout: one count per `facts` bucket (a dry run: the units and the estimate),
-//         then the report path, alone, last.
+//         vitest unresolvable from the project, vitest outside 3.x to 5.x, source
+//         syntax error, no stable passing test, reach run differing from the
+//         baseline or recording nothing, project modified. The line quotes the
+//         error Vitest printed, not its stack location, and no absolute path:
+//         the project is `<project>`, the temp copy `<copy>`, the home `~`.
+// stdout: one count per `facts` bucket, then the report path, alone, last. A dry
+//         run prints the units, `units: N` and `not_ablated: M` before any Vitest
+//         run, then the estimate and the report path.
 //
 // typescript and vitest come from the audited project (require.resolve with
 // paths: [project]); this script has no dependency of its own. typescript 7,
 // the native port, has no JS parser API: the project needs typescript@6 as a
-// devDependency. The real project is never written: Vitest runs in a temp copy
-// whose node_modules is a junction (works on Windows without admin rights) with
-// its caches inside the copy, and the copy is removed on exit, error paths
+// devDependency. Vitest 3.x to 5.x; the run flags come from VITEST_FLAGS, one
+// entry per major. The real project is never written: Vitest runs in a temp
+// copy whose node_modules is a junction (works on Windows without admin rights)
+// with its caches inside the copy, and the copy is removed on exit, error paths
 // included. A dry run still runs the baseline (for the estimate) and nothing
 // else; its units carry status "not_run".
 "use strict";
@@ -43,14 +48,74 @@ const MISSING_SYMBOL = /is not a function|is not a constructor|is not defined|do
 const BASELINE_TIMEOUT_MS = 300000;
 const REACH_ENV = "TEST_ABLATION_REACH";
 
+// Run flags per Vitest major. Every flag was read in `vitest --help` (and
+// `--help --coverage`, `--help --sequence`, `--help --cache`) of the versions
+// named on its line; a flag a version does not list is a CACError at CLI
+// parsing and no run at all (the 3.2.4 smoke test of 2026-10-14).
+const VITEST_MAJORS = "3.0 to 5.x";
+const COMMON_FLAGS = [
+  "--reporter=json", // 3.0.0, 3.2.7, 4.0.0, 4.1.11, 5.0.0, 5.0.4 (`--outputFile` with it, added per run)
+  "--coverage.enabled=false", // same versions, `--help --coverage`
+  "--sequence.shuffle=false", // same versions, `--help --sequence`
+  "--sequence.seed=1", // same versions, `--help --sequence`
+  "--no-cache", // same versions, `--help --cache` lists the `--cache` boolean; 3.x would otherwise write node_modules/.vite/vitest/results.json
+];
+// Vite's default config loader bundles vitest.config.ts into node_modules/
+// .vite-temp, i.e. the real project through the junction (Vite >= 6 leaves the
+// empty directory there); the runner loader writes nothing. Listed from 3.1.0.
+const CONFIG_LOADER = "--configLoader=runner"; // 3.1.0, 3.2.0, 3.2.4, 3.2.7, 4.0.0, 4.1.11, 5.0.0, 5.0.4; absent from 3.0.0
+const VITEST_FLAGS = {
+  3: (minor) => (minor >= 1 ? [...COMMON_FLAGS, CONFIG_LOADER] : COMMON_FLAGS),
+  4: () => [...COMMON_FLAGS, CONFIG_LOADER], // `--experimental.fsModuleCache` exists there but is off by default (4.1.11)
+  5: (_minor, cacheDir) => [...COMMON_FLAGS, CONFIG_LOADER, `--fsModuleCachePath=${cacheDir}`], // 5.0.0, 5.0.4: the module cache is on and lands in node_modules/.vitest-cache without the path
+};
+const VITE_TEMP_FILE = /\.timestamp-.*\.mjs$/; // what Vite's bundle loader writes under node_modules/.vite-temp
+
 class Fail extends Error {}
 const fail = (msg) => { throw new Fail(msg); };
 const sha1 = (s) => crypto.createHash("sha1").update(s).digest("hex");
 const posix = (p) => p.split(path.sep).join("/");
 const norm = (p) => (WIN ? path.resolve(p).toLowerCase() : path.resolve(p));
-const realpathOr = (p) => { try { return fs.realpathSync(p); } catch { return p; } };
+// `.native` resolves Windows 8.3 short names too (TEMP may be one), so the
+// roots compare equal to the paths Vitest reports.
+const realpathNative = (p) => { try { return fs.realpathSync.native(p); } catch { return p; } };
 const firstLine = (s) => String(s || "").split(/\r?\n/).find((l) => l.trim()) || "";
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// ---------------------------------------------------------------- stderr lines without absolute paths
+// Every root is replaced in its native, posix (also inside file:///) and
+// realpath forms, the longest root first (the copy sits under the temp dir,
+// under the home).
+const roots = []; // { dir, label, re }
+function registerRoot(dir, label) {
+  const forms = new Set();
+  for (const d of [dir, realpathNative(dir)]) {
+    const p = path.resolve(d).replace(/[\\/]+$/, "");
+    forms.add(posix(p));
+    forms.add(p.split("/").join("\\"));
+  }
+  roots.push({ dir: path.resolve(dir), label, re: new RegExp([...forms].map(escapeRe).join("|"), WIN ? "gi" : "g") });
+  roots.sort((a, b) => b.dir.length - a.dir.length);
+}
+registerRoot(os.homedir(), "~");
+function scrubPaths(s) {
+  let out = String(s);
+  for (const r of roots) out = out.replace(r.re, r.label);
+  return out;
+}
+const ANSI = /\x1b\[[0-9;]*m/g;
+// The error header among Vitest's output lines: `<Name>Error: …`, `<Name>Exception: …`,
+// a bundler tag (`X [ERROR] …`, `[UNRESOLVED_IMPORT] …`), a bare `Error: …`; a
+// header whose message ends with `:` (`Error: Build failed with 1 error:`)
+// continues on the next line. Then Vitest's banners, then the first line.
+const ERROR_HEADER = /^(?:[A-Za-z_$][\w$]*(?:Error|Exception)\b|Error\b|\[[A-Z_]+\]|X \[ERROR\])/;
+const BANNER = /failed to load config|Startup Error|Unhandled (?:Error|Rejection)|^FAIL\b/;
+function errorLine(output) {
+  const lines = String(output || "").replace(ANSI, "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const i = lines.findIndex((l) => ERROR_HEADER.test(l));
+  if (i >= 0) return /:$/.test(lines[i]) && lines[i + 1] ? `${lines[i]} ${lines[i + 1]}` : lines[i];
+  return lines.find((l) => BANNER.test(l)) || lines[0] || "";
+}
 
 // ---------------------------------------------------------------- arguments
 function parseArgs(argv) {
@@ -116,9 +181,11 @@ function resolveTools(project) {
     const pkgPath = require.resolve("vitest/package.json", { paths: [project] });
     const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
     const binRel = typeof pkg.bin === "string" ? pkg.bin : pkg.bin && pkg.bin.vitest;
+    const [major, minor] = String(pkg.version).split(".").map(Number);
     if (!binRel) problems.push(`vitest ${pkg.version}: no bin in its package.json`);
     else if (!own("vitest")) problems.push(`vitest resolved outside ${posix(project)}/node_modules (hoisted or workspace install): not supported`);
-    else vitest = { version: pkg.version, bin: path.join(path.dirname(pkgPath), binRel) };
+    else if (!VITEST_FLAGS[major]) problems.push(`vitest ${pkg.version} is not supported: ${VITEST_MAJORS}`);
+    else vitest = { version: pkg.version, bin: path.join(path.dirname(pkgPath), binRel), flags: (cacheDir) => VITEST_FLAGS[major](minor || 0, cacheDir) };
   } catch { problems.push(`vitest not found from ${posix(project)}`); }
   if (problems.length) fail(problems.join("; "));
   return { ts, vitest };
@@ -141,11 +208,13 @@ function diagLine(ts, sf, d) {
 }
 
 // ---------------------------------------------------------------- ablation units
-// A unit: a statement (replaced by `;`) or the expression body of an arrow
-// (replaced by `(void 0)`). Declarations are not units but their bodies are
-// walked. Ids: <scope chain>/<child index path>:<SyntaxKind>; a declaration
-// starts a scope named after it, a unit keeps its path and names the functions
-// nested in it (`f` for a named one, `fn<k>` otherwise).
+// A unit: a statement (replaced by `;`), a variable statement (its binding
+// kept, each initializer replaced by the empty value of its shape) or the
+// expression body of an arrow (replaced by `(void 0)`). Declarations are not
+// units but their bodies are walked. Ids: <scope chain>/<child index
+// path>:<SyntaxKind>; a declaration starts a scope named after it, a unit keeps
+// its path and names the functions nested in it (`f` for a named one, `fn<k>`
+// otherwise).
 function collectUnits(ts, sf, text) {
   const K = ts.SyntaxKind;
   const units = [];
@@ -164,6 +233,18 @@ function collectUnits(ts, sf, text) {
   const isMemberFn = (n) => ts.isMethodDeclaration(n) || ts.isConstructorDeclaration(n) || ts.isGetAccessorDeclaration(n) || ts.isSetAccessorDeclaration(n);
   const nameText = (name) => (name && (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name) || ts.isPrivateIdentifier(name)) ? name.text : null);
   const na = (n, reason) => notAblated.push({ start: lc(n.getStart(sf)), kind: kindName(n), reason });
+  const bindingNames = (b, out) => { if (ts.isIdentifier(b)) out.add(b.text); else if (ts.isObjectBindingPattern(b) || ts.isArrayBindingPattern(b)) for (const e of b.elements) if (e.name) bindingNames(e.name, out); };
+  // The `var` names a unit declares: the only bindings its removal can take
+  // away (let/const/class/function are block-scoped in a module), so a later
+  // `ReferenceError: <name> is not defined` is a `binding` kill, not a crash.
+  function varNames(node) {
+    const out = new Set();
+    (function walk(n) {
+      if (ts.isVariableDeclarationList(n) && !(ts.getCombinedNodeFlags(n) & ts.NodeFlags.BlockScoped)) for (const d of n.declarations) bindingNames(d.name, out);
+      ts.forEachChild(n, walk);
+    })(node);
+    return out;
+  }
 
   function addUnit(node, segs, parent, opts) {
     const pos = node.getStart(sf), endPos = node.getEnd();
@@ -172,6 +253,7 @@ function collectUnits(ts, sf, text) {
       id: `${segs.join("/")}:${opts.kind || kindName(node)}`, parentUnit: parent, kind: opts.kind || kindName(node),
       pos, endPos, start: lc(pos), end: lc(endPos), text_head: normText.slice(0, 80), text_sha1: sha1(normText).slice(0, 12),
       flags: opts.flags || [], replacement: opts.replacement, probe: opts.probe, probePos: opts.probePos === undefined ? pos : opts.probePos,
+      declares: varNames(node),
     };
     units.push(u);
     return u;
@@ -185,6 +267,39 @@ function collectUnits(ts, sf, text) {
       if (ts.isPropertyAccessExpression(e) || ts.isElementAccessExpression(e) || ts.isCallExpression(e) || ts.isNonNullExpression(e)) e = e.expression;
       else return ts.isIdentifier(e) && e.text === "console";
     }
+  }
+  // The empty value of a declarator's shape, or null when its initializer
+  // already is that value (a mutant equal to its source would always survive).
+  function emptyValue(d) {
+    let e = d.initializer;
+    while (ts.isParenthesizedExpression(e) || ts.isAsExpression(e) || ts.isSatisfiesExpression(e) || ts.isTypeAssertionExpression(e) || ts.isNonNullExpression(e)) e = e.expression;
+    const emptyObject = ts.isObjectLiteralExpression(e) && !e.properties.length;
+    const emptyArray = ts.isArrayLiteralExpression(e) && !e.elements.length;
+    if (ts.isObjectBindingPattern(d.name)) return emptyObject ? null : "{}";
+    if (ts.isArrayBindingPattern(d.name)) return emptyArray ? null : "[]";
+    if (ts.isObjectLiteralExpression(e)) return emptyObject ? null : "{}";
+    if (ts.isArrayLiteralExpression(e)) return emptyArray ? null : "[]";
+    if (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e)) return e.text === "" ? null : '""';
+    if (ts.isTemplateExpression(e)) return '""';
+    if (ts.isNumericLiteral(e)) return Number(e.text) === 0 ? null : "0";
+    if (e.kind === K.TrueKeyword) return "false";
+    if (e.kind === K.FalseKeyword) return "true";
+    if (ts.isVoidExpression(e) || (ts.isIdentifier(e) && e.text === "undefined")) return null;
+    return "(void 0)";
+  }
+  // The statement with each initializer replaced, spliced from the end.
+  function variableReplacement(st) {
+    const edits = [];
+    for (const d of st.declarationList.declarations) {
+      if (!d.initializer) continue;
+      const empty = emptyValue(d);
+      if (empty !== null) edits.push({ from: d.initializer.getStart(sf), to: d.initializer.getEnd(), empty });
+    }
+    if (!edits.length) return null;
+    const pos = st.getStart(sf);
+    let out = text.slice(pos, st.getEnd());
+    for (const e of edits.sort((a, b) => b.from - a.from)) out = out.slice(0, e.from - pos) + e.empty + out.slice(e.to - pos);
+    return out;
   }
   // Function-likes nested in the expressions of `node`, skipping the statement
   // children handled elsewhere; each one's body becomes a nested scope.
@@ -243,8 +358,7 @@ function collectUnits(ts, sf, text) {
     if (!hasMod(st, K.ExportKeyword)) return;
     if (hasMod(st, K.DefaultKeyword)) return exports.add("default");
     if (ts.isVariableStatement(st)) {
-      const names = (b) => { if (ts.isIdentifier(b)) exports.add(b.text); else if (ts.isObjectBindingPattern(b) || ts.isArrayBindingPattern(b)) for (const e of b.elements) if (e.name) names(e.name); };
-      for (const d of st.declarationList.declarations) names(d.name);
+      for (const d of st.declarationList.declarations) bindingNames(d.name, exports);
     } else if (st.name && !ts.isInterfaceDeclaration(st) && !ts.isTypeAliasDeclaration(st)) exports.add(st.name.text);
   }
   function statement(st, segs, parent, probe, probePos) {
@@ -272,7 +386,13 @@ function collectUnits(ts, sf, text) {
       for (const d of decls) fnBody(d.initializer, [...scope, nameText(d.name) || "fn"], parent);
       return;
     }
-    const u = addUnit(st, segs, parent, { replacement: ";", probe, probePos, flags: consoleCall(st) ? ["side_effect_only"] : [] });
+    let replacement = ";";
+    if (ts.isVariableStatement(st)) {
+      if (!st.declarationList.declarations.some((d) => d.initializer)) return na(st, "no_initializer");
+      replacement = variableReplacement(st);
+      if (replacement === null) return na(st, "already_empty");
+    }
+    const u = addUnit(st, segs, parent, { replacement, probe, probePos, flags: consoleCall(st) ? ["side_effect_only"] : [] });
     const skip = new Set();
     if (ts.isIfStatement(st)) {
       skip.add(st.thenStatement); body(st.thenStatement, [...segs, "then"], u);
@@ -410,6 +530,23 @@ function gitStatus(project) {
   const git = (...a) => execFileSync("git", ["-C", project, ...a], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
   try { return git("rev-parse", "--is-inside-work-tree").trim() === "true" ? git("status", "--porcelain") : null; } catch { return null; }
 }
+// Vite's bundle config loader writes through the junction into the real
+// node_modules/.vite-temp and unlinks its file itself, unless the run is
+// killed: what appeared there during a killed run is removed, and said.
+const listOrNull = (dir) => { try { return new Set(fs.readdirSync(dir)); } catch { return null; } };
+let viteTemp = null; // { dir, before } of the run in progress
+function cleanViteTemp() {
+  if (!viteTemp) return;
+  const { dir, before } = viteTemp;
+  viteTemp = null;
+  const after = listOrNull(dir);
+  if (!after) return;
+  const left = [...after].filter((n) => !(before && before.has(n)) && VITE_TEMP_FILE.test(n)).sort();
+  for (const n of left) fs.rmSync(path.join(dir, n), { force: true });
+  let dirRemoved = false;
+  if (!before) { try { fs.rmdirSync(dir); dirRemoved = true; } catch { /* not empty: not ours */ } }
+  if (left.length || dirRemoved) console.error(scrubPaths(`test-ablation: removed from node_modules/.vite-temp what the killed run left there: ${left.length ? left.join(", ") : "the directory"}`));
+}
 
 // ---------------------------------------------------------------- vitest runs
 function killTree(child) {
@@ -423,14 +560,15 @@ function runEnv(extra) {
   return env;
 }
 let activeChild = null; // the Vitest run in progress, killed by the signal handlers of main()
-function runVitest({ copy, bin, testFiles, env, timeoutMs, tag }) {
+function runVitest({ copy, vitest, testFiles, env, timeoutMs, tag, viteTempDir }) {
   const dir = path.join(copy, ".test-ablation");
   fs.mkdirSync(dir, { recursive: true });
   const outFile = path.join(dir, `${tag}.json`);
   fs.rmSync(outFile, { force: true });
-  const args = [bin, "run", ...testFiles, "--reporter=json", `--outputFile=${outFile}`, "--coverage.enabled=false", "--sequence.shuffle=false", "--sequence.seed=1", "--no-cache", `--fsModuleCachePath=${path.join(dir, "vitest-cache")}`];
+  const args = [vitest.bin, "run", ...testFiles, `--outputFile=${outFile}`, ...vitest.flags(path.join(dir, "vitest-cache"))];
   return new Promise((resolve) => {
     const t0 = Date.now();
+    viteTemp = { dir: viteTempDir, before: listOrNull(viteTempDir) };
     const child = spawn(process.execPath, args, { cwd: copy, env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, detached: !WIN });
     activeChild = child;
     let output = "";
@@ -441,6 +579,7 @@ function runVitest({ copy, bin, testFiles, env, timeoutMs, tag }) {
     child.on("close", (code) => {
       clearTimeout(timer);
       activeChild = null;
+      if (timedOut) cleanViteTemp(); else viteTemp = null;
       let json = null;
       if (!timedOut && fs.existsSync(outFile)) { try { json = JSON.parse(fs.readFileSync(outFile, "utf8")); } catch { json = null; } }
       resolve({ timedOut, code, durationMs: Date.now() - t0, json, output: output.slice(-4000) });
@@ -453,7 +592,7 @@ function runVitest({ copy, bin, testFiles, env, timeoutMs, tag }) {
 function parseResults(json, copy, testFiles) {
   const res = new Map();
   const seen = new Set();
-  const roots = [...new Set([copy, realpathOr(copy)])].map((r) => posix(r).replace(/\/+$/, "") + "/");
+  const roots = [...new Set([copy, realpathNative(copy)])].map((r) => posix(r).replace(/\/+$/, "") + "/");
   const fold = (s) => (WIN ? s.toLowerCase() : s);
   // Exact: Vitest's file arguments are substring filters, so a file that
   // merely matched one (e2e/test/x.test.ts for test/x.test.ts) must not be
@@ -481,8 +620,15 @@ function parseResults(json, copy, testFiles) {
   return res;
 }
 // From the first line only (the error name and message): an assertion whose
-// expected text says "is not a function" is still an assertion.
-const killKind = (message) => (/^\s*AssertionError\b/.test(firstLine(message)) ? "assertion" : "crash");
+// expected text says "is not a function" is still an assertion; a
+// ReferenceError on a name the ablated unit declared is a `binding` kill.
+const BINDING_ERROR = /^\s*ReferenceError: (\S+) is not defined/;
+function killKind(message, declares) {
+  const l = firstLine(message);
+  if (/^\s*AssertionError\b/.test(l)) return "assertion";
+  const m = declares && BINDING_ERROR.exec(l);
+  return m && declares.has(m[1]) ? "binding" : "crash";
+}
 const failReason = (message) => (killKind(message) === "crash" && MISSING_SYMBOL.test(firstLine(message)) ? "missing_symbol" : killKind(message));
 
 // ---------------------------------------------------------------- report
@@ -500,6 +646,7 @@ async function main() {
   if (!fs.existsSync(sourceAbs)) fail(`source not found: ${sourceAbs}`);
   const project = o.project ? path.resolve(o.project) : findProject(path.dirname(sourceAbs));
   if (!project || !fs.existsSync(path.join(project, "package.json"))) fail(`no package.json above ${sourceAbs}: pass --project`);
+  registerRoot(project, "<project>");
   const sourceRel = relInside(project, sourceAbs, "source");
   const { ts, vitest } = resolveTools(project);
 
@@ -508,6 +655,12 @@ async function main() {
   if (diags.length) fail(`syntax error in ${sourceRel}: ${diagLine(ts, sf, diags[0])}`);
   const { units, notAblated, exports, exportsComplete } = collectUnits(ts, sf, text);
   for (const u of units) u.invalid = parseFile(ts, sourceRel, mutantSource(text, u)).diags.length > 0;
+  if (o.dryRun) {
+    // The size of the job, before anything can fail.
+    for (const u of units) console.log(`${u.id}  ${u.text_head}`);
+    console.log(`units: ${units.length}`);
+    console.log(`not_ablated: ${notAblated.length}`);
+  }
 
   const importers = discoverTests(ts, project, sourceAbs);
   const testFiles = (o.tests.length ? o.tests.map((t) => relInside(project, path.resolve(t), "test file")) : importers.map((i) => i.rel)).sort(byId);
@@ -517,6 +670,7 @@ async function main() {
 
   const outPath = o.out ? path.resolve(o.out) : path.join(os.tmpdir(), "test-ablation", `${sha1(`${project}\n${sourceRel}`).slice(0, 12)}.json`);
   const gitBefore = gitStatus(project);
+  const viteTempDir = path.join(project, "node_modules", ".vite-temp");
   const durations = { baseline: [], reach: null, ablation: null };
   const t0 = Date.now();
   let vitestRuns = 0;
@@ -525,23 +679,26 @@ async function main() {
   // to the real node_modules) behind.
   let copy = null;
   const cleanup = () => { if (copy) { const c = copy; copy = null; removeCopy(c); } };
-  for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => { if (activeChild) killTree(activeChild); cleanup(); process.exit(130); });
+  for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => { if (activeChild) killTree(activeChild); cleanViteTemp(); cleanup(); process.exit(130); });
 
   let report;
   try {
     copy = copyProject(project);
+    registerRoot(copy, "<copy>");
     const copySource = path.join(copy, sourceRel);
     if (!fs.existsSync(copySource)) fail(`source ${sourceRel} is under a directory the copy leaves out (dist, build, coverage at the project root): not supported`);
-    const copyRe = new RegExp([...new Set([copy, realpathOr(copy)])].flatMap((r) => [escapeRe(posix(r)) + "/?", escapeRe(r) + "\\\\?"]).join("|"), WIN ? "gi" : "g");
-    const scrub = (s) => firstLine(s).replace(copyRe, "").slice(0, 200);
-    const run = (tag, extraEnv, timeoutMs) => { vitestRuns++; return runVitest({ copy, bin: vitest.bin, testFiles, env: runEnv(extraEnv), timeoutMs, tag }); };
+    // Report fields: the copy root stripped, so two runs give the same bytes.
+    const copyRe = new RegExp([...new Set([copy, realpathNative(copy)])].flatMap((r) => [escapeRe(posix(r)) + "/?", escapeRe(r) + "\\\\?"]).join("|"), WIN ? "gi" : "g");
+    const stripCopy = (s) => firstLine(s).replace(copyRe, "").slice(0, 200);
+    const run = (tag, extraEnv, timeoutMs) => { vitestRuns++; return runVitest({ copy, vitest, testFiles, env: runEnv(extraEnv), timeoutMs, tag, viteTempDir }); };
+    const noReport = (what, r) => fail(`${what}: vitest wrote no report: ${errorLine(r.output) || `exit ${r.code}`}`);
 
     // 1. baseline
     const runs = [];
     for (let k = 0; k < o.baselineRuns; k++) {
       const r = await run(`baseline-${k + 1}`, null, BASELINE_TIMEOUT_MS);
       if (r.timedOut) fail(`baseline run ${k + 1} timed out after ${BASELINE_TIMEOUT_MS / 1000} s`);
-      if (!r.json) fail(`baseline run ${k + 1}: vitest wrote no report: ${scrub(r.output) || `exit ${r.code}`}`);
+      if (!r.json) noReport(`baseline run ${k + 1}`, r);
       durations.baseline.push(r.durationMs);
       runs.push(parseResults(r.json, copy, testFiles));
     }
@@ -550,7 +707,7 @@ async function main() {
     for (const id of ids) {
       const sts = runs.map((m) => (m.get(id) || { status: "absent" }).status);
       if (sts.every((s) => s === "passed")) passing.push(id);
-      else if (sts.every((s) => s === "failed")) { const msg = runs[0].get(id).message; failing.push({ test: id, reason: failReason(msg), message_head: scrub(msg) }); }
+      else if (sts.every((s) => s === "failed")) { const msg = runs[0].get(id).message; failing.push({ test: id, reason: failReason(msg), message_head: stripCopy(msg) }); }
       else if (!sts.every((s) => s === "skipped")) flaky.push(id);
     }
     if (!passing.length) fail(`no stable passing test in the baseline (${o.baselineRuns} runs of ${testFiles.join(", ")}): nothing to measure`);
@@ -568,11 +725,15 @@ async function main() {
       let r;
       try { r = await run("reach", { [REACH_ENV]: reachFile }, timeoutMs); } finally { fs.writeFileSync(copySource, text); }
       if (r.timedOut) fail(`reach run timed out after ${timeoutMs / 1000} s`);
-      if (!r.json) fail(`reach run: vitest wrote no report: ${scrub(r.output) || `exit ${r.code}`}`);
+      if (!r.json) noReport("reach run", r);
       durations.reach = r.durationMs;
       const res = parseResults(r.json, copy, testFiles);
       for (const [id, st] of stable) { const got = (res.get(id) || { status: "absent" }).status; if (got !== st) fail(`reach run differs from the baseline: ${id} ${st} -> ${got}`); }
       for (const line of fs.readFileSync(reachFile, "utf8").split(/\r?\n/)) if (line) reached.add(line);
+      // A passing test that imports the source runs its module-level code: a
+      // probe that never fired means the probes could not record (the module
+      // was mocked away, or ran where process.env/node:fs are not reachable).
+      if (!reached.size && units.some((u) => !u.invalid)) fail("reach probe recorded nothing (Vitest browser mode or an environment without process?)");
 
       // 3. ablation, one run per valid unit
       const ta = Date.now();
@@ -588,7 +749,7 @@ async function main() {
           for (const id of passing) {
             const got = res && res.get(id);
             if (!res || !got) ks.push({ test: id, kind: "crash" });
-            else if (got.status === "failed") ks.push({ test: id, kind: killKind(got.message) });
+            else if (got.status === "failed") ks.push({ test: id, kind: killKind(got.message, u.declares) });
           }
         }
         kills.set(u.id, ks.sort((a, b) => byId(a.test, b.test) || byId(a.kind, b.kind)));
@@ -632,7 +793,6 @@ async function main() {
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
   fs.writeFileSync(outPath, JSON.stringify(sortKeys(report), null, 2) + "\n");
   if (o.dryRun) {
-    for (const u of report.units) console.log(`${u.id}  ${u.text_head}`);
     const mean = durations.baseline.reduce((a, b) => a + b, 0) / durations.baseline.length;
     const runs = units.filter((u) => !u.invalid).length + 1; // one per valid unit, plus the reach run
     console.log(`estimate: ${runs} runs (${runs - 1} units + the reach run) x ${Math.round(mean)} ms = ${Math.round((runs * mean) / 1000)} s`);
@@ -643,6 +803,6 @@ async function main() {
 }
 
 main().catch((e) => {
-  console.error(`test-ablation: ${String(e instanceof Fail ? e.message : (e && e.stack) || e).replace(/\s*\n\s*/g, " ")}`);
+  console.error(scrubPaths(`test-ablation: ${String(e instanceof Fail ? e.message : (e && e.stack) || e).replace(/\s*\n\s*/g, " ")}`));
   process.exit(2);
 });
