@@ -34,7 +34,7 @@ Exit 2 → print the script's stderr line verbatim and stop. Keep the stdout: th
 
 ## 4. The report
 
-Read the report at that path (Read). Its `facts` are the five lists to interpret: `survived_reached`, `unreached`, `crash_only`, `never_failing_tests`, `orphan_tests`. Empty lists are a result too: say so and skip to step 7.
+Read the report at that path (Read). Its `facts` are the five lists to interpret: `survived_reached`, `unreached`, `crash_only`, `never_failing_tests`, `orphan_tests`. The auditors are spawned whenever at least one list has an id; only when all five are empty is there nothing to classify: print the counts, say so, stop.
 
 ## 5. Two auditors, one message
 
@@ -42,7 +42,7 @@ Spawn `test-auditor` **twice in the same message** (two Agent calls, `subagent_t
 
 ## 6. Merge
 
-For each id of `facts`, compare the two verdicts: identical → kept, with the evidence of the first; different → `disputed`, both verdicts and both evidences kept, for the owner to decide. A "Missing tests" line is kept when both auditors propose one for the same unit; otherwise it is listed as proposed by one.
+For each id of `facts`, compare the two verdicts: identical → kept, with the evidence of the first; different → `disputed`, both verdicts and both evidences kept, for the owner to decide. A child an auditor grouped under its parent takes the parent's verdict for the comparison. An id one auditor did not cover is `disputed` with `absent` as that auditor's verdict. A "Missing tests" line is kept when both auditors propose one for the same unit; otherwise it is listed as proposed by one.
 
 ## 7. Report, then stop
 
