@@ -8,7 +8,7 @@ Shared Claude Code configuration: slash-commands, scripts and hooks, persistent 
 > `install.sh` performs persistent, potentially destructive operations:
 >
 > - **Writes** to `~/.claude/` (commands, scripts, templates, mods, settings, CLAUDE.md)
-> - **Prunes** `~/.claude/commands/` and `~/.claude/agents/`: anything there without a source file in the repo is deleted on every run — `~/.claude/agents/` ends up holding exactly the three subagents of `agents/`
+> - **Prunes** `~/.claude/commands/` and `~/.claude/agents/`: anything there without a source file in the repo is deleted on every run — `~/.claude/agents/` ends up holding exactly the four subagents of `agents/`
 > - **Installs** global packages (`graphify`, `mempalace`, `rtk`)
 > - **Modifies PATH** — adds `~/.local/bin` to `~/.bashrc` / `~/.bash_profile` / `~/.profile` (with confirmation, or silently with `-y`)
 > - **Deletes files** (`graphify-out/`, mempalace wings, vault folders) via `exclude-from-index.sh`
@@ -49,7 +49,7 @@ Your private repo stays in sync with this one automatically — see [Minimal set
 1. Syncs from the `upstream` remote **first**: a fork that lacks the remote gets it, pointing at the public repo (`CLAUDE_CONFIG_UPSTREAM_URL` in `install.sh`), whatever its name; a checkout of the public repo itself gets none. If the sync brings changes, the script re-executes itself so the rest of the run uses the updated version, and syncs once more when those changes touched the sync script: a path added to its list arrives in the same run. Skipped, with a message, while the repo has uncommitted changes or is not on its default branch (what `origin/HEAD` names, else `main` or `master`: the sync commits upstream's files into the current branch)
 2. Checks **Node.js**, installs **uv** if missing, then installs/upgrades **Graphify**, **MemPalace**, **chromadb**, **RTK**, **jq**, **shellcheck** and **context-mode** (plus the Zilliz MCP server when `MILVUS_ADDRESS` is set)
 3. Asks once to add `~/.local/bin` to persistent PATH (`-y` skips)
-4. Copies **commands**, **scripts**, **templates** to `~/.claude/` — `commands/` and `agents/` are mirrored (deployed files with no source in the repo are pruned), `scripts/` and `templates/` are additive, and a manifest of every file deployed (`~/.claude/.deployed-files`) lets the next install remove what the previous one deployed and this repo no longer holds, its own files only. `agents/` holds the three subagents `/feature` spawns, pinned to another model; a subagent dropped from the repo disappears from every machine at the next install. `mods/` goes to `~/.claude/mods/` the same additive way: `settings.json` names the deployed `paste-view` in `CLAUDE_CODE_PLUGIN_DIRS`, so every new session shows a preview of what is pasted (a pasted text as one line that gives its size and opens it whole; for an image, a line that opens it in the system viewer under a coarse mosaic of half blocks on Windows, or a real thumbnail where the terminal draws kitty graphics, which Windows Terminal and VS Code do not) with nothing fetched from a marketplace `mods/` also holds the plugins `ponytail` and `vibe-wise`, vendored at a fixed upstream commit and listed by `mods/.claude-plugin/marketplace.json`, the local marketplace `claude-config` that step 12 registers from the deployed folder
+4. Copies **commands**, **scripts**, **templates** to `~/.claude/` — `commands/` and `agents/` are mirrored (deployed files with no source in the repo are pruned), `scripts/` and `templates/` are additive, and a manifest of every file deployed (`~/.claude/.deployed-files`) lets the next install remove what the previous one deployed and this repo no longer holds, its own files only. `agents/` holds the four subagents `/feature` and `/audit-tests` spawn, pinned to another model; a subagent dropped from the repo disappears from every machine at the next install. `mods/` goes to `~/.claude/mods/` the same additive way: `settings.json` names the deployed `paste-view` in `CLAUDE_CODE_PLUGIN_DIRS`, so every new session shows a preview of what is pasted (a pasted text as one line that gives its size and opens it whole; for an image, a line that opens it in the system viewer under a coarse mosaic of half blocks on Windows, or a real thumbnail where the terminal draws kitty graphics, which Windows Terminal and VS Code do not) with nothing fetched from a marketplace `mods/` also holds the plugins `ponytail` and `vibe-wise`, vendored at a fixed upstream commit and listed by `mods/.claude-plugin/marketplace.json`, the local marketplace `claude-config` that step 12 registers from the deployed folder
 5. Records the repo location in `~/.claude/claude-config.path`; hooks, `scripts/session-start.sh` (SessionStart hook: newest MemPalace diary entries for the repo + head of `TODO.md`, ~200 tokens, and the harness integrity check `scripts/harness-drift.sh`: the deployed `settings.json`, `CLAUDE.md`, `hooks/`, `agents/`, `commands/`, `scripts/` and `mods/` against this clone, then the clone against the last fetched default branch of `upstream` (the public repo) when that remote exists, else of `origin`; with an upstream, the distance to `origin` is an information line, not an alert; a drift is shown to you at session start and on a `Harness` line of the statusline, nothing blocks) and `scripts/session-stop.sh` (Stop hook: `graphify update` + mining the repo into its MemPalace wing + vault sync, run detached) resolve the repo through this pointer instead of hardcoded absolute paths
 6. Initializes **MemPalace**: creates the palace, selects the embedding model, checks index health. Repos are _not_ mined here — each one is mined into its own wing during step 16
 7. Copies **CLAUDE.md** to `~/.claude/CLAUDE.md` (substitutes `${VAULT_DIR}`)
@@ -144,10 +144,11 @@ claude-config/
 │   ├── check_imports.py         # Python cycles + layers gate (grimp), run by arch-gates-python.yml at the pinned tag
 │   ├── check_mutation.py        # Mutation gate: the mutants the tests do not kill (mutmut) may only shrink, run by mutation-gate.yml
 │   └── check_quality.py         # Complexity (ruff C901, eslint complexity) and duplication (jscpd) gates: both may only shrink, run by quality-*.yml
-├── agents/                      # Subagents → ~/.claude/agents/ (mirrored), pinned to another model, spawned by /feature
+├── agents/                      # Subagents → ~/.claude/agents/ (mirrored), pinned to another model, spawned by /feature and /audit-tests
 │   ├── plan-reviewer.md         # Reviews the plan against the spec before any code, read-only
 │   ├── spec-tester.md           # Writes the acceptance tests from the spec, before the code exists
-│   └── diff-reviewer.md         # Adversarial review of the diff against spec, tests and gate output, read-only
+│   ├── diff-reviewer.md         # Adversarial review of the diff against spec, tests and gate output, read-only
+│   └── test-auditor.md          # Interprets a test-ablation report, one verdict per measured fact from a closed grid, read-only; spawned twice by /audit-tests
 ├── commands/                    # Slash-commands → ~/.claude/commands/
 ├── hooks/                       # PreToolUse guards → ~/.claude/hooks/ (Bash and PowerShell tools)
 │   ├── protect-gates.js         # Blocks Claude's edits to gate configs, baselines, workflows, hook bypasses, merge, labels, ref deletion, the deployed harness under ~/.claude (hard), a project's own .claude/agents and commands (soft)
@@ -156,6 +157,7 @@ claude-config/
 │   └── secret-guard.sh          # git add of .env / keys / credentials (vendored, cc-safe-setup)
 ├── scripts/                     # Utility scripts → ~/.claude/scripts/
 │   ├── baseline-ratchet.cjs     # Compares baselines between two refs; run by the workflow above (.cjs: callers may be ESM packages)
+│   ├── test-ablation.cjs        # Statement ablation audit of one TypeScript source under Vitest, in a temp copy of the project: the measure behind /audit-tests (.cjs: the audited package may be ESM)
 │   ├── repo-identity.sh         # Shared lib: canonical_repo_name()
 │   ├── session-start.sh         # SessionStart hook: starts the MemPalace daemon, diary + TODO.md head, one line when MemPalace is down, the harness drift
 │   ├── harness-drift.sh         # Integrity of the deployed harness: deployed ≠ clone, clone ≠ origin/<default branch>; run by session-start.sh, read by the statusline
@@ -199,6 +201,7 @@ claude-config/
     ├── ponytail-subagent.test.js # The SubagentStart matcher of the vendored ponytail skips the harness agents declared in agents/ and no other subagent
     ├── baseline-ratchet.test.js # The ratchet on real baselines from a pilot repository
     ├── gates-template.test.js   # The dependency-cruiser template on a toy project: layers, cycle, module in no layer, path alias
+    ├── test-ablation.test.js    # The ablation script on a toy Vitest project in os.tmpdir(): facts, kill kinds, flaky and orphan tests, determinism, isolation, exit 2 (vitest@5.0.4 and typescript@6.0.3 installed by npm)
     ├── python/conftest.py       # load_gate(name): a gate script loaded from gates/python by file, the way CI runs it
     ├── python/test_check_imports.py # The Python gates on toy graphs, temp trees and end to end (uv run --no-project --with grimp==3.14 --with pytest pytest tests/python)
     ├── python/test_check_mutation.py # The mutation gate on written .meta files, and on a real mutmut run of a toy package (Linux and macOS: mutmut refuses native Windows)
@@ -214,6 +217,7 @@ claude-config/
 | Command                 | Description                                                                           |
 | ----------------------- | ------------------------------------------------------------------------------------- |
 | `/apply-suggestions`    | Apply identified recommendations to code                                              |
+| `/audit-tests`          | Statement ablation audit of a TypeScript source under Vitest: which statements no test checks, which tests check nothing, two auditors' verdicts merged, disputes left to the owner (human-only) |
 | `/copilot-check`        | Judge Copilot review feedback on a PR before applying it                              |
 | `/create-commit`        | Create a git commit                                                                   |
 | `/create-pr`            | Split work into logical commits and open a PR                                         |
@@ -253,7 +257,7 @@ Levels: `lite`, `full` (default), `ultra`.
 
 Persistent state is the plugin's user config (`defaultMode` in `%APPDATA%\ponytail\config.json`, or `$XDG_CONFIG_HOME`/`~/.config`): its SessionStart hook re-reads it and rewrites the session flag (`~/.claude/.ponytail-active`) on every session start — the builtin default is `full`, so the switch must write the config, not just the flag. `style-toggle.sh` writes both (config for persistence, flag for an immediate statusline update). `/ponytail` remains available for per-session tweaks. On a new machine, `install.sh` enables ponytail (`full`) when the config does not exist. `scripts/statusline.sh` renders the badge from the plugin's own statusline script.
 
-The one local change to the copy: its SubagentStart hook carries a `matcher` that skips the harness agents `plan-reviewer`, `spec-tester` and `diff-reviewer` (`agents/`), so a reviewer or a test writer is never told to cut corners (`tests/ponytail-subagent.test.js`). caveman (prose compression) left the harness on 2026-10-09.
+The one local change to the copy: its SubagentStart hook carries a `matcher` that skips the harness agents `plan-reviewer`, `spec-tester`, `diff-reviewer` and `test-auditor` (`agents/`), so a reviewer or a test writer is never told to cut corners (`tests/ponytail-subagent.test.js`). caveman (prose compression) left the harness on 2026-10-09.
 
 </details>
 

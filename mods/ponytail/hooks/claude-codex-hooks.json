@@ -16,7 +16,7 @@
     ],
     "SubagentStart": [
       {
-        "matcher": "^(?!(diff-reviewer|plan-reviewer|spec-tester)$)",
+        "matcher": "^(?!(diff-reviewer|plan-reviewer|spec-tester|test-auditor)$)",
         "hooks": [
           {
             "type": "command",
