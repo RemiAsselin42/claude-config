@@ -1,16 +1,26 @@
-// Acceptance tests for scripts/test-ablation.cjs (spec: docs/audit-tests-ts.md) on a toy
-// TypeScript project generated in os.tmpdir(): a git repo with node_modules ignored,
-// vitest@5.0.4 and typescript@6.0.3 installed once by npm. The script is spawned with
-// process.execPath, like baseline-ratchet; units are located by their whitespace-normalized
-// text_head, tests by their id. Also checks the frontmatter of agents/test-auditor.md and
-// commands/audit-tests.md (acceptance test 19).
+// Acceptance tests for scripts/test-ablation.cjs (specs: docs/audit-tests-ts.md, then
+// docs/audit-tests-vitest-compat.md) on toy TypeScript projects generated in os.tmpdir():
+// git repos with node_modules ignored and a minimal vitest.config.ts, installed by npm:
+//   - the primary toy, vitest@5.0.4 + vite@8.3.4 + typescript@6.0.3, runs every test;
+//   - vitest@3.2.7 + vite@7.3.7 + typescript@6.0.3 and vitest@4.1.11 + vite@8.3.4 +
+//     typescript@6.0.3, each created lazily, run the per-major trio (facts buckets,
+//     determinism, project and node_modules untouched) and, for 3.2.7, the config-load failure.
+// Stub `vitest` packages (versions 2.1.9, 6.0.0, 3.2.7) cover the version gate and the
+// exit-2 line; their typescript is a junction to the primary toy's.
+// The script is spawned with process.execPath, like baseline-ratchet; units are located by
+// their whitespace-normalized text_head, tests by their id. Every run passes its own --out
+// under a temp dir this file removes, except the one test of the default --out, which removes
+// its report itself; the last test checks that os.tmpdir() holds nothing new from this file.
+// Also checks the frontmatter of agents/test-auditor.md and commands/audit-tests.md.
 //
 // CI (ci.yml) covers Linux and macOS only. The Windows paths of the script (node_modules
 // linked as a junction, the process tree killed with taskkill /T /F on a timeout) are
 // verified by hand on the owner's machine by running this file there.
 //
-// Skipped when npm is unavailable or node is below 22.12 (vitest@5.0.4 needs ^22.12).
-// Needs npm's cache or the network for the install, and git. Takes a few minutes.
+// Skipped when npm is unavailable or node is below the engine of the version under test:
+// 22.12 for vitest@5.0.4 (the primary toy, the stubs and most tests), 20 for vitest@4.1.11,
+// 18 for vitest@3.2.7. The 3.2.7 and 4.1.11 tests are also skipped when npm cannot install
+// that version. Needs npm's cache or the network for the installs, and git. Takes minutes.
 //
 //   node --test tests/test-ablation.test.js
 "use strict";
@@ -21,19 +31,26 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
+// The temp dir as it was before this file created anything (spec 4, plan test 15).
+const TMP_BEFORE = fs.readdirSync(os.tmpdir());
+const DEFAULT_REPORT_DIR = path.join(os.tmpdir(), "test-ablation");
+const REPORTS_BEFORE = fs.existsSync(DEFAULT_REPORT_DIR) ? fs.readdirSync(DEFAULT_REPORT_DIR) : [];
+
 const REPO = path.join(__dirname, "..");
 const SCRIPT = path.join(REPO, "scripts", "test-ablation.cjs");
 const WIN = process.platform === "win32";
 const RUN_CAP_MS = 900000; // a hung script fails the test instead of hanging the suite
 
 const [NODE_MAJOR, NODE_MINOR] = process.versions.node.split(".").map(Number);
-const nodeOk = NODE_MAJOR > 22 || (NODE_MAJOR === 22 && NODE_MINOR >= 12);
+const nodeAtLeast = (major, minor = 0) => NODE_MAJOR > major || (NODE_MAJOR === major && NODE_MINOR >= minor);
 const npmWorks = spawnSync("npm", ["--version"], { encoding: "utf8", shell: WIN }).status === 0;
-const skip = !nodeOk
-  ? `node ${process.versions.node} is below 22.12, the minimum of vitest@5.0.4`
-  : !npmWorks
-    ? "npm not available"
-    : false;
+const skipFor = (version, major, minor = 0) =>
+  !nodeAtLeast(major, minor)
+    ? `node ${process.versions.node} is below ${major}.${minor}, the minimum of vitest@${version}`
+    : !npmWorks
+      ? "npm not available"
+      : false;
+const skip = skipFor("5.0.4", 22, 12);
 
 // ---------------------------------------------------------------- the toy project
 
@@ -195,9 +212,82 @@ const SPIN_TEST = [
   "",
 ].join("\n");
 
+// Spec 5: a value built, then dereferenced by a test that asserts nothing: really crash-only.
+const DEREF = [
+  "export function peek(v: number): number {",
+  "  const holder = { inner: { value: v } };",
+  "  return holder.inner.value;",
+  "}",
+  "",
+].join("\n");
+const DEREF_TEST = [
+  'import { test } from "vitest";',
+  'import { peek } from "./deref";',
+  "",
+  'test("peek runs", () => {',
+  "  peek(1);",
+  "});",
+  "",
+].join("\n");
+
+// Spec 5: removing the `if` removes the only declaration of `hits` (a `var` in its block), so
+// `return hits` throws `ReferenceError: hits is not defined` (a `binding` kill); `let last;`
+// has no initializer (not ablated).
+const HOIST = [
+  "export function countHits(n: number): number {",
+  "  if (n > 0) {",
+  "    var hits = n;",
+  "  }",
+  "  return hits;",
+  "}",
+  "",
+  "export function lastOf(values: number[]): number {",
+  "  let last;",
+  "  for (const v of values) last = v;",
+  "  return last ?? -1;",
+  "}",
+  "",
+].join("\n");
+const HOIST_TEST = [
+  'import { test, expect } from "vitest";',
+  'import { countHits, lastOf } from "./hoist";',
+  "",
+  'test("countHits returns the hits of a positive", () => {',
+  "  expect(countHits(3)).toBe(3);",
+  "});",
+  "",
+  'test("lastOf returns the last value", () => {',
+  "  expect(lastOf([1, 2])).toBe(2);",
+  "});",
+  "",
+].join("\n");
+
+// Spec 6: the test file mocks the source, so no unit of it ever runs.
+const MOCKED = ["export function greet(name: string): string {", '  return "hello " + name;', "}", ""].join("\n");
+const MOCKED_TEST = [
+  'import { test, expect, vi } from "vitest";',
+  'import { greet } from "./mocked";',
+  "",
+  'vi.mock("./mocked", () => ({ greet: (name: string) => "mocked " + name }));',
+  "",
+  'test("greet is replaced by its mock", () => {',
+  '  expect(greet("x")).toBe("mocked x");',
+  "});",
+  "",
+].join("\n");
+
+const VITEST_CONFIG = 'export default { test: { include: ["src/**/*.test.ts"] } };\n';
+const BROKEN_CONFIG = [
+  'import { nothere } from "./missing-module";',
+  "",
+  'export default { test: { include: ["src/**/*.test.ts"] }, nothere };',
+  "",
+].join("\n");
+
 const TOY_FILES = {
   "package.json": JSON.stringify({ name: "ablation-toy", private: true, type: "module" }, null, 2) + "\n",
   ".gitignore": "node_modules\n",
+  "vitest.config.ts": VITEST_CONFIG,
   "src/calc.ts": CALC,
   "src/calc.test.ts": CALC_TEST,
   "src/orphan.test.ts": ORPHAN_TEST,
@@ -207,20 +297,35 @@ const TOY_FILES = {
   "src/star.ts": STAR,
   "src/spin.ts": SPIN,
   "src/spin.test.ts": SPIN_TEST,
+  "src/deref.ts": DEREF,
+  "src/deref.test.ts": DEREF_TEST,
+  "src/hoist.ts": HOIST,
+  "src/hoist.test.ts": HOIST_TEST,
+  "src/mocked.ts": MOCKED,
+  "src/mocked.test.ts": MOCKED_TEST,
 };
+
+const PRIMARY = { version: "5.0.4", vite: "8.3.4", typescript: "6.0.3" };
+const EXTRA_MAJORS = [
+  { version: "3.2.7", vite: "7.3.7", typescript: "6.0.3", skip: skipFor("3.2.7", 18) },
+  { version: "4.1.11", vite: "8.3.4", typescript: "6.0.3", skip: skipFor("4.1.11", 20) },
+];
+const pkgsOf = (m) => [`vitest@${m.version}`, `vite@${m.vite}`, `typescript@${m.typescript}`];
 
 // ---------------------------------------------------------------- helpers
 
 const cleanup = [];
-after(() => {
-  for (const fn of cleanup.reverse()) {
+function runCleanup() {
+  while (cleanup.length) {
+    const fn = cleanup.pop();
     try {
       fn();
     } catch {
-      // best effort: a leftover temp dir is not a test failure
+      // best effort here; the last test checks what is left in os.tmpdir()
     }
   }
-});
+}
+after(runCleanup);
 
 function once(fn) {
   let done = false;
@@ -271,35 +376,46 @@ function fileList(dir) {
 const snapshot = (dir) => ({ status: git(dir, "status", "--porcelain"), files: fileList(dir) });
 const tmpEntries = () => fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith("test-ablation-")).sort();
 
-const toy = once(() => {
-  const dir = tempDir("ablation-toy-");
+// A toy installed by npm; { dir, npmError } when npm fails, so a caller can skip.
+function installToy(prefix, pkgs) {
+  const dir = tempDir(prefix);
   writeFiles(dir, TOY_FILES);
-  const npm = spawnSync("npm", ["install", "--no-audit", "--no-fund", "--silent", "vitest@5.0.4", "typescript@6.0.3"], {
+  const npm = spawnSync("npm", ["install", "--no-audit", "--no-fund", "--silent", ...pkgs], {
     cwd: dir,
     encoding: "utf8",
     shell: WIN,
   });
-  assert.equal(npm.status, 0, `npm install failed: ${npm.stdout}${npm.stderr}`);
+  if (npm.status !== 0) return { dir, npmError: `${npm.stdout}${npm.stderr}` || `exit ${npm.status}` };
   git(dir, "init", "-q");
   git(dir, "add", "-A");
   git(dir, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "toy");
   return { dir, before: snapshot(dir), tmpBefore: tmpEntries() };
+}
+
+const toy = once(() => {
+  const t = installToy("ablation-toy-", pkgsOf(PRIMARY));
+  assert.equal(t.npmError, undefined, `npm install failed: ${t.npmError}`);
+  return t;
 });
+for (const m of EXTRA_MAJORS) m.toy = once(() => installToy(`ablation-toy-v${m.version.split(".")[0]}-`, pkgsOf(m)));
+const toyOf = (version) => EXTRA_MAJORS.find((m) => m.version === version);
 
 // A file outside the toy for the run-counter test of the toy.
 const runsFile = () => path.join(tempDir("ablation-runs-"), "runs.txt");
 
 // The script, as a caller runs it: cwd = the project, a foreign TZ and CI, so the
-// toy's env test only passes if the script sets them itself.
-function ablate(cwd, args, { env = {}, timeout = RUN_CAP_MS } = {}) {
+// toy's env test only passes if the script sets them itself. Every run gets its own --out
+// under a temp dir of this file, unless the args carry one or `defaultOut` is set.
+function ablate(cwd, args, { env = {}, timeout = RUN_CAP_MS, defaultOut = false } = {}) {
+  const out = args.includes("--out") || defaultOut ? null : path.join(tempDir("ablation-out-"), "report.json");
   const started = Date.now();
-  const r = spawnSync(process.execPath, [SCRIPT, ...args], {
+  const r = spawnSync(process.execPath, [SCRIPT, ...args, ...(out ? ["--out", out] : [])], {
     cwd,
     encoding: "utf8",
     timeout,
     env: { ...process.env, TZ: "Europe/Paris", CI: "0", TOY_RUNS_FILE: runsFile(), ...env },
   });
-  const res = { code: r.status, signal: r.signal, stdout: r.stdout || "", stderr: r.stderr || "", ms: Date.now() - started };
+  const res = { code: r.status, signal: r.signal, stdout: r.stdout || "", stderr: r.stderr || "", ms: Date.now() - started, out };
   const last = lastLine(res.stdout);
   res.reportPath = last;
   res.raw = last && path.isAbsolute(last) && fs.existsSync(last) ? fs.readFileSync(last, "utf8") : null;
@@ -315,19 +431,30 @@ function reportOf(r) {
   return JSON.parse(r.raw);
 }
 
-// One full run on the main source, no option but --source: shared by the tests that read it.
-const fullRun = once(() => ablate(toy().dir, ["--source", "src/calc.ts"]));
+// Two full runs on the main source (determinism), inside a before/after snapshot of the toy,
+// then an exit-2 run: the same structure for every Vitest major.
+function runsOn(toyFn) {
+  const first = once(() => ablate(toyFn().dir, ["--source", "src/calc.ts"]));
+  const rest = once(() => {
+    const t = toyFn();
+    first();
+    const run = ablate(t.dir, ["--source", "src/calc.ts"]);
+    const after = snapshot(t.dir);
+    const tmpAfterRuns = tmpEntries();
+    const failing = ablate(t.dir, ["--source", "src/calc.ts", "--tests", "src/broken.test.ts"]);
+    return { run, after, tmpAfterRuns, failing, afterFailing: snapshot(t.dir), tmpAfterFailing: tmpEntries() };
+  });
+  return { first, rest };
+}
+const primaryRuns = runsOn(toy);
+// One full run on the main source, no option but --source (and its own --out): shared by the tests that read it.
+const fullRun = primaryRuns.first;
+const secondRun = primaryRuns.rest;
+for (const m of EXTRA_MAJORS) m.runs = runsOn(m.toy);
 
-// The second full run of test 7, inside the before/after snapshot of test 8, then an exit-2 run.
-const secondRun = once(() => {
-  const t = toy();
-  fullRun();
-  const run = ablate(t.dir, ["--source", "src/calc.ts"]);
-  const after = snapshot(t.dir);
-  const tmpAfterRuns = tmpEntries();
-  const failing = ablate(t.dir, ["--source", "src/calc.ts", "--tests", "src/broken.test.ts"]);
-  return { run, after, tmpAfterRuns, failing, afterFailing: snapshot(t.dir), tmpAfterFailing: tmpEntries() };
-});
+const spinRun = once(() => ablate(toy().dir, ["--source", "src/spin.ts"], { timeout: 300000 }));
+const hoistRun = once(() => ablate(toy().dir, ["--source", "src/hoist.ts", "--tests", "src/hoist.test.ts"]));
+const derefRun = once(() => ablate(toy().dir, ["--source", "src/deref.ts", "--tests", "src/deref.test.ts"]));
 
 const norm = (s) => String(s).replace(/\s+/g, " ").trim().replace(/;$/, "");
 function unitsWhere(rep, pred) {
@@ -343,8 +470,9 @@ function unitStarting(rep, prefix) {
   assert.equal(found.length, 1, `expected one unit whose text_head starts with ${JSON.stringify(prefix)}, found ${found.length}`);
   return found[0];
 }
-// 1-based line of the first line of CALC containing `needle`.
-const calcLine = (needle) => CALC.split("\n").findIndex((l) => l.includes(needle)) + 1;
+// 1-based line of the first line of `text` containing `needle`.
+const lineIn = (text, needle) => text.split("\n").findIndex((l) => l.includes(needle)) + 1;
+const calcLine = (needle) => lineIn(CALC, needle);
 // The 1-based line range of a top-level function of CALC, closing brace included.
 function calcFunctionLines(name) {
   const lines = CALC.split("\n");
@@ -360,9 +488,9 @@ const BROKEN_ID = "src/broken.test.ts::*";
 const FLAKY_ID = CALC_T("flaky alternates");
 const FACT_BUCKETS = ["survived_reached", "unreached", "crash_only", "never_failing_tests", "orphan_tests"];
 
-function expectExit2(cwd, args) {
+function expectExit2(cwd, args, { env = {} } = {}) {
   const out = path.join(tempDir("ablation-out-"), "report.json");
-  const r = ablate(cwd, [...args, "--out", out]);
+  const r = ablate(cwd, [...args, "--out", out], { env });
   assert.equal(r.code, 2, `exit ${r.code}: ${r.stderr}`);
   const lines = r.stderr.split(/\r?\n/).filter((l) => l.trim() !== "");
   assert.equal(lines.length, 1, `exactly one stderr line, got: ${r.stderr}`);
@@ -370,10 +498,34 @@ function expectExit2(cwd, args) {
   return lines[0];
 }
 
-// ---------------------------------------------------------------- acceptance tests 1-17
+// No absolute path in a stderr line: none of the roots (as given, realpath, native realpath),
+// os.tmpdir() and the home directory, in either separator, case-insensitively; no drive letter
+// followed by a separator; no file:// URL.
+function assertNoAbsolutePath(line, roots) {
+  const forms = new Set();
+  for (const root of [...roots, os.tmpdir(), os.homedir()]) {
+    const variants = [root];
+    for (const real of [fs.realpathSync, fs.realpathSync.native]) {
+      try {
+        variants.push(real(root));
+      } catch {
+        // a root that no longer exists has no realpath
+      }
+    }
+    for (const v of variants) {
+      forms.add(v);
+      forms.add(v.replace(/\\/g, "/"));
+      forms.add(v.replace(/\//g, "\\"));
+    }
+  }
+  const lower = line.toLowerCase();
+  for (const f of forms) assert.ok(!lower.includes(f.toLowerCase()), `the line contains ${f}: ${line}`);
+  assert.doesNotMatch(line, /(^|[^A-Za-z])[A-Za-z]:[\\/]/, `a drive-letter path in: ${line}`);
+  assert.doesNotMatch(line, /file:\/\//i, `a file:// URL in: ${line}`);
+}
 
-test("a full run classifies the clamp as survived_reached, the else-if branch as unreached, console.log as side_effect_only and the crash-only statement as crash_only", { skip }, () => {
-  const rep = reportOf(fullRun());
+// The fact buckets of the toy, the same on every Vitest major (plan tests 1 and 2).
+function assertFactBuckets(rep) {
   const clamp = unit(rep, "if (x < 0) x = 0;");
   assert.ok(rep.facts.survived_reached.includes(clamp.id), `clamp ${clamp.id} not in survived_reached`);
   const answer = unit(rep, 'return "answer";');
@@ -382,7 +534,78 @@ test("a full run classifies the clamp as survived_reached, the else-if branch as
   const log = unit(rep, 'console.log("scale", x, factor);');
   assert.ok(log.flags.includes("side_effect_only"), `flags of the console.log unit: ${JSON.stringify(log.flags)}`);
   const box = unit(rep, "const box = { value: v };");
-  assert.ok(rep.facts.crash_only.includes(box.id), `${box.id} not in crash_only`);
+  assert.ok(!rep.facts.crash_only.includes(box.id), `${box.id} is in crash_only`);
+}
+function assertTestFacts(rep, raw) {
+  const nothing = CALC_T("asserts nothing about calc");
+  const envTest = CALC_T("runs with TZ=UTC and CI=1");
+  assert.ok(rep.facts.never_failing_tests.includes(nothing), `${nothing} not in never_failing_tests`);
+  assert.ok(rep.facts.never_failing_tests.includes(envTest), `${envTest} not in never_failing_tests`);
+  assert.ok(rep.baseline.passing.includes(envTest), `${envTest} not in baseline.passing: TZ/CI not set by the script?`);
+
+  const failing = (id) => rep.baseline.failing.find((f) => f.test === id);
+  assert.ok(rep.facts.orphan_tests.includes(ORPHAN_ID), `${ORPHAN_ID} not in orphan_tests`);
+  assert.equal(failing(ORPHAN_ID)?.reason, "missing_symbol");
+  assert.ok(
+    rep.static.missing_exports.some((m) => m.test_file === "src/orphan.test.ts" && m.name === "triple"),
+    `missing_exports: ${JSON.stringify(rep.static.missing_exports)}`,
+  );
+  assert.equal(failing(BROKEN_ID)?.reason, "missing_symbol");
+  assert.ok(rep.facts.orphan_tests.includes(BROKEN_ID), `${BROKEN_ID} not in orphan_tests`);
+
+  assert.deepEqual(rep.baseline.flaky, [FLAKY_ID]);
+  const occurrences = raw.split(JSON.stringify(FLAKY_ID)).length - 1;
+  assert.equal(occurrences, 1, "the flaky test appears in baseline.flaky and nowhere else");
+}
+function assertDeterministic(first, second, dir) {
+  reportOf(first);
+  reportOf(second);
+  const strip = (raw) => {
+    const o = JSON.parse(raw);
+    delete o.meta;
+    return JSON.stringify(o);
+  };
+  assert.equal(strip(second.raw), strip(first.raw));
+
+  const roots = [os.tmpdir(), fs.realpathSync(os.tmpdir()), dir, fs.realpathSync(dir)];
+  const forms = roots.flatMap((p) => [p, p.replace(/\\/g, "/"), JSON.stringify(p).slice(1, -1)]);
+  for (const raw of [first.raw, second.raw]) {
+    for (const f of forms) assert.ok(!raw.toLowerCase().includes(f.toLowerCase()), `the report contains ${f}`);
+  }
+}
+function assertUntouched(t, first, s) {
+  assert.equal(first.code, 0, `first run: ${first.stderr}`);
+  assert.equal(s.run.code, 0, `second run: ${s.run.stderr}`);
+  assert.equal(s.failing.code, 2, `exit-2 run: ${s.failing.stderr}`);
+  assert.equal(s.after.status, t.before.status, "git status --porcelain");
+  assert.deepEqual(s.after.files, t.before.files, "file list, node_modules walked");
+  assert.equal(s.afterFailing.status, t.before.status, "git status --porcelain after the exit-2 run");
+  assert.deepEqual(s.afterFailing.files, t.before.files, "file list after the exit-2 run");
+  for (const cache of [".vite", ".vite-temp", ".vitest", ".vitest-cache"]) {
+    assert.equal(fs.existsSync(path.join(t.dir, "node_modules", cache)), false, `node_modules/${cache} exists`);
+  }
+  assert.deepEqual(s.tmpAfterRuns, t.tmpBefore, "test-ablation-* temp dirs after the full runs");
+  assert.deepEqual(s.tmpAfterFailing, t.tmpBefore, "test-ablation-* temp dirs after the exit-2 run");
+}
+
+// ---------------------------------------------------------------- the primary toy (plan test 1)
+
+test("a full run classifies the clamp as survived_reached, the else-if branch as unreached, console.log as side_effect_only, and the box declaration out of crash_only", { skip }, () => {
+  // The previous unit expected `const box = { value: v };` in crash_only. That expectation
+  // encoded the bug of docs/audit-tests-vitest-compat.md spec 5: removing the declaration made
+  // `return box` throw a ReferenceError whatever the test asserted. Flipped by that spec.
+  assertFactBuckets(reportOf(fullRun()));
+});
+
+test("the box declaration is killed by the assertion of makeBox holds its value and is not crash_only", { skip }, () => {
+  const rep = reportOf(fullRun());
+  const box = unit(rep, "const box = { value: v };");
+  assert.equal(box.status, "killed", `${box.id} is ${box.status}`);
+  assert.ok(
+    box.kills.some((k) => k.test === CALC_T("makeBox holds its value") && k.kind === "assertion"),
+    `kills of ${box.id}: ${JSON.stringify(box.kills)}`,
+  );
+  assert.ok(!rep.facts.crash_only.includes(box.id), `${box.id} is in crash_only`);
 });
 
 test("every unit of the fully asserted function is killed by an assertion", { skip }, () => {
@@ -414,26 +637,8 @@ test("the units of a labeled loop with continue outer are reached and the run ex
 });
 
 test("baseline and facts: never-failing tests, the env test passing, orphans with missing_symbol, the flaky test only in baseline.flaky", { skip }, () => {
-  const rep = reportOf(fullRun());
-  const nothing = CALC_T("asserts nothing about calc");
-  const envTest = CALC_T("runs with TZ=UTC and CI=1");
-  assert.ok(rep.facts.never_failing_tests.includes(nothing), `${nothing} not in never_failing_tests`);
-  assert.ok(rep.facts.never_failing_tests.includes(envTest), `${envTest} not in never_failing_tests`);
-  assert.ok(rep.baseline.passing.includes(envTest), `${envTest} not in baseline.passing: TZ/CI not set by the script?`);
-
-  const failing = (id) => rep.baseline.failing.find((f) => f.test === id);
-  assert.ok(rep.facts.orphan_tests.includes(ORPHAN_ID), `${ORPHAN_ID} not in orphan_tests`);
-  assert.equal(failing(ORPHAN_ID)?.reason, "missing_symbol");
-  assert.ok(
-    rep.static.missing_exports.some((m) => m.test_file === "src/orphan.test.ts" && m.name === "triple"),
-    `missing_exports: ${JSON.stringify(rep.static.missing_exports)}`,
-  );
-  assert.equal(failing(BROKEN_ID)?.reason, "missing_symbol");
-  assert.ok(rep.facts.orphan_tests.includes(BROKEN_ID), `${BROKEN_ID} not in orphan_tests`);
-
-  assert.deepEqual(rep.baseline.flaky, [FLAKY_ID]);
-  const occurrences = fullRun().raw.split(JSON.stringify(FLAKY_ID)).length - 1;
-  assert.equal(occurrences, 1, "the flaky test appears in baseline.flaky and nowhere else");
+  const r = fullRun();
+  assertTestFacts(reportOf(r), r.raw);
 });
 
 test("two tests with the same title get the title and the title #2 as ids", { skip }, () => {
@@ -444,38 +649,13 @@ test("two tests with the same title get the title and the title #2 as ids", { sk
 });
 
 test("two runs give byte-identical reports once meta is removed, with no absolute path", { skip }, () => {
-  const first = fullRun();
-  const { run: second } = secondRun();
-  reportOf(first);
-  reportOf(second);
-  const strip = (raw) => {
-    const o = JSON.parse(raw);
-    delete o.meta;
-    return JSON.stringify(o);
-  };
-  assert.equal(strip(second.raw), strip(first.raw));
-
-  const roots = [os.tmpdir(), fs.realpathSync(os.tmpdir()), toy().dir, fs.realpathSync(toy().dir)];
-  const forms = roots.flatMap((p) => [p, p.replace(/\\/g, "/"), JSON.stringify(p).slice(1, -1)]);
-  for (const raw of [first.raw, second.raw]) {
-    for (const f of forms) assert.ok(!raw.toLowerCase().includes(f.toLowerCase()), `the report contains ${f}`);
-  }
+  assertDeterministic(fullRun(), secondRun().run, toy().dir);
 });
 
-test("the audited project, its node_modules and os.tmpdir() are unchanged by the runs, an exit-2 run included", { skip }, () => {
+test("the audited project, its node_modules (.vite-temp included) and os.tmpdir() are unchanged by the runs, an exit-2 run included", { skip }, () => {
   const t = toy();
   const s = secondRun();
-  assert.equal(fullRun().code, 0, `first run: ${fullRun().stderr}`);
-  assert.equal(s.run.code, 0, `second run: ${s.run.stderr}`);
-  assert.equal(s.failing.code, 2, `exit-2 run: ${s.failing.stderr}`);
-  assert.equal(s.after.status, t.before.status, "git status --porcelain");
-  assert.deepEqual(s.after.files, t.before.files, "file list, node_modules walked");
-  assert.deepEqual(s.afterFailing.files, t.before.files, "file list after the exit-2 run");
-  for (const cache of [".vite", ".vitest", ".vitest-cache"]) {
-    assert.equal(fs.existsSync(path.join(t.dir, "node_modules", cache)), false, `node_modules/${cache} exists`);
-  }
-  assert.deepEqual(s.tmpAfterRuns, t.tmpBefore, "test-ablation-* temp dirs after the full runs");
-  assert.deepEqual(s.tmpAfterFailing, t.tmpBefore, "test-ablation-* temp dirs after the exit-2 run");
+  assertUntouched(t, fullRun(), s);
 });
 
 test("every mutant of the main source parses: no unit is invalid", { skip }, () => {
@@ -550,7 +730,7 @@ test("static.exports lists the source's exports; export * makes exports_complete
   assert.equal(starRep.static.exports_complete, false);
 });
 
-test("--dry-run runs the baseline only: units without kills, dry_run true, the baseline ran exactly twice", { skip }, () => {
+test("--dry-run runs the baseline only: units without kills, dry_run true, the baseline ran exactly twice; stdout carries the unit lines, units: N, not_ablated: M, the estimate, the report path last", { skip }, () => {
   const counter = runsFile();
   const r = ablate(toy().dir, ["--source", "src/calc.ts", "--dry-run", "--baseline-runs", "2"], { env: { TOY_RUNS_FILE: counter } });
   const rep = reportOf(r);
@@ -560,10 +740,21 @@ test("--dry-run runs the baseline only: units without kills, dry_run true, the b
   assert.ok(fs.existsSync(lastLine(r.stdout)));
   const runs = fs.readFileSync(counter, "utf8").split(/\r?\n/).filter((l) => l !== "");
   assert.equal(runs.length, 2, "two baseline runs, no reach run, no mutant");
+
+  const lines = r.stdout.split(/\r?\n/).map((l) => l.trim()).filter((l) => l !== "");
+  for (const u of rep.units) assert.ok(lines.some((l) => l.startsWith(u.id)), `no stdout line for unit ${u.id}`);
+  const unitsAt = lines.findIndex((l) => /^units: \d+$/.test(l));
+  assert.ok(unitsAt >= 0, `no units: N line in ${JSON.stringify(lines)}`);
+  assert.equal(lines[unitsAt], `units: ${rep.units.length}`);
+  const notAblated = lines.filter((l) => /^not_ablated: \d+$/.test(l));
+  assert.deepEqual(notAblated, [`not_ablated: ${rep.not_ablated.length}`]);
+  const estimateAt = lines.findIndex((l) => l.startsWith("estimate:"));
+  assert.ok(estimateAt > unitsAt, "the estimate line comes after the counts");
+  assert.equal(lines[lines.length - 1], lastLine(r.stdout), "the report path is last");
 });
 
 test("a mutant that loops forever is killed by a timeout and the script still exits 0", { skip }, () => {
-  const r = ablate(toy().dir, ["--source", "src/spin.ts"], { timeout: 300000 });
+  const r = spinRun();
   assert.equal(r.signal, null, `the script hung (${r.ms} ms): its process tree was not killed`);
   const rep = reportOf(r);
   const inc = unit(rep, "i++;");
@@ -572,12 +763,14 @@ test("a mutant that loops forever is killed by a timeout and the script still ex
 });
 
 test("exit 2 with one stderr line and no report on each blind spot", { skip }, async (t) => {
-  await t.test("no node_modules: the line names typescript and vitest", () => {
+  await t.test("no node_modules: the line names typescript and vitest, the project as <project>, no absolute path", () => {
     const dir = tempDir("ablation-bare-");
     writeFiles(dir, { "package.json": '{ "type": "module" }\n', "a.ts": "export const a = (): number => 1;\n" });
     const line = expectExit2(dir, ["--source", "a.ts"]);
     assert.match(line, /typescript/);
     assert.match(line, /vitest/);
+    assert.ok(line.includes("<project>"), `the line does not name <project>: ${line}`);
+    assertNoAbsolutePath(line, [dir]);
   });
 
   await t.test("a source with a syntax error: the line says syntax", () => {
@@ -615,8 +808,6 @@ test("exit 2 with one stderr line and no report on each blind spot", { skip }, a
     }
   });
 });
-
-// ---------------------------------------------------------------- spec requirements the plan's list does not name
 
 test("the report is canonical: keys sorted, units by source position, id lists sorted", { skip }, () => {
   const rep = reportOf(fullRun());
@@ -657,15 +848,233 @@ test("the report header names schema 1, typescript, the source and the tool vers
   for (const u of rep.units) assert.match(u.text_sha1, /^[0-9a-f]{12}$/, `text_sha1 of ${u.id}`);
 });
 
-test("without --out the report lands in <os.tmpdir()>/test-ablation/<12 hex>.json", { skip }, () => {
-  const r = fullRun();
-  reportOf(r);
-  const p = lastLine(r.stdout);
-  assert.match(path.basename(p), /^[0-9a-f]{12}\.json$/);
-  assert.equal(fs.realpathSync(path.dirname(p)), fs.realpathSync(path.join(os.tmpdir(), "test-ablation")));
+test("without --out the report lands in <os.tmpdir()>/test-ablation/<12 hex>.json (own dry run, report removed)", { skip }, () => {
+  const existed = fs.existsSync(DEFAULT_REPORT_DIR);
+  let p = "";
+  try {
+    const r = ablate(toy().dir, ["--source", "src/other.ts", "--tests", "src/other.test.ts", "--dry-run"], { defaultOut: true });
+    reportOf(r);
+    p = lastLine(r.stdout);
+    assert.match(path.basename(p), /^[0-9a-f]{12}\.json$/);
+    assert.equal(fs.realpathSync(path.dirname(p)), fs.realpathSync(DEFAULT_REPORT_DIR));
+  } finally {
+    if (p && path.isAbsolute(p) && path.basename(path.dirname(p)) === "test-ablation") fs.rmSync(p, { force: true });
+    if (!existed) fs.rmSync(DEFAULT_REPORT_DIR, { recursive: true, force: true });
+  }
 });
 
-// ---------------------------------------------------------------- acceptance test 19: the prompt files
+// ---------------------------------------------------------------- spec 5: declarations keep their binding
+
+test("a value dereferenced but never asserted stays in crash_only with only crash kills", { skip }, () => {
+  const rep = reportOf(derefRun());
+  const holder = unit(rep, "const holder = { inner: { value: v } };");
+  assert.ok(rep.facts.crash_only.includes(holder.id), `${holder.id} not in crash_only`);
+  assert.ok(holder.kills.length > 0, `${holder.id} has no kill`);
+  for (const k of holder.kills) assert.equal(k.kind, "crash", `kills of ${holder.id}: ${JSON.stringify(holder.kills)}`);
+});
+
+test("removing the block of a var gives binding kills, not crash_only; the var itself is killed by an assertion", { skip }, () => {
+  const rep = reportOf(hoistRun());
+  const block = unitStarting(rep, "if (n > 0)");
+  assert.equal(block.status, "killed", `${block.id} is ${block.status}`);
+  assert.ok(block.kills.length > 0, `${block.id} has no kill`);
+  for (const k of block.kills) assert.equal(k.kind, "binding", `kills of ${block.id}: ${JSON.stringify(block.kills)}`);
+  assert.ok(!rep.facts.crash_only.includes(block.id), `${block.id} is in crash_only`);
+  const hits = unit(rep, "var hits = n;");
+  assert.equal(hits.status, "killed", `${hits.id} is ${hits.status}`);
+  assert.ok(hits.kills.some((k) => k.kind === "assertion"), `kills of ${hits.id}: ${JSON.stringify(hits.kills)}`);
+});
+
+test("a declaration already empty is not_ablated already_empty, one without initializer no_initializer, neither a unit; no mutant is invalid", { skip }, () => {
+  const expectNotAblated = (rep, text, needle, reason) => {
+    const line = lineIn(text, needle);
+    const entry = rep.not_ablated.find((n) => n.start.line === line);
+    assert.ok(entry, `no not_ablated entry on line ${line} (${needle})`);
+    assert.equal(entry.reason, reason, `reason of ${needle}`);
+    assert.equal(unitsWhere(rep, (h) => h === norm(needle)).length, 0, `${needle} is a unit`);
+  };
+  const calc = reportOf(fullRun());
+  expectNotAblated(calc, CALC, "let total = 0;", "already_empty");
+  const spin = reportOf(spinRun());
+  expectNotAblated(spin, SPIN, "let i = 0;", "already_empty");
+  const hoist = reportOf(hoistRun());
+  expectNotAblated(hoist, HOIST, "let last;", "no_initializer");
+  for (const rep of [calc, spin, hoist]) {
+    assert.deepEqual(rep.units.filter((u) => u.status === "invalid").map((u) => u.id), [], `invalid units of ${rep.source}`);
+  }
+});
+
+// ---------------------------------------------------------------- specs 3 and 6: dry-run counts, the reach probe
+
+test("--dry-run with every test failing in the baseline: exit 2, stdout carries units: N > 0 and not_ablated: M, no report", { skip }, () => {
+  const out = path.join(tempDir("ablation-out-"), "report.json");
+  const r = ablate(toy().dir, ["--source", "src/calc.ts", "--tests", "src/broken.test.ts", "--dry-run", "--out", out]);
+  assert.equal(r.code, 2, `exit ${r.code}: ${r.stderr}`);
+  assert.equal(r.stderr.split(/\r?\n/).filter((l) => l.trim() !== "").length, 1, `exactly one stderr line, got: ${r.stderr}`);
+  const lines = r.stdout.split(/\r?\n/).map((l) => l.trim());
+  const counts = lines.map((l) => /^units: (\d+)$/.exec(l)).filter(Boolean);
+  assert.equal(counts.length, 1, `one units: N line in ${JSON.stringify(r.stdout)}`);
+  assert.ok(Number(counts[0][1]) > 0, `units: ${counts[0][1]}`);
+  assert.equal(lines.filter((l) => /^not_ablated: \d+$/.test(l)).length, 1, `one not_ablated: M line in ${JSON.stringify(r.stdout)}`);
+  assert.equal(fs.existsSync(out), false, "no report is written on exit 2");
+});
+
+test("a test file that vi.mocks the source: exit 2, the reach probe recorded nothing", { skip }, () => {
+  const line = expectExit2(toy().dir, ["--source", "src/mocked.ts", "--tests", "src/mocked.test.ts"]);
+  assert.ok(line.includes("reach probe recorded nothing"), line);
+});
+
+// ---------------------------------------------------------------- spec 1: the supported range; spec 2: the exit-2 line
+
+const STUB_SOURCE = {
+  "package.json": '{ "type": "module" }\n',
+  "src/one.ts": "export const one = (): number => 1;\n",
+  "src/one.test.ts": 'import { test, expect } from "vitest";\nimport { one } from "./one";\ntest("one", () => expect(one()).toBe(1));\n',
+};
+const MARKER_BIN = [
+  'import { writeFileSync } from "node:fs";',
+  'if (process.env.ABLATION_STUB_MARKER) writeFileSync(process.env.ABLATION_STUB_MARKER, "the vitest stub ran");',
+  "",
+].join("\n");
+// The shape of an uncaught CAC parse error, as Vitest 3 to 5 print it.
+const CAC_BIN = [
+  "const here = import.meta.url;",
+  'const dir = here.slice(0, here.lastIndexOf("/"));',
+  "const nl = String.fromCharCode(10);",
+  "process.stderr.write([",
+  '  here + ":404",',
+  "  " + JSON.stringify("          throw new CACError(`Unknown option ${name}`);") + ",",
+  "  " + JSON.stringify("                ^") + ",",
+  '  "",',
+  "  " + JSON.stringify("CACError: Unknown option `--x`") + ",",
+  '  "    at Command.checkUnknownOptions (" + dir + "/cac.js:404:17)",',
+  '  "    at CAC.runMatchedCommand (" + dir + "/cac.js:604:13)",',
+  '  "    at " + dir + "/cli.js:10:5",',
+  '  "",',
+  '  "Node.js " + process.version,',
+  "].join(nl) + nl);",
+  "process.exitCode = 1;",
+  "",
+].join("\n");
+// No error header at all: the line falls back to the first non-empty line, scrubbed.
+const SILENT_BIN = [
+  "const nl = String.fromCharCode(10);",
+  'process.stderr.write(nl + "stub gave up in " + process.cwd() + nl);',
+  "process.exitCode = 1;",
+  "",
+].join("\n");
+
+// A project whose vitest is a stub package; its typescript is a junction to the primary toy's.
+// Returns the dir and the junction, which the caller unlinks in `finally` before any cleanup.
+function stubToy(version, bin) {
+  const dir = tempDir("ablation-stub-");
+  writeFiles(dir, {
+    ...STUB_SOURCE,
+    "node_modules/vitest/package.json": JSON.stringify({ name: "vitest", version, bin: { vitest: "stub.mjs" } }) + "\n",
+    "node_modules/vitest/stub.mjs": bin,
+  });
+  const link = path.join(dir, "node_modules", "typescript");
+  fs.symlinkSync(path.join(toy().dir, "node_modules", "typescript"), link, "junction");
+  return { dir, link };
+}
+
+test("a vitest outside 3 to 5: exit 2, one line naming the version and the range, no Vitest run started", { skip }, async (t) => {
+  for (const version of ["2.1.9", "6.0.0"]) {
+    await t.test(`vitest ${version}`, () => {
+      const { dir, link } = stubToy(version, MARKER_BIN);
+      const marker = path.join(tempDir("ablation-marker-"), "ran.txt");
+      try {
+        const line = expectExit2(dir, ["--source", "src/one.ts"], { env: { ABLATION_STUB_MARKER: marker } });
+        assert.ok(line.includes(version), `the line does not name ${version}: ${line}`);
+        assert.match(line, /(^|\D)3(\D|$)/, `the line does not name the range (3): ${line}`);
+        assert.match(line, /(^|\D)5(\D|$)/, `the line does not name the range (5): ${line}`);
+        assert.equal(fs.existsSync(marker), false, "the vitest bin was run");
+      } finally {
+        fs.unlinkSync(link);
+      }
+    });
+  }
+});
+
+test("a Vitest that refuses its arguments: the exit-2 line quotes the CACError, with no absolute path", { skip }, () => {
+  const { dir, link } = stubToy("3.2.7", CAC_BIN);
+  try {
+    const line = expectExit2(dir, ["--source", "src/one.ts"]);
+    assert.ok(line.includes("CACError: Unknown option"), `the line does not quote the error: ${line}`);
+    assert.ok(line.includes("--x"), `the line does not name the option: ${line}`);
+    assertNoAbsolutePath(line, [dir]);
+  } finally {
+    fs.unlinkSync(link);
+  }
+});
+
+// Spec 2 requirement the plan's list does not name: with no error header, the fallback line is scrubbed too.
+test("a Vitest that fails without an error header: the exit-2 line is its first line, with no absolute path", { skip }, () => {
+  const { dir, link } = stubToy("3.2.7", SILENT_BIN);
+  try {
+    const line = expectExit2(dir, ["--source", "src/one.ts"]);
+    assert.ok(line.includes("stub gave up in"), `the line is not the first non-empty line: ${line}`);
+    assertNoAbsolutePath(line, [dir]);
+  } finally {
+    fs.unlinkSync(link);
+  }
+});
+
+// ---------------------------------------------------------------- spec 1: every supported major (plan test 2)
+
+for (const m of EXTRA_MAJORS) {
+  test(`vitest ${m.version} (vite ${m.vite}): facts buckets, determinism, project and node_modules untouched`, { skip: m.skip }, async (t) => {
+    const tv = m.toy();
+    if (tv.npmError) {
+      t.skip(`npm could not install vitest@${m.version}: ${tv.npmError.split(/\r?\n/)[0]}`);
+      return;
+    }
+    await t.test("facts buckets and tool_versions", () => {
+      const r = m.runs.first();
+      const rep = reportOf(r);
+      assertFactBuckets(rep);
+      assertTestFacts(rep, r.raw);
+      assert.deepEqual(rep.tool_versions, { node: process.versions.node, typescript: m.typescript, vitest: m.version });
+    });
+    await t.test("two runs give byte-identical reports once meta is removed, with no absolute path", () => {
+      assertDeterministic(m.runs.first(), m.runs.rest().run, tv.dir);
+    });
+    await t.test("the project, its node_modules (.vite-temp included) and os.tmpdir() are unchanged, an exit-2 run included", () => {
+      assertUntouched(tv, m.runs.first(), m.runs.rest());
+    });
+  });
+}
+
+// ---------------------------------------------------------------- spec 2: a config that fails to load (plan test 10)
+
+test("a vitest.config.ts importing a missing module: exit 2, one line naming missing-module, no absolute path", async (t) => {
+  const cases = [
+    { label: "vitest 3.2.7", skip: toyOf("3.2.7").skip, toyFn: toyOf("3.2.7").toy },
+    { label: "vitest 5.0.4", skip, toyFn: toy },
+  ];
+  for (const c of cases) {
+    await t.test(c.label, { skip: c.skip }, (st) => {
+      const tv = c.toyFn();
+      if (tv.npmError) {
+        st.skip(`npm could not install the toy of ${c.label}`);
+        return;
+      }
+      const dir = tempDir("ablation-cfgfail-");
+      writeFiles(dir, { ...TOY_FILES, "vitest.config.ts": BROKEN_CONFIG });
+      const link = path.join(dir, "node_modules");
+      fs.symlinkSync(path.join(tv.dir, "node_modules"), link, "junction");
+      try {
+        const line = expectExit2(dir, ["--source", "src/calc.ts", "--tests", "src/calc.test.ts"]);
+        assert.ok(line.includes("missing-module"), `the line does not name missing-module: ${line}`);
+        assertNoAbsolutePath(line, [dir, tv.dir]);
+      } finally {
+        fs.unlinkSync(link); // the junction first, so no cleanup ever walks into the toy's node_modules
+      }
+    });
+  }
+});
+
+// ---------------------------------------------------------------- the prompt files (unchanged)
 
 function frontmatter(rel) {
   const text = fs.readFileSync(path.join(REPO, rel), "utf8");
@@ -700,4 +1109,16 @@ test("test-auditor is named and described as spawned by /audit-tests; /audit-tes
   const cmd = frontmatter("commands/audit-tests.md");
   assert.equal(cmd["argument-hint"], "<source file> [test files…]");
   assert.ok(cmd.description && cmd.description.length > 0, "the command has a description");
+});
+
+// ---------------------------------------------------------------- spec 4: nothing left behind (must stay last)
+
+test("after the whole file, os.tmpdir() holds no new test-ablation or ablation- entry and no report of the file under test-ablation/", () => {
+  runCleanup();
+  const added = fs
+    .readdirSync(os.tmpdir())
+    .filter((n) => (n.startsWith("test-ablation") || n.startsWith("ablation-")) && !TMP_BEFORE.includes(n));
+  assert.deepEqual(added, [], "entries this file left in os.tmpdir()");
+  const reports = fs.existsSync(DEFAULT_REPORT_DIR) ? fs.readdirSync(DEFAULT_REPORT_DIR) : [];
+  assert.deepEqual(reports.filter((n) => !REPORTS_BEFORE.includes(n)), [], "reports this file left in <tmpdir>/test-ablation");
 });
