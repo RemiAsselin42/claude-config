@@ -8,7 +8,7 @@ Configuration partagée pour Claude Code : slash-commands, scripts et hooks, mé
 > `install.sh` et les scripts utilitaires effectuent des opérations destructives et persistantes :
 >
 > - **Écritures** dans `~/.claude/` (commandes, scripts, templates, mods, settings, CLAUDE.md)
-> - **Purge** de `~/.claude/commands/` et `~/.claude/agents/` : tout ce qui s'y trouve sans fichier source dans le repo est supprimé à chaque exécution — `~/.claude/agents/` contient au final exactement les trois sous-agents d'`agents/`
+> - **Purge** de `~/.claude/commands/` et `~/.claude/agents/` : tout ce qui s'y trouve sans fichier source dans le repo est supprimé à chaque exécution — `~/.claude/agents/` contient au final exactement les quatre sous-agents d'`agents/`
 > - **Installation de paquets** globaux (`graphify`, `mempalace`, `rtk`)
 > - **Modification du PATH** : ajoute `~/.local/bin` dans `~/.bashrc`, `~/.bash_profile` et `~/.profile`, après confirmation sauf en mode `-y`
 > - **Suppression de fichiers** (`graphify-out/`, wings mempalace, dossiers vault) via `exclude-from-index.sh`
@@ -49,7 +49,7 @@ Le repo privé se synchronise automatiquement avec celui-ci — voir [Installati
 1. Synchronise depuis le remote `upstream` **en premier** : un fork qui n'a pas le remote le reçoit, pointé sur le repo public (`CLAUDE_CONFIG_UPSTREAM_URL` dans `install.sh`), quel que soit son nom ; un checkout du repo public lui-même n'en reçoit pas. Si la sync apporte des changements, le script se relance automatiquement pour que la suite s'exécute avec la version à jour, et resynchronise une fois quand ces changements touchent le script de sync : un chemin ajouté à sa liste arrive dans la même exécution. Ignorée, avec un message, tant que le repo a des modifications non commitées ou n'est pas sur sa branche par défaut (celle que nomme `origin/HEAD`, sinon `main` ou `master` : la sync commite les fichiers d'upstream dans la branche courante)
 2. Vérifie **Node.js**, installe **uv** si absent, puis installe/met à jour **Graphify**, **MemPalace**, **chromadb**, **RTK**, **jq**, **shellcheck** et **context-mode** (plus le serveur MCP Zilliz si `MILVUS_ADDRESS` est défini)
 3. Demande une seule confirmation si `~/.local/bin` doit être ajouté au PATH persistant (`-y` accepte automatiquement)
-4. Copie les **commandes**, **scripts** et **templates** vers `~/.claude/` — `commands/` et `agents/` sont en miroir (les fichiers déployés sans source dans le repo sont purgés), `scripts/` et `templates/` sont additifs, et un manifeste de chaque fichier déployé (`~/.claude/.deployed-files`) permet à l'install suivante de retirer ce que la précédente avait déployé et que ce repo ne contient plus, ses propres fichiers seulement. `agents/` contient les trois sous-agents que `/feature` lance, épinglés sur un autre modèle ; un sous-agent retiré du repo disparaît de chaque machine à l'install suivante. `mods/` va dans `~/.claude/mods/`, additif lui aussi : `settings.json` nomme le `paste-view` déployé dans `CLAUDE_CODE_PLUGIN_DIRS`, donc chaque nouvelle session affiche un aperçu de ce qui est collé (un texte collé en une ligne qui donne sa taille et l'ouvre en entier ; pour une image, une ligne qui l'ouvre dans la visionneuse du système, sous une mosaïque grossière de demi-blocs sous Windows, ou une vraie vignette là où le terminal dessine le protocole graphique kitty, ce que Windows Terminal et VS Code ne font pas) sans rien télécharger d'un marketplace `mods/` contient aussi les plugins `ponytail` et `vibe-wise`, vendorisés à un commit amont fixe et listés par `mods/.claude-plugin/marketplace.json`, la marketplace locale `claude-config` que l'étape 12 enregistre depuis le dossier déployé
+4. Copie les **commandes**, **scripts** et **templates** vers `~/.claude/` — `commands/` et `agents/` sont en miroir (les fichiers déployés sans source dans le repo sont purgés), `scripts/` et `templates/` sont additifs, et un manifeste de chaque fichier déployé (`~/.claude/.deployed-files`) permet à l'install suivante de retirer ce que la précédente avait déployé et que ce repo ne contient plus, ses propres fichiers seulement. `agents/` contient les quatre sous-agents que `/feature` et `/audit-tests` lancent, épinglés sur un autre modèle ; un sous-agent retiré du repo disparaît de chaque machine à l'install suivante. `mods/` va dans `~/.claude/mods/`, additif lui aussi : `settings.json` nomme le `paste-view` déployé dans `CLAUDE_CODE_PLUGIN_DIRS`, donc chaque nouvelle session affiche un aperçu de ce qui est collé (un texte collé en une ligne qui donne sa taille et l'ouvre en entier ; pour une image, une ligne qui l'ouvre dans la visionneuse du système, sous une mosaïque grossière de demi-blocs sous Windows, ou une vraie vignette là où le terminal dessine le protocole graphique kitty, ce que Windows Terminal et VS Code ne font pas) sans rien télécharger d'un marketplace `mods/` contient aussi les plugins `ponytail` et `vibe-wise`, vendorisés à un commit amont fixe et listés par `mods/.claude-plugin/marketplace.json`, la marketplace locale `claude-config` que l'étape 12 enregistre depuis le dossier déployé
 5. Enregistre l'emplacement du repo dans `~/.claude/claude-config.path` ; les hooks, `scripts/session-start.sh` (hook SessionStart : dernières entrées du diary MemPalace du repo + tête de `TODO.md`, ~200 tokens, et le contrôle d'intégrité du harnais `scripts/harness-drift.sh` : les `settings.json`, `CLAUDE.md`, `hooks/`, `agents/`, `commands/`, `scripts/` et `mods/` déployés contre ce clone, puis le clone contre la dernière branche par défaut récupérée d'`upstream` (le repo public) quand ce remote existe, sinon d'`origin` ; avec un upstream, l'écart avec `origin` est une ligne d'information, pas une alerte ; un écart t'est montré au démarrage de la session et sur une ligne `Harness` de la statusline, rien ne bloque) et `scripts/session-stop.sh` (hook Stop : `graphify update` + mining du repo dans son wing MemPalace + sync vault, exécuté détaché) résolvent le repo via ce pointeur plutôt que par chemin absolu en dur
 6. Initialise **MemPalace** : création du palace, choix du modèle d'embedding, vérification de l'index. Les repos ne sont _pas_ minés ici — chacun l'est dans son propre wing à l'étape 16
 7. Copie **CLAUDE.md** vers `~/.claude/CLAUDE.md` (substitution `${VAULT_DIR}`)
@@ -144,10 +144,11 @@ claude-config/
 │   ├── check_imports.py         # Gate Python cycles + couches (grimp), lancé par arch-gates-python.yml au tag épinglé
 │   ├── check_mutation.py        # Gate de mutation : les mutants que les tests ne tuent pas (mutmut) ne peuvent que diminuer, lancé par mutation-gate.yml
 │   └── check_quality.py         # Gates de complexité (ruff C901, eslint complexity) et de duplication (jscpd) : les deux ne peuvent que diminuer, lancés par quality-*.yml
-├── agents/                      # Sous-agents → ~/.claude/agents/ (miroir), épinglés sur un autre modèle, lancés par /feature
+├── agents/                      # Sous-agents → ~/.claude/agents/ (miroir), épinglés sur un autre modèle, lancés par /feature et /audit-tests
 │   ├── plan-reviewer.md         # Relit le plan contre le spec avant tout code, lecture seule
 │   ├── spec-tester.md           # Écrit les tests d'acceptation depuis le spec, avant que le code existe
-│   └── diff-reviewer.md         # Review adversariale du diff contre spec, tests et sorties des gates, lecture seule
+│   ├── diff-reviewer.md         # Review adversariale du diff contre spec, tests et sorties des gates, lecture seule
+│   └── test-auditor.md          # Interprète un rapport d'ablation de tests, un verdict par fait mesuré dans une grille fermée, lecture seule ; lancé deux fois par /audit-tests
 ├── commands/                    # Slash-commands → ~/.claude/commands/
 ├── hooks/                       # Gardes PreToolUse → ~/.claude/hooks/ (outils Bash et PowerShell)
 │   ├── protect-gates.js         # Bloque les éditions par Claude des configs de gate, baselines, workflows, --no-verify, merge, labels, du harnais déployé sous ~/.claude (dur), des .claude/agents et commands d'un projet (mou)
@@ -156,6 +157,7 @@ claude-config/
 │   └── secret-guard.sh          # git add de .env / clés / credentials (copié de cc-safe-setup)
 ├── scripts/                     # Scripts utilitaires → ~/.claude/scripts/
 │   ├── baseline-ratchet.cjs     # Compare les baselines entre deux refs ; exécuté par le workflow ci-dessus (.cjs : un appelant peut être un paquet ESM)
+│   ├── test-ablation.cjs        # Audit par ablation d'instructions d'un source TypeScript sous Vitest, dans une copie temporaire du projet : la mesure derrière /audit-tests (.cjs : le paquet audité peut être ESM)
 │   ├── repo-identity.sh         # Lib partagée : canonical_repo_name()
 │   ├── session-start.sh         # Hook SessionStart : démarre le daemon MemPalace, diary + tête de TODO.md, une ligne quand MemPalace est en panne, l'écart du harnais
 │   ├── harness-drift.sh         # Intégrité du harnais déployé : déployé ≠ clone, clone ≠ origin/<branche par défaut> ; lancé par session-start.sh, lu par la statusline
@@ -199,6 +201,7 @@ claude-config/
     ├── ponytail-subagent.test.js # Le matcher SubagentStart du ponytail vendorisé exclut les agents du harnais déclarés dans agents/ et aucun autre sous-agent
     ├── baseline-ratchet.test.js # Le ratchet sur de vrais baselines d'un repo pilote
     ├── gates-template.test.js   # Le modèle dependency-cruiser sur un projet jouet : couches, cycle, module sans couche, alias de chemin
+    ├── test-ablation.test.js    # Le script d'ablation sur un projet Vitest jouet dans os.tmpdir() : faits, sortes de kill, tests flaky et orphelins, déterminisme, isolation, exit 2 (vitest@5.0.4 et typescript@6.0.3 installés par npm)
     ├── python/conftest.py       # load_gate(nom) : un script de gate chargé depuis gates/python par fichier, comme la CI le lance
     ├── python/test_check_imports.py # Les gates Python sur graphes jouets, arbres temporaires et de bout en bout (uv run --no-project --with grimp==3.14 --with pytest pytest tests/python)
     ├── python/test_check_mutation.py # Le gate de mutation sur des .meta écrits à la main, et sur un vrai run mutmut d'un paquet jouet (Linux et macOS : mutmut refuse Windows natif)
@@ -214,6 +217,7 @@ claude-config/
 | Commande                | Description                                                                          |
 | ----------------------- | ------------------------------------------------------------------------------------ |
 | `/apply-suggestions`    | Applique les recommandations identifiées                                             |
+| `/audit-tests`          | Audit par ablation d'un source TypeScript sous Vitest : quelles instructions aucun test ne vérifie, quels tests ne vérifient rien, verdicts de deux auditeurs fusionnés, les désaccords laissés au propriétaire (humain uniquement) |
 | `/copilot-check`        | Évalue les retours de review Copilot sur une PR avant de les appliquer               |
 | `/create-commit`        | Crée un commit git                                                                   |
 | `/create-pr`            | Découpe le travail en commits logiques et ouvre une PR                               |
@@ -253,7 +257,7 @@ Niveaux : `lite`, `full` (défaut), `ultra`.
 
 L'état persistant est la config utilisateur du plugin (`defaultMode` dans `%APPDATA%\ponytail\config.json`, ou `$XDG_CONFIG_HOME`/`~/.config`) : son hook SessionStart la relit et réécrit le flag de session (`~/.claude/.ponytail-active`) à chaque démarrage — le défaut intégré est `full`, donc la bascule doit écrire la config, pas seulement le flag. `style-toggle.sh` écrit les deux (config pour la persistance, flag pour la mise à jour immédiate de la statusline). `/ponytail` reste utilisable par session. Sur une nouvelle machine, `install.sh` active ponytail (`full`) si la config n'existe pas. `scripts/statusline.sh` affiche le badge via le script statusline du plugin lui-même.
 
-La seule modification locale de la copie : son hook SubagentStart porte un `matcher` qui exclut les agents du harnais `plan-reviewer`, `spec-tester` et `diff-reviewer` (`agents/`), pour qu'un relecteur ou un rédacteur de tests ne soit jamais invité à couper les coins (`tests/ponytail-subagent.test.js`). caveman (compression de la prose) a quitté le harnais le 2026-10-09.
+La seule modification locale de la copie : son hook SubagentStart porte un `matcher` qui exclut les agents du harnais `plan-reviewer`, `spec-tester`, `diff-reviewer` et `test-auditor` (`agents/`), pour qu'un relecteur ou un rédacteur de tests ne soit jamais invité à couper les coins (`tests/ponytail-subagent.test.js`). caveman (compression de la prose) a quitté le harnais le 2026-10-09.
 
 </details>
 
