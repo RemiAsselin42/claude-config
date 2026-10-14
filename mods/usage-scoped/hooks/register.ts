@@ -8,8 +8,11 @@ import type { Register } from 'claude-code'
 // and its `limits` of kind weekly_scoped are written to <config dir>/.usage-scoped
 // as one "label<TAB>percent<TAB>resets_at (epoch seconds)" line per window, only
 // when the text changed. scripts/statusline.sh renders one "Week <label>" segment
-// per line. Anything wrong (no handle, an API key, a refused or failed request, a
-// body that is not JSON, no config dir) writes nothing and raises nothing.
+// per line. No bearer credential (logged out, or an API key) is a state, not a
+// failure: no request is made and the file is emptied once, so a file left by an
+// earlier login does not keep its segments on screen. Anything wrong (a refused or
+// failed request, a body that is not JSON, no config dir) writes nothing and
+// raises nothing.
 //
 //   claude plugin validate mods/usage-scoped
 //   claude plugin test mods/usage-scoped
@@ -18,10 +21,10 @@ const URL = 'https://api.anthropic.com/api/oauth/usage'
 
 type Limit = { kind?: unknown; percent?: unknown; resets_at?: unknown; scope?: { model?: { display_name?: unknown }; surface?: unknown } }
 
-/** The window's name: the model's display name, else the surface; every control character removed; '' when neither is a non-empty string. */
+/** The window's name: the model's display name, else the surface; every control and format character (U+202E, U+200B...) removed, the ends trimmed; '' when neither leaves anything. */
 const label = (l: Limit) =>
   [l.scope?.model?.display_name, l.scope?.surface]
-    .map(v => (typeof v === 'string' ? v.replace(/\p{Cc}/gu, '') : ''))
+    .map(v => (typeof v === 'string' ? v.replace(/\p{C}/gu, '').trim() : ''))
     .find(v => v !== '') ?? ''
 const percent = (v: unknown) => Math.min(100, Math.max(0, Math.round(Number(v) || 0)))
 /** Epoch seconds from an ISO 8601 string, epoch milliseconds or epoch seconds; 0 otherwise, never negative. */
@@ -40,17 +43,6 @@ export const register: Register = on => {
       // answer that arrives late never puts an older text over a newer one.
       const mine = ++seq
       try {
-        const auth = await $.session.authorize()
-        if (auth?.kind !== 'bearer') return
-        const res = await $.http.fetch(URL, { auth: auth.handle, headers: { 'anthropic-beta': 'oauth-2025-04-20' } })
-        if (!res.ok || mine !== seq) return
-        const limits: unknown = JSON.parse(res.text)?.limits
-        if (!Array.isArray(limits)) return
-        const text = (limits as Limit[])
-          .filter(l => l?.kind === 'weekly_scoped' && label(l) !== '')
-          .map(l => `${label(l)}\t${percent(l.percent)}\t${reset(l.resets_at)}\n`)
-          .join('')
-        if (text === last) return
         // An empty variable counts as unset, as the statusline's ${CLAUDE_CONFIG_DIR:-$HOME/.claude} does.
         let dir = await $.env.get('CLAUDE_CONFIG_DIR')
         if (!dir) {
@@ -58,8 +50,23 @@ export const register: Register = on => {
           if (!home) return
           dir = `${home}/.claude`
         }
+        const auth = await $.session.authorize()
+        let text = ''
+        if (auth?.kind === 'bearer') {
+          const res = await $.http.fetch(URL, { auth: auth.handle, headers: { 'anthropic-beta': 'oauth-2025-04-20' } })
+          if (!res.ok) return
+          const limits: unknown = JSON.parse(res.text)?.limits
+          if (!Array.isArray(limits)) return
+          text = (limits as Limit[])
+            .filter(l => l?.kind === 'weekly_scoped' && label(l) !== '')
+            .map(l => `${label(l)}\t${percent(l.percent)}\t${reset(l.resets_at)}\n`)
+            .join('')
+        }
+        // Nothing awaits between this check and the write, so no newer refresh lands in between;
+        // a write still in flight when a newer one has landed leaves `last` to the newer one.
+        if (mine !== seq || text === last) return
         await $.fs.write(`${dir}/.usage-scoped`, text)
-        last = text
+        if (mine === seq) last = text
       } catch {
         // A failed refresh leaves the last file as it is; the next measure tries again.
       }
