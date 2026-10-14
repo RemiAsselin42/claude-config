@@ -1,12 +1,13 @@
-// The harness agents in agents/ (plan-reviewer, spec-tester, diff-reviewer) run
-// without ponytail: its SubagentStart hook injects the lazy-dev ruleset into every
-// subagent, and a reviewer or a test writer must not be told to cut corners. The
+// The harness agents in agents/ (plan-reviewer, spec-tester, diff-reviewer, spawned by
+// /feature, and test-auditor, spawned by /audit-tests) run without ponytail: its
+// SubagentStart hook injects the lazy-dev ruleset into every subagent, and a reviewer,
+// a test writer or an auditor must not be told to cut corners. The
 // exclusion is the `matcher` of the SubagentStart entry in the vendored
 // mods/ponytail/hooks/claude-codex-hooks.json, which Claude Code evaluates against
 // the subagent's frontmatter `name` before running the hook (hooks reference,
 // "SubagentStart": exact names, a `|` list, or any other string as an unanchored
 // JavaScript RegExp tested with RegExp.prototype.test; an omitted, empty or `*`
-// matcher runs for every agent). Reading agents/ keeps a fourth harness agent
+// matcher runs for every agent). Reading agents/ keeps a fifth harness agent
 // covered the day it is added.
 //
 //   node --test tests/ponytail-subagent.test.js
@@ -31,8 +32,8 @@ function hookRunsFor(entry, agentType) {
   return new RegExp(m).test(agentType);
 }
 
-test('the three harness agents are what agents/ declares', () => {
-  assert.deepEqual([...harnessAgents].sort(), ['diff-reviewer', 'plan-reviewer', 'spec-tester']);
+test('the four harness agents are what agents/ declares', () => {
+  assert.deepEqual([...harnessAgents].sort(), ['diff-reviewer', 'plan-reviewer', 'spec-tester', 'test-auditor']);
   assert.ok(entries.length >= 1, 'ponytail declares a SubagentStart hook');
 });
 
