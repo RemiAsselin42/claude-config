@@ -1,12 +1,13 @@
 // Acceptance tests for scripts/test-ablation.cjs (specs: docs/audit-tests-ts.md, then
-// docs/audit-tests-vitest-compat.md) on toy TypeScript projects generated in os.tmpdir():
+// docs/audit-tests-vitest-compat.md, then docs/audit-tests-effects.md, whose plan tests are
+// numbered "effects N" below) on toy TypeScript projects generated in os.tmpdir():
 // git repos with node_modules ignored and a minimal vitest.config.ts, installed by npm:
 //   - the primary toy, vitest@5.0.4 + vite@8.3.4 + typescript@6.0.3, runs every test;
 //   - vitest@3.2.7 + vite@7.3.7 + typescript@6.0.3 and vitest@4.1.11 + vite@8.3.4 +
 //     typescript@6.0.3, each created lazily, run the per-major trio (facts buckets,
 //     determinism, project and node_modules untouched) and, for 3.2.7, the config-load failure.
-// Stub `vitest` packages (versions 2.1.9, 6.0.0, 3.2.7) cover the version gate and the
-// exit-2 line; their typescript is a junction to the primary toy's.
+// Stub `vitest` packages (versions 2.1.9, 3.0.0, 3.1.0, 6.0.0, 3.2.7) cover the version gate
+// (3.1 to 5.x) and the exit-2 line; their typescript is a junction to the primary toy's.
 // The script is spawned with process.execPath, like baseline-ratchet; units are located by
 // their whitespace-normalized text_head, tests by their id. Every run passes its own --out
 // under a temp dir this file removes, except the one test of the default --out, which removes
@@ -230,9 +231,10 @@ const DEREF_TEST = [
   "",
 ].join("\n");
 
-// Spec 5: removing the `if` removes the only declaration of `hits` (a `var` in its block), so
-// `return hits` throws `ReferenceError: hits is not defined` (a `binding` kill); `let last;`
-// has no initializer (not ablated).
+// The `if` holds the only declaration of `hits` (a `var` in its block). Removing it used to
+// remove the binding too (`return hits` threw a `ReferenceError`, a `binding` kill); since
+// docs/audit-tests-effects.md requirement 3 the mutant keeps `var hits;`, so `countHits(3)`
+// returns undefined and the assertion says so. `let last;` has no initializer (not ablated).
 const HOIST = [
   "export function countHits(n: number): number {",
   "  if (n > 0) {",
@@ -258,6 +260,60 @@ const HOIST_TEST = [
   "",
   'test("lastOf returns the last value", () => {',
   "  expect(lastOf([1, 2])).toBe(2);",
+  "});",
+  "",
+].join("\n");
+// Effects 8: a second test file on hoist.ts that reads an undeclared `hits` itself when
+// countHits(3) comes back undefined: its own ReferenceError, thrown in the test file. Passes in
+// the baseline (countHits(3) is 3, `hits` never read).
+const HOIST_GLOBAL_TEST = [
+  'import { test, expect } from "vitest";',
+  'import { countHits } from "./hoist";',
+  "",
+  'test("hits is read by the test when countHits returns undefined", () => {',
+  "  const got = countHits(3);",
+  "  if (got === undefined) {",
+  "    // @ts-expect-error hits is not declared here: reading it throws a ReferenceError",
+  "    expect(hits).toBe(3);",
+  "  }",
+  "  expect(got).toBe(3);",
+  "});",
+  "",
+].join("\n");
+
+// Effects 4 to 6: function-valued declarators are not units, their bodies are.
+const FNVAL = [
+  "const helper = (x: number) => x * 2;",
+  "",
+  "export function quad(x: number): number {",
+  "  return helper(helper(x));",
+  "}",
+  "",
+  "export function pick(): number {",
+  "  const a = 1, f = () => a;",
+  "  return f();",
+  "}",
+  "",
+  "export function zero(): number {",
+  "  const z = 0, g = () => z;",
+  "  return g();",
+  "}",
+  "",
+].join("\n");
+const FNVAL_TEST = [
+  'import { test, expect } from "vitest";',
+  'import { quad, pick, zero } from "./fnval";',
+  "",
+  'test("quad applies helper twice", () => {',
+  "  expect(quad(2)).toBe(8);",
+  "});",
+  "",
+  'test("pick returns a", () => {',
+  "  expect(pick()).toBe(1);",
+  "});",
+  "",
+  'test("zero returns z", () => {',
+  "  expect(zero()).toBe(0);",
   "});",
   "",
 ].join("\n");
@@ -301,6 +357,9 @@ const TOY_FILES = {
   "src/deref.test.ts": DEREF_TEST,
   "src/hoist.ts": HOIST,
   "src/hoist.test.ts": HOIST_TEST,
+  "src/hoist-global.test.ts": HOIST_GLOBAL_TEST,
+  "src/fnval.ts": FNVAL,
+  "src/fnval.test.ts": FNVAL_TEST,
   "src/mocked.ts": MOCKED,
   "src/mocked.test.ts": MOCKED_TEST,
 };
@@ -455,6 +514,9 @@ for (const m of EXTRA_MAJORS) m.runs = runsOn(m.toy);
 const spinRun = once(() => ablate(toy().dir, ["--source", "src/spin.ts"], { timeout: 300000 }));
 const hoistRun = once(() => ablate(toy().dir, ["--source", "src/hoist.ts", "--tests", "src/hoist.test.ts"]));
 const derefRun = once(() => ablate(toy().dir, ["--source", "src/deref.ts", "--tests", "src/deref.test.ts"]));
+// Effects 8: its own run, so the kills of the `if` unit come from that test file alone.
+const hoistGlobalRun = once(() => ablate(toy().dir, ["--source", "src/hoist.ts", "--tests", "src/hoist-global.test.ts"]));
+const fnvalRun = once(() => ablate(toy().dir, ["--source", "src/fnval.ts", "--tests", "src/fnval.test.ts"]));
 
 const norm = (s) => String(s).replace(/\s+/g, " ").trim().replace(/;$/, "");
 function unitsWhere(rep, pred) {
@@ -487,13 +549,19 @@ const ORPHAN_ID = T("src/orphan.test.ts", "calls triple, which calc does not exp
 const BROKEN_ID = "src/broken.test.ts::*";
 const FLAKY_ID = CALC_T("flaky alternates");
 const FACT_BUCKETS = ["survived_reached", "unreached", "crash_only", "never_failing_tests", "orphan_tests"];
+// The kill kinds of docs/audit-tests-effects.md: `binding` is gone, `test_error` is new.
+const KILL_KINDS = ["assertion", "test_error", "crash", "timeout"];
+const allKills = (rep) => rep.units.flatMap((u) => (u.kills || []).map((k) => ({ unit: u.id, ...k })));
+const EXIT2_PREFIX = "test-ablation: ";
 
+// Every exit-2 stderr line starts with `test-ablation: ` (effects plan); the line is returned whole.
 function expectExit2(cwd, args, { env = {} } = {}) {
   const out = path.join(tempDir("ablation-out-"), "report.json");
   const r = ablate(cwd, [...args, "--out", out], { env });
   assert.equal(r.code, 2, `exit ${r.code}: ${r.stderr}`);
   const lines = r.stderr.split(/\r?\n/).filter((l) => l.trim() !== "");
   assert.equal(lines.length, 1, `exactly one stderr line, got: ${r.stderr}`);
+  assert.ok(lines[0].startsWith(EXIT2_PREFIX), `the line does not start with ${JSON.stringify(EXIT2_PREFIX)}: ${lines[0]}`);
   assert.equal(fs.existsSync(out), false, "no report is written on exit 2");
   return lines[0];
 }
@@ -535,6 +603,16 @@ function assertFactBuckets(rep) {
   assert.ok(log.flags.includes("side_effect_only"), `flags of the console.log unit: ${JSON.stringify(log.flags)}`);
   const box = unit(rep, "const box = { value: v };");
   assert.ok(!rep.facts.crash_only.includes(box.id), `${box.id} is in crash_only`);
+}
+// Effects 1 and 12: `return box;` removed, `makeBox(3).value` throws a TypeError in the test
+// file itself: a test_error kill, not a crash, so the unit is out of crash_only.
+function assertReturnBoxTestError(rep) {
+  const ret = unit(rep, "return box;");
+  assert.equal(ret.status, "killed", `${ret.id} is ${ret.status}`);
+  const kill = ret.kills.find((k) => k.test === CALC_T("makeBox holds its value"));
+  assert.ok(kill, `${ret.id} is not killed by makeBox holds its value: ${JSON.stringify(ret.kills)}`);
+  assert.equal(kill.kind, "test_error", `kills of ${ret.id}: ${JSON.stringify(ret.kills)}`);
+  assert.ok(!rep.facts.crash_only.includes(ret.id), `${ret.id} is in crash_only`);
 }
 function assertTestFacts(rep, raw) {
   const nothing = CALC_T("asserts nothing about calc");
@@ -594,7 +672,22 @@ test("a full run classifies the clamp as survived_reached, the else-if branch as
   // The previous unit expected `const box = { value: v };` in crash_only. That expectation
   // encoded the bug of docs/audit-tests-vitest-compat.md spec 5: removing the declaration made
   // `return box` throw a ReferenceError whatever the test asserted. Flipped by that spec.
+  // Its sibling `return box;` was a `crash` kill for a TypeError thrown in the test file;
+  // docs/audit-tests-effects.md makes it a `test_error` (effects 1, the next tests).
   assertFactBuckets(reportOf(fullRun()));
+});
+
+test("effects 1: return box; is killed by makeBox holds its value with kind test_error and is not crash_only", { skip }, () => {
+  assertReturnBoxTestError(reportOf(fullRun()));
+});
+
+test("effects 2: no kill has kind binding, every kill kind is assertion, test_error, crash or timeout; the orphan stays missing_symbol", { skip }, () => {
+  const rep = reportOf(fullRun());
+  const kills = allKills(rep);
+  assert.ok(kills.length > 0, "the full run has kills");
+  assert.deepEqual(kills.filter((k) => k.kind === "binding"), [], "binding kills");
+  assert.deepEqual(kills.filter((k) => !KILL_KINDS.includes(k.kind)), [], `kills outside ${KILL_KINDS.join(", ")}`);
+  assert.equal(rep.baseline.failing.find((f) => f.test === ORPHAN_ID)?.reason, "missing_symbol", `baseline.failing: ${JSON.stringify(rep.baseline.failing)}`);
 });
 
 test("the box declaration is killed by the assertion of makeBox holds its value and is not crash_only", { skip }, () => {
@@ -865,6 +958,7 @@ test("without --out the report lands in <os.tmpdir()>/test-ablation/<12 hex>.jso
 
 // ---------------------------------------------------------------- spec 5: declarations keep their binding
 
+// Unchanged by docs/audit-tests-effects.md: the TypeError is thrown in the source (effects 3).
 test("a value dereferenced but never asserted stays in crash_only with only crash kills", { skip }, () => {
   const rep = reportOf(derefRun());
   const holder = unit(rep, "const holder = { inner: { value: v } };");
@@ -873,16 +967,81 @@ test("a value dereferenced but never asserted stays in crash_only with only cras
   for (const k of holder.kills) assert.equal(k.kind, "crash", `kills of ${holder.id}: ${JSON.stringify(holder.kills)}`);
 });
 
-test("removing the block of a var gives binding kills, not crash_only; the var itself is killed by an assertion", { skip }, () => {
+// Effects 7. Replaces the PR #40 test that asserted `binding` kills on the `if`: the spec
+// docs/audit-tests-effects.md flips it. The report does not carry the mutant text; the kill
+// kind stands in for it: with `var hits;` kept, countHits(3) returns undefined and the
+// assertion says so; with the binding removed, the source would throw a ReferenceError.
+test("effects 7: removing the block of a var keeps the name: the if is killed by an assertion, the var too, no binding kill anywhere", { skip }, () => {
   const rep = reportOf(hoistRun());
   const block = unitStarting(rep, "if (n > 0)");
   assert.equal(block.status, "killed", `${block.id} is ${block.status}`);
-  assert.ok(block.kills.length > 0, `${block.id} has no kill`);
-  for (const k of block.kills) assert.equal(k.kind, "binding", `kills of ${block.id}: ${JSON.stringify(block.kills)}`);
+  const kill = block.kills.find((k) => k.test === T("src/hoist.test.ts", "countHits returns the hits of a positive"));
+  assert.ok(kill, `${block.id} is not killed by the countHits test: ${JSON.stringify(block.kills)}`);
+  assert.equal(kill.kind, "assertion", `kills of ${block.id}: ${JSON.stringify(block.kills)}`);
   assert.ok(!rep.facts.crash_only.includes(block.id), `${block.id} is in crash_only`);
   const hits = unit(rep, "var hits = n;");
   assert.equal(hits.status, "killed", `${hits.id} is ${hits.status}`);
   assert.ok(hits.kills.some((k) => k.kind === "assertion"), `kills of ${hits.id}: ${JSON.stringify(hits.kills)}`);
+  assert.deepEqual(allKills(rep).filter((k) => k.kind === "binding"), [], "binding kills");
+});
+
+// Effects 8. The test file's own ReferenceError on `hits` (first copy frame in the test file) is
+// the test touching the changed value: test_error, and the audit goes on (exit 0).
+test("effects 8: a test file that reads an undeclared hits itself: exit 0, the if is killed by that test with kind test_error", { skip }, () => {
+  const rep = reportOf(hoistGlobalRun());
+  assert.deepEqual(rep.tests, ["src/hoist-global.test.ts"]);
+  const block = unitStarting(rep, "if (n > 0)");
+  assert.equal(block.status, "killed", `${block.id} is ${block.status}`);
+  const kill = block.kills.find((k) => k.test === T("src/hoist-global.test.ts", "hits is read by the test when countHits returns undefined"));
+  assert.ok(kill, `${block.id} is not killed by the hoist-global test: ${JSON.stringify(block.kills)}`);
+  assert.equal(kill.kind, "test_error", `kills of ${block.id}: ${JSON.stringify(block.kills)}`);
+  assert.ok(!rep.facts.crash_only.includes(block.id), `${block.id} is in crash_only`);
+});
+
+// ---------------------------------------------------------------- effects 4 to 6: function-valued declarators
+
+const FNVAL_T = (name) => T("src/fnval.test.ts", name);
+const fnvalLine = (needle) => lineIn(FNVAL, needle);
+const variableUnitsStarting = (rep, prefix) => unitsWhere(rep, (h) => h.startsWith(norm(prefix))).filter((u) => u.kind === "VariableStatement");
+function expectFunctionValue(rep, needle) {
+  const line = fnvalLine(needle);
+  const entries = rep.not_ablated.filter((n) => n.start.line === line);
+  assert.ok(
+    entries.some((n) => n.reason === "function_value"),
+    `no not_ablated entry with reason function_value on line ${line} (${needle}): ${JSON.stringify(entries)}`,
+  );
+}
+
+test("effects 4: a local const bound to an arrow is not a unit, not_ablated says function_value, its body is a unit under helper, killed by the quad test", { skip }, () => {
+  const rep = reportOf(fnvalRun());
+  assert.deepEqual(variableUnitsStarting(rep, "const helper").map((u) => u.id), [], "VariableStatement units of const helper");
+  expectFunctionValue(rep, "const helper = (x: number) => x * 2;");
+  const body = unit(rep, "x * 2");
+  assert.match(body.id, /(^|\/)helper\//, `the body unit is not under a scope named helper: ${body.id}`);
+  assert.equal(body.parent, null, `the body of helper is walked like a function declaration's, no parent unit: ${body.parent}`);
+  assert.equal(body.status, "killed", `${body.id} is ${body.status}`);
+  assert.ok(body.kills.some((k) => k.test === FNVAL_T("quad applies helper twice")), `kills of ${body.id}: ${JSON.stringify(body.kills)}`);
+});
+
+test("effects 5: a statement mixing a value and an arrow is one unit that empties the value only, killed by an assertion; the arrow body is its own unit", { skip }, () => {
+  const rep = reportOf(fnvalRun());
+  const units = variableUnitsStarting(rep, "const a = 1, f = () => a");
+  assert.equal(units.length, 1, `VariableStatement units starting with const a = 1, f = () => a: ${units.map((u) => u.id).join(", ")}`);
+  const stmt = units[0];
+  assert.equal(stmt.status, "killed", `${stmt.id} is ${stmt.status}`);
+  const kill = stmt.kills.find((k) => k.test === FNVAL_T("pick returns a"));
+  assert.ok(kill, `${stmt.id} is not killed by the pick test: ${JSON.stringify(stmt.kills)}`);
+  assert.equal(kill.kind, "assertion", `an emptied f would throw in the source; kills of ${stmt.id}: ${JSON.stringify(stmt.kills)}`);
+  const body = unit(rep, "a");
+  assert.notEqual(body.parent, stmt.id, `the body of f is nested under the statement unit ${stmt.id}`);
+  assert.equal(body.status, "killed", `${body.id} is ${body.status}`);
+});
+
+test("effects 6: a statement whose only non-function declarator is already empty is not a unit, not_ablated says function_value; the arrow body is a unit", { skip }, () => {
+  const rep = reportOf(fnvalRun());
+  assert.deepEqual(variableUnitsStarting(rep, "const z = 0, g = () => z").map((u) => u.id), [], "VariableStatement units of const z = 0, g = () => z");
+  expectFunctionValue(rep, "const z = 0, g = () => z;");
+  unit(rep, "z");
 });
 
 test("a declaration already empty is not_ablated already_empty, one without initializer no_initializer, neither a unit; no mutant is invalid", { skip }, () => {
@@ -978,7 +1137,8 @@ function stubToy(version, bin) {
   return { dir, link };
 }
 
-test("a vitest outside 3 to 5: exit 2, one line naming the version and the range, no Vitest run started", { skip }, async (t) => {
+// Effects 10.
+test("a vitest outside 3.1 to 5.x: exit 2, one line naming the version and the range 3.1 to 5.x, no Vitest run started", { skip }, async (t) => {
   for (const version of ["2.1.9", "6.0.0"]) {
     await t.test(`vitest ${version}`, () => {
       const { dir, link } = stubToy(version, MARKER_BIN);
@@ -986,13 +1146,41 @@ test("a vitest outside 3 to 5: exit 2, one line naming the version and the range
       try {
         const line = expectExit2(dir, ["--source", "src/one.ts"], { env: { ABLATION_STUB_MARKER: marker } });
         assert.ok(line.includes(version), `the line does not name ${version}: ${line}`);
-        assert.match(line, /(^|\D)3(\D|$)/, `the line does not name the range (3): ${line}`);
-        assert.match(line, /(^|\D)5(\D|$)/, `the line does not name the range (5): ${line}`);
+        assert.ok(line.includes("3.1 to 5.x"), `the line does not name the range 3.1 to 5.x: ${line}`);
+        assert.ok(!line.includes("--configLoader"), `the line names --configLoader, the 3.0 reason: ${line}`);
         assert.equal(fs.existsSync(marker), false, "the vitest bin was run");
       } finally {
         fs.unlinkSync(link);
       }
     });
+  }
+});
+
+// Effects 9: 3.0 writes node_modules/.vite-temp into the project, so it is refused before any run.
+test("effects 9: vitest 3.0.0 is refused: exit 2, the line gives the 3.0 reason, no Vitest run started", { skip }, () => {
+  const { dir, link } = stubToy("3.0.0", MARKER_BIN);
+  const marker = path.join(tempDir("ablation-marker-"), "ran.txt");
+  try {
+    const line = expectExit2(dir, ["--source", "src/one.ts"], { env: { ABLATION_STUB_MARKER: marker } });
+    const expected =
+      "vitest 3.0.0 is not supported: 3.1 to 5.x (3.0 has no --configLoader and writes node_modules/.vite-temp into the project)";
+    assert.ok(line.endsWith(expected), `the line does not end with ${JSON.stringify(expected)}: ${line}`);
+    assert.equal(fs.existsSync(marker), false, "the vitest bin was run");
+  } finally {
+    fs.unlinkSync(link);
+  }
+});
+
+// Effects 11: 3.1.0 is inside the range: the stub runs (and writes no report, hence the exit 2).
+test("effects 11: vitest 3.1.0 is not refused for its version: the stub runs and the line does not say not supported", { skip }, () => {
+  const { dir, link } = stubToy("3.1.0", MARKER_BIN);
+  const marker = path.join(tempDir("ablation-marker-"), "ran.txt");
+  try {
+    const line = expectExit2(dir, ["--source", "src/one.ts"], { env: { ABLATION_STUB_MARKER: marker } });
+    assert.ok(!line.includes("not supported"), `3.1.0 is refused: ${line}`);
+    assert.equal(fs.existsSync(marker), true, "the vitest bin was not run");
+  } finally {
+    fs.unlinkSync(link);
   }
 });
 
@@ -1035,6 +1223,10 @@ for (const m of EXTRA_MAJORS) {
       assertFactBuckets(rep);
       assertTestFacts(rep, r.raw);
       assert.deepEqual(rep.tool_versions, { node: process.versions.node, typescript: m.typescript, vitest: m.version });
+    });
+    // Effects 12: the stack of failureMessages is read on this major too.
+    await t.test("effects 12: return box; is killed by makeBox holds its value with kind test_error and is not crash_only", () => {
+      assertReturnBoxTestError(reportOf(m.runs.first()));
     });
     await t.test("two runs give byte-identical reports once meta is removed, with no absolute path", () => {
       assertDeterministic(m.runs.first(), m.runs.rest().run, tv.dir);
