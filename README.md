@@ -202,6 +202,7 @@ claude-config/
     ├── baseline-ratchet.test.js # The ratchet on real baselines from a pilot repository
     ├── gates-template.test.js   # The dependency-cruiser template on a toy project: layers, cycle, module in no layer, path alias
     ├── test-ablation.test.js    # The ablation script on toy Vitest projects in os.tmpdir(): facts, kill kinds, flaky and orphan tests, determinism, isolation, exit 2, one toy per supported major (vitest@5.0.4, 3.2.7 and 4.1.11 with their Vite, typescript@6.0.3, installed by npm; stub packages for the version gate)
+    ├── test-ablation-units.test.js # The script's two parsers alone: every stack-frame spelling of Vitest 3 to 5 (errorFile), and the ablation units of snippets (function-valued declarators behind as/satisfies/!/parentheses, exported mixed statements, the `var a, b;` replacement, nested scopes) with typescript@6.0.3 installed by npm
     ├── python/conftest.py       # load_gate(name): a gate script loaded from gates/python by file, the way CI runs it
     ├── python/test_check_imports.py # The Python gates on toy graphs, temp trees and end to end (uv run --no-project --with grimp==3.14 --with pytest pytest tests/python)
     ├── python/test_check_mutation.py # The mutation gate on written .meta files, and on a real mutmut run of a toy package (Linux and macOS: mutmut refuses native Windows)

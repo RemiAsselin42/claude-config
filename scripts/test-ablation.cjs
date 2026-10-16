@@ -48,7 +48,8 @@
 // the copy is in a test file: the test touched the changed value itself),
 // `crash` (thrown in the source or elsewhere, or no usable stack), `timeout`
 // (the run timed out). A ReferenceError on a name the unit declared, thrown
-// outside the test files, is a defect of this script: exit 2.
+// in the source (the only file that can see it), is a defect of this script:
+// exit 2.
 "use strict";
 const fs = require("node:fs");
 const os = require("node:os");
@@ -629,20 +630,24 @@ function runVitest({ copy, vitest, testFiles, env, timeoutMs, tag, viteTempDir }
 }
 // The stack of a failing test, as Vitest's JSON reporter writes it in
 // failureMessages[0]: the error's first line, then V8 frames
-// `    at [fn (]<path>:<line>:<col>[)]`, positions source-mapped to the .ts
-// files. Project files are absolute paths of the copy, node_modules files
-// file:/// URLs, Node internals `node:…`; per major (read on 2026-10-14):
+// `    at [async ][fn (]<path>:<line>:<col>[)]`, positions source-mapped to
+// the .ts files. Project files are plain absolute paths of the copy (never
+// percent-encoded), node_modules files file:/// URLs, Node internals
+// `node:…`; per major (read on 2026-10-14):
 //   3.x (3.1.0, 3.2.4, 3.2.7): native paths, backslashes on Windows
-//   4.x (4.1.11), 5.x (5.0.4): forward slashes on every OS
+//   4.x (4.1.11): forward slashes on every OS
+//   5.x (5.0.4): forward slashes on every OS
 // The first frame under the copy and outside node_modules (the project's
 // node_modules through the junction, not the project's code) names the file
-// the error came from, project-relative; null when no frame is there.
-const STACK_FRAME = /^\s+at (?:.*? \()?(.+?):\d+:\d+\)?$/;
+// the error came from, project-relative; null when no frame is there. The
+// parenthesized form is read only when the line ends with `)`: a ` (` can
+// sit inside a path (`C:/Users/a (b)/…`).
+const STACK_FRAME = /^\s+at (?:async )?(?:.*? \((.+?):\d+:\d+\)|(.+?):\d+:\d+)$/;
 function errorFile(message, roots, fold) {
   for (const line of String(message || "").split(/\r?\n/).slice(1)) {
     const m = STACK_FRAME.exec(line);
     if (!m) continue;
-    let p = m[1];
+    let p = m[1] || m[2];
     if (/^file:\/\//i.test(p)) { try { p = fileURLToPath(p); } catch { continue; } }
     p = posix(p);
     for (const r of roots) if (fold(p).startsWith(fold(r))) { const rel = p.slice(r.length); if (!/(^|\/)node_modules\//.test(rel)) return rel; }
@@ -819,9 +824,11 @@ async function main() {
             if (!res || !got) ks.push({ test: id, kind: "crash" });
             else if (got.status === "failed") {
               const kind = killKind(got, testFiles);
-              // The mutant kept every var its span declared: a ReferenceError on one
-              // of them from outside the test files is a defect of this script.
-              const ref = kind === "crash" && REFERENCE_ERROR.exec(firstLine(got.message));
+              // The mutant kept every var its span declared, and a var of the source
+              // is visible from the source alone: a ReferenceError on one of them
+              // thrown there is a defect of this script.
+              const inSource = got.file && (WIN ? got.file.toLowerCase() === sourceRel.toLowerCase() : got.file === sourceRel);
+              const ref = inSource && REFERENCE_ERROR.exec(firstLine(got.message));
               if (ref && u.declares.has(ref[1])) fail(`mutant ${u.id} removed the binding ${ref[1]} it should have kept`);
               ks.push({ test: id, kind });
             }
@@ -877,7 +884,12 @@ async function main() {
   console.log(outPath);
 }
 
-main().catch((e) => {
-  console.error(scrubPaths(`test-ablation: ${String(e instanceof Fail ? e.message : (e && e.stack) || e).replace(/\s*\n\s*/g, " ")}`));
-  process.exit(2);
-});
+if (require.main === module) {
+  main().catch((e) => {
+    console.error(scrubPaths(`test-ablation: ${String(e instanceof Fail ? e.message : (e && e.stack) || e).replace(/\s*\n\s*/g, " ")}`));
+    process.exit(2);
+  });
+} else {
+  // For tests/test-ablation-units.test.js: the parsers alone, no run.
+  module.exports = { parseFile, collectUnits, mutantSource, errorFile, STACK_FRAME };
+}

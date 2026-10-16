@@ -202,6 +202,7 @@ claude-config/
     ├── baseline-ratchet.test.js # Le ratchet sur de vrais baselines d'un repo pilote
     ├── gates-template.test.js   # Le modèle dependency-cruiser sur un projet jouet : couches, cycle, module sans couche, alias de chemin
     ├── test-ablation.test.js    # Le script d'ablation sur des projets Vitest jouets dans os.tmpdir() : faits, sortes de kill, tests flaky et orphelins, déterminisme, isolation, exit 2, un jouet par majeur supporté (vitest@5.0.4, 3.2.7 et 4.1.11 avec leur Vite, typescript@6.0.3, installés par npm ; paquets stub pour la garde de version)
+    ├── test-ablation-units.test.js # Les deux parseurs du script seuls : chaque forme de frame de pile de Vitest 3 à 5 (errorFile), et les unités d'ablation d'extraits (déclarateurs à valeur fonction derrière as/satisfies/!/parenthèses, instructions exportées mixtes, le remplacement `var a, b;`, portées imbriquées) avec typescript@6.0.3 installé par npm
     ├── python/conftest.py       # load_gate(nom) : un script de gate chargé depuis gates/python par fichier, comme la CI le lance
     ├── python/test_check_imports.py # Les gates Python sur graphes jouets, arbres temporaires et de bout en bout (uv run --no-project --with grimp==3.14 --with pytest pytest tests/python)
     ├── python/test_check_mutation.py # Le gate de mutation sur des .meta écrits à la main, et sur un vrai run mutmut d'un paquet jouet (Linux et macOS : mutmut refuse Windows natif)
