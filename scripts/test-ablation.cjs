@@ -12,14 +12,16 @@
 //
 // Exit 0: report written (findings or not: an audit, not a gate).
 // Exit 2: blind spot or usage error, one stderr line naming it: typescript or
-//         vitest unresolvable from the project, vitest outside 3.x to 5.x, source
+//         vitest unresolvable from the project, vitest outside 3.1 to 5.x, source
 //         syntax error, no stable passing test, reach run differing from the
-//         baseline or recording nothing, project modified. The line quotes the
-//         error Vitest printed, not its stack location, and no absolute path:
-//         the project is `<project>`, the temp copy `<copy>`, the home `~`.
-//         A run killed on a timeout or a signal may add one line before it,
-//         naming what Vite's config loader had left in node_modules/.vite-temp
-//         and the script removed (exit 0 too, after a mutant's timeout).
+//         baseline or recording nothing, a mutant that lost a var binding it
+//         should have kept (a defect of this script, see below), project
+//         modified. The line quotes the error Vitest printed, not its stack
+//         location, and no absolute path: the project is `<project>`, the temp
+//         copy `<copy>`, the home `~`. A run killed on a timeout or a signal may
+//         add one line before it, naming what Vite's config loader had left in
+//         node_modules/.vite-temp and the script removed (exit 0 too, after a
+//         mutant's timeout).
 // stdout: one count per `facts` bucket, then the report path, alone, last. A dry
 //         run prints the units, `units: N` and `not_ablated: M` before any Vitest
 //         run, then the estimate and the report path.
@@ -27,21 +29,33 @@
 // typescript and vitest come from the audited project (require.resolve with
 // paths: [project]); this script has no dependency of its own. typescript 7,
 // the native port, has no JS parser API: the project needs typescript@6 as a
-// devDependency. Vitest 3.x to 5.x; the run flags come from VITEST_FLAGS, one
-// entry per major. The real project is never written: Vitest runs in a temp
-// copy whose node_modules is a junction (works on Windows without admin rights)
-// with its caches inside the copy, and the copy is removed on exit, error paths
-// included. One known exception: Vitest 3.0.x has no --configLoader, so with a
-// config file Vite >= 6 leaves an empty node_modules/.vite-temp/ in the project.
-// A dry run still runs the baseline (for the estimate) and nothing else; its
-// units carry status "not_run".
+// devDependency. Vitest 3.1 to 5.x (3.0 has no --configLoader: with a config
+// file, Vite >= 6 would leave an empty node_modules/.vite-temp/ in the project);
+// the run flags come from VITEST_FLAGS, one entry per major. The real project
+// is never written: Vitest runs in a temp copy whose node_modules is a junction
+// (works on Windows without admin rights) with its caches inside the copy, and
+// the copy is removed on exit, error paths included. A dry run still runs the
+// baseline (for the estimate) and nothing else; its units carry status "not_run".
+//
+// A mutant removes an effect, never a name: a statement's span becomes `;`, or
+// `var a, b;` when the span declared those names (still hoisted, so a later
+// read gives undefined instead of a ReferenceError); a variable statement keeps
+// its bindings and loses its initializers; a declarator bound to a function or
+// a class is not a unit, its body is walked, like a function declaration's.
+// Kill kinds, from the first line and the stack of the failing test's message
+// (every supported major carries the stack, see STACK_FRAME): `assertion` (an
+// AssertionError), `test_error` (any other error whose first stack frame inside
+// the copy is in a test file: the test touched the changed value itself),
+// `crash` (thrown in the source or elsewhere, or no usable stack), `timeout`
+// (the run timed out). A ReferenceError on a name the unit declared, thrown
+// outside the test files, is a defect of this script: exit 2.
 "use strict";
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { spawn, spawnSync, execFileSync } = require("node:child_process");
-const { pathToFileURL } = require("node:url");
+const { pathToFileURL, fileURLToPath } = require("node:url");
 
 const WIN = process.platform === "win32";
 // Left out of the copy and of test discovery: .git and node_modules at any
@@ -58,7 +72,7 @@ const REACH_ENV = "TEST_ABLATION_REACH";
 // `--help --coverage`, `--help --sequence`, `--help --cache`) of the versions
 // named on its line; a flag a version does not list is a CACError at CLI
 // parsing and no run at all (the 3.2.4 smoke test of 2026-10-14).
-const VITEST_MAJORS = "3.0 to 5.x";
+const VITEST_MAJORS = "3.1 to 5.x";
 const COMMON_FLAGS = [
   "--reporter=json", // 3.0.0, 3.2.7, 4.0.0, 4.1.11, 5.0.0, 5.0.4 (`--outputFile` with it, added per run)
   "--coverage.enabled=false", // same versions, `--help --coverage`
@@ -68,10 +82,11 @@ const COMMON_FLAGS = [
 ];
 // Vite's default config loader bundles vitest.config.ts into node_modules/
 // .vite-temp, i.e. the real project through the junction (Vite >= 6 leaves the
-// empty directory there); the runner loader writes nothing. Listed from 3.1.0.
+// empty directory there); the runner loader writes nothing. Listed from 3.1.0:
+// 3.0.x is refused in resolveTools.
 const CONFIG_LOADER = "--configLoader=runner"; // 3.1.0, 3.2.0, 3.2.4, 3.2.7, 4.0.0, 4.1.11, 5.0.0, 5.0.4; absent from 3.0.0
 const VITEST_FLAGS = {
-  3: (minor) => (minor >= 1 ? [...COMMON_FLAGS, CONFIG_LOADER] : COMMON_FLAGS),
+  3: () => [...COMMON_FLAGS, CONFIG_LOADER], // 3.1.0 and later
   4: () => [...COMMON_FLAGS, CONFIG_LOADER], // `--experimental.fsModuleCache` exists there but is off by default (4.1.11)
   5: (_minor, cacheDir) => [...COMMON_FLAGS, CONFIG_LOADER, `--fsModuleCachePath=${cacheDir}`], // 5.0.0, 5.0.4: the module cache is on and lands in node_modules/.vitest-cache without the path
 };
@@ -193,6 +208,7 @@ function resolveTools(project) {
     const [major, minor] = String(pkg.version).split(".").map(Number);
     if (!binRel) problems.push(`vitest ${pkg.version}: no bin in its package.json`);
     else if (!own("vitest")) problems.push(`vitest resolved outside ${posix(project)}/node_modules (hoisted or workspace install): not supported`);
+    else if (major === 3 && !(minor >= 1)) problems.push(`vitest ${pkg.version} is not supported: ${VITEST_MAJORS} (3.0 has no --configLoader and writes node_modules/.vite-temp into the project)`);
     else if (!VITEST_FLAGS[major]) problems.push(`vitest ${pkg.version} is not supported: ${VITEST_MAJORS}`);
     else vitest = { version: pkg.version, bin: path.join(path.dirname(pkgPath), binRel), flags: (cacheDir) => VITEST_FLAGS[major](minor || 0, cacheDir) };
   } catch { problems.push(`vitest not found from ${posix(project)}`); }
@@ -217,10 +233,12 @@ function diagLine(ts, sf, d) {
 }
 
 // ---------------------------------------------------------------- ablation units
-// A unit: a statement (replaced by `;`), a variable statement (its binding
-// kept, each initializer replaced by the empty value of its shape) or the
-// expression body of an arrow (replaced by `(void 0)`). Declarations are not
-// units but their bodies are walked. Ids: <scope chain>/<child index
+// A unit: a statement (replaced by `;`, or by `var a, b;` when its span
+// declares those names), a variable statement (its bindings kept, each
+// initializer that is not a function or a class replaced by the empty value of
+// its shape) or the expression body of an arrow (replaced by `(void 0)`).
+// Declarations, function-valued declarators included, are not units but their
+// bodies are walked. Ids: <scope chain>/<child index
 // path>:<SyntaxKind>; a declaration starts a scope named after it, a unit keeps
 // its path and names the functions nested in it (`f` for a named one, `fn<k>`
 // otherwise).
@@ -243,17 +261,24 @@ function collectUnits(ts, sf, text) {
   const nameText = (name) => (name && (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name) || ts.isPrivateIdentifier(name)) ? name.text : null);
   const na = (n, reason) => notAblated.push({ start: lc(n.getStart(sf)), kind: kindName(n), reason });
   const bindingNames = (b, out) => { if (ts.isIdentifier(b)) out.add(b.text); else if (ts.isObjectBindingPattern(b) || ts.isArrayBindingPattern(b)) for (const e of b.elements) if (e.name) bindingNames(e.name, out); };
-  // The `var` names a unit declares: the only bindings its removal can take
-  // away (let/const/class/function are block-scoped in a module), so a later
-  // `ReferenceError: <name> is not defined` is a `binding` kill, not a crash.
+  // The `var` names a unit's span hoists into its scope, the only bindings its
+  // removal could take away (let/const/class/function are block-scoped in a
+  // module): the mutant declares them again, bare. A nested function or class
+  // is a scope of its own, its `var`s stay there.
   function varNames(node) {
     const out = new Set();
     (function walk(n) {
+      if (ts.isFunctionLike(n) || ts.isClassLike(n)) return;
       if (ts.isVariableDeclarationList(n) && !(ts.getCombinedNodeFlags(n) & ts.NodeFlags.BlockScoped)) for (const d of n.declarations) bindingNames(d.name, out);
       ts.forEachChild(n, walk);
     })(node);
     return out;
   }
+  const unwrap = (e) => { while (e && (ts.isParenthesizedExpression(e) || ts.isAsExpression(e) || ts.isSatisfiesExpression(e) || ts.isTypeAssertionExpression(e) || ts.isNonNullExpression(e))) e = e.expression; return e; };
+  // A declarator bound to a function or a class is a declaration under another
+  // spelling: never a unit (`helper is not a function` on every call would
+  // kill whatever the tests assert), its body walked under the binding's name.
+  const fnValue = (d) => { const e = d.initializer && unwrap(d.initializer); return e && (isFnLike(e) || ts.isClassExpression(e)) ? e : null; };
 
   function addUnit(node, segs, parent, opts) {
     const pos = node.getStart(sf), endPos = node.getEnd();
@@ -262,7 +287,7 @@ function collectUnits(ts, sf, text) {
       id: `${segs.join("/")}:${opts.kind || kindName(node)}`, parentUnit: parent, kind: opts.kind || kindName(node),
       pos, endPos, start: lc(pos), end: lc(endPos), text_head: normText.slice(0, 80), text_sha1: sha1(normText).slice(0, 12),
       flags: opts.flags || [], replacement: opts.replacement, probe: opts.probe, probePos: opts.probePos === undefined ? pos : opts.probePos,
-      declares: varNames(node),
+      declares: opts.declares || varNames(node),
     };
     units.push(u);
     return u;
@@ -280,8 +305,7 @@ function collectUnits(ts, sf, text) {
   // The empty value of a declarator's shape, or null when its initializer
   // already is that value (a mutant equal to its source would always survive).
   function emptyValue(d) {
-    let e = d.initializer;
-    while (ts.isParenthesizedExpression(e) || ts.isAsExpression(e) || ts.isSatisfiesExpression(e) || ts.isTypeAssertionExpression(e) || ts.isNonNullExpression(e)) e = e.expression;
+    let e = unwrap(d.initializer);
     const emptyObject = ts.isObjectLiteralExpression(e) && !e.properties.length;
     const emptyArray = ts.isArrayLiteralExpression(e) && !e.elements.length;
     if (ts.isObjectBindingPattern(d.name)) return emptyObject ? null : "{}";
@@ -298,10 +322,10 @@ function collectUnits(ts, sf, text) {
     if (ts.isVoidExpression(e) || (ts.isIdentifier(e) && e.text === "undefined")) return null;
     return "(void 0)";
   }
-  // The statement with each initializer replaced, spliced from the end.
-  function variableReplacement(st) {
+  // The statement with the initializer of each of `decls` replaced, spliced from the end.
+  function variableReplacement(st, decls) {
     const edits = [];
-    for (const d of st.declarationList.declarations) {
+    for (const d of decls) {
       if (!d.initializer) continue;
       const empty = emptyValue(d);
       if (empty !== null) edits.push({ from: d.initializer.getStart(sf), to: d.initializer.getEnd(), empty });
@@ -335,8 +359,8 @@ function collectUnits(ts, sf, text) {
     const u = addUnit(fn.body, [...segs, "expr"], parent, { kind: kindName(fn.body), replacement: "(void 0)", probe: "expr" });
     scanFnLikes(fn.body, [...segs, "expr"], u, null);
   }
-  function classMembers(cls, segs, parent) {
-    const cname = (cls.name && cls.name.text) || "class";
+  function classMembers(cls, segs, parent, name) {
+    const cname = name || (cls.name && cls.name.text) || "class";
     for (const m of cls.members) {
       if (ts.isClassStaticBlockDeclaration(m)) statements(m.body.statements, [...segs, `${cname}.static`], parent);
       else if (isMemberFn(m) && m.body) statements(m.body.statements, [...segs, `${cname}.${ts.isConstructorDeclaration(m) ? "constructor" : nameText(m.name) || "member"}`], parent);
@@ -391,20 +415,25 @@ function collectUnits(ts, sf, text) {
     const scope = segs.slice(0, -1);
     if (ts.isFunctionDeclaration(st)) return st.body && statements(st.body.statements, [...scope, st.name ? st.name.text : "default"], parent);
     if (ts.isClassDeclaration(st)) return classMembers(st, scope, parent);
-    if (ts.isVariableStatement(st) && hasMod(st, K.ExportKeyword)) {
-      const decls = st.declarationList.declarations;
-      if (!decls.length || !decls.every((d) => d.initializer && isFnLike(d.initializer))) return na(st, "export_value");
-      for (const d of decls) fnBody(d.initializer, [...scope, nameText(d.name) || "fn"], parent);
-      return;
-    }
-    let replacement = ";";
+    const skip = new Set(); // nodes scanFnLikes leaves alone: statement children walked here, function-valued initializers walked below
+    const declares = varNames(st);
+    let replacement = declares.size ? `var ${[...declares].sort().join(", ")};` : ";";
     if (ts.isVariableStatement(st)) {
-      if (!st.declarationList.declarations.some((d) => d.initializer)) return na(st, "no_initializer");
-      replacement = variableReplacement(st);
-      if (replacement === null) return na(st, "already_empty");
+      const decls = st.declarationList.declarations;
+      const fns = decls.filter(fnValue);
+      // The function-valued declarators first, whatever the statement becomes.
+      for (const d of fns) {
+        const e = fnValue(d), name = nameText(d.name) || "fn";
+        skip.add(d.initializer);
+        if (ts.isClassExpression(e)) classMembers(e, scope, parent, name); else fnBody(e, [...scope, name], parent);
+      }
+      const rest = decls.filter((d) => !fnValue(d));
+      if (hasMod(st, K.ExportKeyword)) return rest.length ? na(st, "export_value") : undefined;
+      if (!rest.some((d) => d.initializer)) return na(st, fns.length ? "function_value" : "no_initializer");
+      replacement = variableReplacement(st, rest);
+      if (replacement === null) return na(st, fns.length ? "function_value" : "already_empty");
     }
-    const u = addUnit(st, segs, parent, { replacement, probe, probePos, flags: consoleCall(st) ? ["side_effect_only"] : [] });
-    const skip = new Set();
+    const u = addUnit(st, segs, parent, { replacement, declares, probe, probePos, flags: consoleCall(st) ? ["side_effect_only"] : [] });
     if (ts.isIfStatement(st)) {
       skip.add(st.thenStatement); body(st.thenStatement, [...segs, "then"], u);
       if (st.elseStatement) { skip.add(st.elseStatement); body(st.elseStatement, [...segs, "else"], u); }
@@ -598,8 +627,31 @@ function runVitest({ copy, vitest, testFiles, env, timeoutMs, tag, viteTempDir }
     });
   });
 }
-// Per-test results of one run: id -> { status: passed|failed|skipped, message }.
-// A test file that failed to load (no per-test entries) is the single id
+// The stack of a failing test, as Vitest's JSON reporter writes it in
+// failureMessages[0]: the error's first line, then V8 frames
+// `    at [fn (]<path>:<line>:<col>[)]`, positions source-mapped to the .ts
+// files. Project files are absolute paths of the copy, node_modules files
+// file:/// URLs, Node internals `node:…`; per major (read on 2026-10-14):
+//   3.x (3.1.0, 3.2.4, 3.2.7): native paths, backslashes on Windows
+//   4.x (4.1.11), 5.x (5.0.4): forward slashes on every OS
+// The first frame under the copy and outside node_modules (the project's
+// node_modules through the junction, not the project's code) names the file
+// the error came from, project-relative; null when no frame is there.
+const STACK_FRAME = /^\s+at (?:.*? \()?(.+?):\d+:\d+\)?$/;
+function errorFile(message, roots, fold) {
+  for (const line of String(message || "").split(/\r?\n/).slice(1)) {
+    const m = STACK_FRAME.exec(line);
+    if (!m) continue;
+    let p = m[1];
+    if (/^file:\/\//i.test(p)) { try { p = fileURLToPath(p); } catch { continue; } }
+    p = posix(p);
+    for (const r of roots) if (fold(p).startsWith(fold(r))) { const rel = p.slice(r.length); if (!/(^|\/)node_modules\//.test(rel)) return rel; }
+  }
+  return null;
+}
+// Per-test results of one run: id -> { status: passed|failed|skipped, message,
+// file }, `file` the project-relative file the failure's stack points to. A
+// test file that failed to load (no per-test entries) is the single id
 // `<file>::*`; a file with no result at all counts the same.
 function parseResults(json, copy, testFiles) {
   const res = new Map();
@@ -625,23 +677,27 @@ function parseResults(json, copy, testFiles) {
       const base = `${rel}::${a.fullName}`;
       const n = (counts.get(base) || 0) + 1;
       counts.set(base, n);
-      res.set(n > 1 ? `${base} #${n}` : base, { status: a.status === "passed" ? "passed" : a.status === "failed" ? "failed" : "skipped", message: (a.failureMessages || [])[0] || "" });
+      const message = (a.failureMessages || [])[0] || "";
+      const status = a.status === "passed" ? "passed" : a.status === "failed" ? "failed" : "skipped";
+      res.set(n > 1 ? `${base} #${n}` : base, { status, message, file: status === "failed" ? errorFile(message, roots, fold) : null });
     }
   }
   for (const t of testFiles) if (!seen.has(t)) res.set(`${t}::*`, { status: "failed", message: "no result from vitest" });
   return res;
 }
-// From the first line only (the error name and message): an assertion whose
-// expected text says "is not a function" is still an assertion; a
-// ReferenceError on a name the ablated unit declared is a `binding` kill.
-const BINDING_ERROR = /^\s*ReferenceError: (\S+) is not defined/;
-function killKind(message, declares) {
-  const l = firstLine(message);
-  if (/^\s*AssertionError\b/.test(l)) return "assertion";
-  const m = declares && BINDING_ERROR.exec(l);
-  return m && declares.has(m[1]) ? "binding" : "crash";
+// The kind of a kill: the first line of the message (an assertion whose
+// expected text says "is not a function" is still an assertion), then the file
+// its stack points to. A `test_error` is the test touching the changed value
+// through its own code (`undefined.value` on a returned value): a check, not a
+// crash of the code under test.
+const ASSERTION = /^\s*AssertionError\b/;
+const REFERENCE_ERROR = /^\s*ReferenceError: (\S+) is not defined/;
+function killKind(result, testFiles) {
+  if (ASSERTION.test(firstLine(result.message))) return "assertion";
+  return result.file && testFiles.includes(result.file) ? "test_error" : "crash";
 }
-const failReason = (message) => (killKind(message) === "crash" && MISSING_SYMBOL.test(firstLine(message)) ? "missing_symbol" : killKind(message));
+// A baseline failure is read from its first line alone: no mutant, nothing to locate.
+const failReason = (message) => (ASSERTION.test(firstLine(message)) ? "assertion" : MISSING_SYMBOL.test(firstLine(message)) ? "missing_symbol" : "crash");
 
 // ---------------------------------------------------------------- report
 function sortKeys(v) {
@@ -761,7 +817,14 @@ async function main() {
           for (const id of passing) {
             const got = res && res.get(id);
             if (!res || !got) ks.push({ test: id, kind: "crash" });
-            else if (got.status === "failed") ks.push({ test: id, kind: killKind(got.message, u.declares) });
+            else if (got.status === "failed") {
+              const kind = killKind(got, testFiles);
+              // The mutant kept every var its span declared: a ReferenceError on one
+              // of them from outside the test files is a defect of this script.
+              const ref = kind === "crash" && REFERENCE_ERROR.exec(firstLine(got.message));
+              if (ref && u.declares.has(ref[1])) fail(`mutant ${u.id} removed the binding ${ref[1]} it should have kept`);
+              ks.push({ test: id, kind });
+            }
           }
         }
         kills.set(u.id, ks.sort((a, b) => byId(a.test, b.test) || byId(a.kind, b.kind)));
