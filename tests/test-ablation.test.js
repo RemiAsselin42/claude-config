@@ -436,10 +436,15 @@ const snapshot = (dir) => ({ status: git(dir, "status", "--porcelain"), files: f
 const tmpEntries = () => fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith("test-ablation-")).sort();
 
 // A toy installed by npm; { dir, npmError } when npm fails, so a caller can skip.
+// --legacy-peer-deps: the three packages are paired by hand per major; npm's peer walk
+// would resolve vite's optional devtools chain down to a `vitest: *` peer, i.e. the latest
+// vitest published, and npm < 11.6 crashes on the conflict with the pinned one
+// (npm/cli#9787) as soon as a newer vitest exists. --loglevel=error over --silent, so a
+// failed install names its reason in the assertion.
 function installToy(prefix, pkgs) {
   const dir = tempDir(prefix);
   writeFiles(dir, TOY_FILES);
-  const npm = spawnSync("npm", ["install", "--no-audit", "--no-fund", "--silent", ...pkgs], {
+  const npm = spawnSync("npm", ["install", "--no-audit", "--no-fund", "--loglevel=error", "--legacy-peer-deps", ...pkgs], {
     cwd: dir,
     encoding: "utf8",
     shell: WIN,
