@@ -85,7 +85,7 @@ function tsLib() {
   if (tsMod) return tsMod;
   tsDir = fs.mkdtempSync(path.join(os.tmpdir(), "units-ts-")); // not a prefix the acceptance file counts as its own residue
   fs.writeFileSync(path.join(tsDir, "package.json"), '{ "private": true }\n');
-  const r = spawnSync("npm", ["install", "--no-audit", "--no-fund", "--silent", "typescript@6.0.3"], { cwd: tsDir, encoding: "utf8", shell: WIN });
+  const r = spawnSync("npm", ["install", "--no-audit", "--no-fund", "--loglevel=error", "typescript@6.0.3"], { cwd: tsDir, encoding: "utf8", shell: WIN });
   assert.equal(r.status, 0, `npm install typescript: ${r.stdout}${r.stderr}`);
   tsMod = require(path.join(tsDir, "node_modules", "typescript"));
   return tsMod;
